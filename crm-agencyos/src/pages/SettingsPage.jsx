@@ -5,7 +5,7 @@ import { Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, C
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Avatar, Toggle, Button } from '../components/ui';
-import { cn, canManage, ROLE_CONFIG, fmtTimer } from '../utils/helpers';
+import { cn, getId, sameId, canManage, ROLE_CONFIG, fmtTimer } from '../utils/helpers';
 
 // ── Helpers ───────────────────────────────────────────────────
 function fmtDate(ds) {
@@ -325,13 +325,14 @@ function DataSection() {
 function WorkLogSection({ authUser, users }) {
   const isManager   = canManage(authUser?.role);
   const [filterUser, setFilterUser] = useState('all');
-  const getWorkLog  = useAppStore((s) => s.getWorkLog);
+  const getWorkLog = useAppStore((s) => s.getWorkLog);
+  const fetchWorkLog = useAppStore((s) => s.fetchWorkLog);
 
   // Build rows: for each user, load their worklog from localStorage
   const allRows = useMemo(() => {
     const targetUsers = isManager
       ? users
-      : users.filter((u) => u.id === authUser?.id);
+      : users.filter((u) => sameId(u, authUser));
 
     const rows = [];
     targetUsers.forEach((u) => {
@@ -418,7 +419,7 @@ function WorkLogSection({ authUser, users }) {
             </thead>
             <tbody>
               {filtered.map((row, i) => {
-                const isActive   = row.user.id === authUser?.id && row.isToday;
+                const isActive   = row.sameId(user, authUser) && row.isToday;
                 const pct        = Math.min(100, (row.workSeconds / WORK_TARGET_S) * 100);
                 const lunchSecs  = breakTotal(row.breaks, 'lunch');
                 const teaSecs    = breakTotal(row.breaks, 'tea');

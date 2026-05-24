@@ -1,215 +1,439 @@
-import { create } from 'zustand';
+import { create }  from 'zustand';
+import { io }       from 'socket.io-client';
+import toast        from 'react-hot-toast';
 import {
-  MOCK_USERS, MOCK_CLIENTS, MOCK_TASKS, MOCK_TODOS,
-  MOCK_MEETINGS, MOCK_MESSAGES, MOCK_NOTIFICATIONS, generateHeatmapData,
-} from '../mockData';
+  authAPI, usersAPI, clientsAPI, tasksAPI,
+  todosAPI, meetingsAPI, messagesAPI, worklogAPI,
+} from '../services/api';
 
-// ── localStorage helpers ─────────────────────────────────────
-const saveLS = (key, data) => { try { localStorage.setItem(key, JSON.stringify(data)); } catch {} };
-const loadLS = (key, fallback) => { try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fallback; } catch { return fallback; } };
+// ── Helpers ──────────────────────────────────────────────────
+const todayStr = () => new Date().toISOString().split('T')[0];
 
-// ── ID helpers ───────────────────────────────────────────────
-const nextId  = (arr) => Math.max(0, ...arr.map((x) => x.id || 0)) + 1;
-const today   = () => new Date().toISOString().split('T')[0];
+// ID normalizer: handles both populated objects and raw id strings
+export const getId = (ref) => ref?._id || ref?.id || String(ref || '');
+export const sameId = (a, b) => String(getId(a)) === String(getId(b));
 
-// ── Timer helpers ────────────────────────────────────────────
-const TIMER_KEY   = (id) => `crm_timer_v2_${id}`;
-const WORKLOG_KEY = (id) => `crm_worklog_${id}`;
-
-function saveTimerLS(userId, timer) {
-  if (!userId) return;
-  try { localStorage.setItem(TIMER_KEY(userId), JSON.stringify(timer)); } catch {}
-  if (timer.sessionDate) {
-    const log = loadWorkLogLS(userId);
-    const idx = log.findIndex((e) => e.date === timer.sessionDate);
-    const entry = { date: timer.sessionDate, workSeconds: timer.workSeconds || 0, sessionStart: timer.sessionStart, breaks: timer.breaks || [] };
-    if (idx >= 0) log[idx] = entry; else log.unshift(entry);
-    try { localStorage.setItem(WORKLOG_KEY(userId), JSON.stringify(log.slice(0, 60))); } catch {}
-  }
-}
-function loadTimerLS(id) { try { const r = localStorage.getItem(TIMER_KEY(id)); return r ? JSON.parse(r) : null; } catch { return null; } }
-function loadWorkLogLS(id) { try { const r = localStorage.getItem(WORKLOG_KEY(id)); return r ? JSON.parse(r) : []; } catch { return []; } }
+// ── Timer localStorage (syncs to /api/worklog) ────────────────
+const T_KEY = (id) => `crm_timer_v2_${id}`;
+const saveTimerLS = (uid, t) => { try { localStorage.setItem(T_KEY(uid), JSON.stringify(t)); } catch {} };
+const loadTimerLS = (uid)    => { try { const r = localStorage.getItem(T_KEY(uid)); return r ? JSON.parse(r) : null; } catch { return null; } };
+const loadWorkLogLS = (uid)  => {
+  try {
+    const r = localStorage.getItem(`crm_worklog_${uid}`);
+    return r ? JSON.parse(r) : [];
+  } catch { return []; }
+};
 
 function initialTimer() {
-  return { active: false, workSeconds: 0, sessionDate: null, sessionStart: null, breaks: [], breakActive: false, currentBreak: null };
+  return { active:false, workSeconds:0, sessionDate:null, sessionStart:null, breaks:[], breakActive:false, currentBreak:null };
+}
+
+// ── Default channels ──────────────────────────────────────────
+const DEFAULT_CHANNELS = [
+  { id:'general',       name:'general',       type:'channel', description:'Company-wide announcements', unread:0 },
+  { id:'design',        name:'design',        type:'channel', description:'Design team discussions',    unread:0 },
+  { id:'dev',           name:'development',   type:'channel', description:'Engineering updates',        unread:0 },
+  { id:'marketing',     name:'marketing',     type:'channel', description:'Marketing and campaigns',    unread:0 },
+  { id:'client-updates',name:'client-updates',type:'channel', description:'Client status updates',      unread:0 },
+];
+
+// ── Socket singleton ──────────────────────────────────────────
+let sock = null;
+
+function connectSocket(token, store) {
+  if (sock?.connected) return;
+  sock = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
+    auth: { token },
+    reconnectionAttempts: 5,
+  });
+
+  sock.on('connect',    ()    => console.log('🔌 Socket connected'));
+  sock.on('disconnect', ()    => console.log('🔌 Socket disconnected'));
+
+  // Tasks (Section 11)
+  sock.on('task:created', (t) => store.setState((s) => ({ tasks: [t, ...s.tasks] })));
+  sock.on('task:updated', (t) => store.setState((s) => ({ tasks: s.tasks.map((x) => getId(x) === getId(t) ? t : x) })));
+  sock.on('task:deleted', (id)=> store.setState((s) => ({ tasks: s.tasks.filter((x) => getId(x) !== String(id)) })));
+
+  // Meetings
+  sock.on('meeting:created', (m) => store.setState((s) => ({ meetings: [m, ...s.meetings] })));
+
+  // Messages
+  sock.on('message:new', (msg) => store.setState((s) => {
+    const tid = msg.threadId;
+    const already = (s.messages.threads[tid] || []).some((x) => x._id === msg._id);
+    if (already) return {};
+    return { messages: { ...s.messages, threads: { ...s.messages.threads, [tid]: [...(s.messages.threads[tid] || []), msg] } } };
+  }));
+  sock.on('message:deleted', ({ id, threadId }) => store.setState((s) => ({
+    messages: { ...s.messages, threads: { ...s.messages.threads, [threadId]: (s.messages.threads[threadId] || []).filter((m) => m._id !== id) } },
+  })));
+
+  // User presence
+  sock.on('user:online',  ({ userId })         => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'online'  } : u) })));
+  sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline' } : u) })));
+  sock.on('user:status',  ({ userId, status }) => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status } : u) })));
+}
+
+function disconnectSocket() {
+  if (sock) { sock.disconnect(); sock = null; }
 }
 
 // ════════════════════════════════════════════════════════════
-const useAppStore = create((set, get) => ({
+const useAppStore = create((set, get, store) => ({
 
   // ── State ──────────────────────────────────────────────────
-  authUser:      null,
-  users:         loadLS('crm_users',    MOCK_USERS),
-  tasks:         loadLS('crm_tasks',    MOCK_TASKS),
-  todos:         loadLS('crm_todos',    MOCK_TODOS),
-  clients:       loadLS('crm_clients',  MOCK_CLIENTS),
-  meetings:      loadLS('crm_meetings', MOCK_MEETINGS),
-  messages:      MOCK_MESSAGES,
-  notifications: MOCK_NOTIFICATIONS,
-  heatmapData:   generateHeatmapData(),
-  timer:         initialTimer(),
-  sidebarOpen:   true,
-  darkMode:      false,
+  authUser:   null,
+  users:      [],
+  tasks:      [],
+  todos:      [],
+  clients:    [],
+  meetings:   [],
+  messages:   { channels: DEFAULT_CHANNELS, dms: [], threads: {} },
+  timer:      initialTimer(),
+  sidebarOpen:true,
+  darkMode:   false,
+  loading:    false,
 
   // ── UI ─────────────────────────────────────────────────────
   toggleSidebar:  () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  toggleDarkMode: () => set((s) => { const n = !s.darkMode; document.documentElement.classList.toggle('dark', n); return { darkMode: n }; }),
+  toggleDarkMode: () => set((s) => { const n=!s.darkMode; document.documentElement.classList.toggle('dark',n); return { darkMode:n }; }),
 
-  // ── Notifications ──────────────────────────────────────────
-  markAllRead:         () => set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, unread: false })) })),
-  dismissNotification: (id) => set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
+  // ══════════════════════════════════════════════════════════
+  // AUTH
+  // ══════════════════════════════════════════════════════════
+  login: async (email, password) => {
+    try {
+      const { data } = await authAPI.login({ email, password });
+      localStorage.setItem('crm_access_token', data.accessToken);
+      const user = data.user;
 
-  // ── Auth ───────────────────────────────────────────────────
-  login: (user) => {
-    const saved = loadTimerLS(user.id);
-    const t = today();
-    let timerState;
-    if (saved && saved.sessionDate === t) {
-      timerState = { ...saved, breakActive: false, currentBreak: null };
-    } else {
-      timerState = { ...initialTimer(), active: true, sessionDate: t, sessionStart: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+      // Timer: restore same-day or start fresh
+      const saved = loadTimerLS(getId(user));
+      const today = todayStr();
+      const timerState = saved && saved.sessionDate === today
+        ? { ...saved, breakActive:false, currentBreak:null }
+        : { ...initialTimer(), active:true, sessionDate:today, sessionStart:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
+
+      set({ authUser:user, timer:timerState, loading:false });
+      saveTimerLS(getId(user), timerState);
+
+      // Load all data then connect socket
+      await get().loadAllData();
+      connectSocket(data.accessToken, store);
+
+      return { success:true, user };
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Login failed';
+      toast.error(msg);
+      return { success:false, message:msg };
     }
-    set({ authUser: user, timer: timerState });
-    saveTimerLS(user.id, timerState);
   },
 
-  logout: () => {
+  logout: async () => {
     const { authUser } = get();
-    if (authUser) localStorage.removeItem(TIMER_KEY(authUser.id));
-    set({ authUser: null, timer: initialTimer() });
+    try { await authAPI.logout(); } catch {}
+    localStorage.removeItem('crm_access_token');
+    if (authUser) {
+      // Sync final worklog
+      const { timer } = get();
+      if (timer.workSeconds > 0) {
+        worklogAPI.upsert({ date:timer.sessionDate||todayStr(), workSeconds:timer.workSeconds, sessionStart:timer.sessionStart, breaks:timer.breaks, active:false }).catch(()=>{});
+      }
+      worklogAPI.setActive(false).catch(()=>{});
+    }
+    disconnectSocket();
+    set({ authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} } });
   },
 
-  // ── Users ──────────────────────────────────────────────────
-  addUser: (userData) => set((s) => {
-    const user = {
-      ...userData,
-      id:       nextId(s.users),
-      initials: userData.name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2),
-      color:    ['#7C3AED','#0EA5E9','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6'][Math.floor(Math.random()*8)],
-      status:   'offline', avatar: null, bio: '',
-    };
-    const users = [...s.users, user];
-    saveLS('crm_users', users);
-    return { users };
-  }),
-
-  deleteUser: (id) => set((s) => { const users = s.users.filter((u) => u.id !== id); saveLS('crm_users', users); return { users }; }),
-  updateUser: (id, data) => set((s) => { const users = s.users.map((u) => u.id === id ? { ...u, ...data } : u); saveLS('crm_users', users); return { users }; }),
-
-  // ── Tasks ──────────────────────────────────────────────────
-  addTask: (task) => set((s) => {
-    const tasks = [...s.tasks, { ...task, id: nextId(s.tasks), createdAt: today(), progress: 0 }];
-    saveLS('crm_tasks', tasks); return { tasks };
-  }),
-  updateTask: (id, updates) => set((s) => {
-    const tasks = s.tasks.map((t) => t.id === id ? { ...t, ...updates } : t);
-    saveLS('crm_tasks', tasks); return { tasks };
-  }),
-  deleteTask: (id) => set((s) => { const tasks = s.tasks.filter((t) => t.id !== id); saveLS('crm_tasks', tasks); return { tasks }; }),
-  moveTask: (id, status) => set((s) => {
-    const tasks = s.tasks.map((t) => t.id === id ? { ...t, status, progress: status === 'completed' ? 100 : t.progress } : t);
-    saveLS('crm_tasks', tasks); return { tasks };
-  }),
-
-  // ── Todos ──────────────────────────────────────────────────
-  addTodo: (todo) => set((s) => {
-    const todos = [...s.todos, { ...todo, id: nextId(s.todos), createdAt: today() }];
-    saveLS('crm_todos', todos); return { todos };
-  }),
-  updateTodo: (id, updates) => set((s) => {
-    const todos = s.todos.map((t) => t.id === id ? { ...t, ...updates } : t);
-    saveLS('crm_todos', todos); return { todos };
-  }),
-  deleteTodo: (id) => set((s) => { const todos = s.todos.filter((t) => t.id !== id); saveLS('crm_todos', todos); return { todos }; }),
-
-  // ── Clients ────────────────────────────────────────────────
-  addClient: (client) => set((s) => {
-    const clients = [...s.clients, { ...client, id: nextId(s.clients), notes: [], projectCount: 0 }];
-    saveLS('crm_clients', clients); return { clients };
-  }),
-  updateClient: (id, updates) => set((s) => {
-    const clients = s.clients.map((c) => c.id === id ? { ...c, ...updates } : c);
-    saveLS('crm_clients', clients); return { clients };
-  }),
-  deleteClient: (id) => set((s) => { const clients = s.clients.filter((c) => c.id !== id); saveLS('crm_clients', clients); return { clients }; }),
-  addClientNote: (clientId, text) => {
-    const { authUser } = get();
-    const note = { id: Date.now(), text, author: authUser?.name || 'Unknown', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) };
-    set((s) => {
-      const clients = s.clients.map((c) => c.id === clientId ? { ...c, notes: [...(c.notes || []), note] } : c);
-      saveLS('crm_clients', clients); return { clients };
-    });
+  // Restore session on page reload using stored token
+  restoreSession: async () => {
+    const token = localStorage.getItem('crm_access_token');
+    if (!token) return false;
+    try {
+      const { data } = await authAPI.me();
+      const user = data.user;
+      const saved = loadTimerLS(getId(user));
+      const today = todayStr();
+      const timerState = saved && saved.sessionDate === today
+        ? { ...saved, breakActive:false, currentBreak:null }
+        : initialTimer();
+      set({ authUser:user, timer:timerState });
+      await get().loadAllData();
+      connectSocket(token, store);
+      return true;
+    } catch {
+      localStorage.removeItem('crm_access_token');
+      return false;
+    }
   },
 
-  // ── Meetings ───────────────────────────────────────────────
-  addMeeting: (meeting) => set((s) => {
-    const meetings = [...s.meetings, { ...meeting, id: nextId(s.meetings) }];
-    saveLS('crm_meetings', meetings); return { meetings };
-  }),
-  updateMeeting: (id, updates) => set((s) => {
-    const meetings = s.meetings.map((m) => m.id === id ? { ...m, ...updates } : m);
-    saveLS('crm_meetings', meetings); return { meetings };
-  }),
-  deleteMeeting: (id) => set((s) => { const meetings = s.meetings.filter((m) => m.id !== id); saveLS('crm_meetings', meetings); return { meetings }; }),
+  // ══════════════════════════════════════════════════════════
+  // LOAD ALL DATA
+  // ══════════════════════════════════════════════════════════
+  loadAllData: async () => {
+    set({ loading:true });
+    try {
+      const [uR, cR, tR, dR, mR] = await Promise.all([
+        usersAPI.getAll(), clientsAPI.getAll(), tasksAPI.getAll(), todosAPI.getAll(), meetingsAPI.getAll(),
+      ]);
+      const users = uR.data.data;
+      const me    = get().authUser;
+      const dms   = users
+        .filter((u) => getId(u) !== getId(me))
+        .map((u)   => ({ id:`dm-${getId(u)}`, userId:getId(u), unread:0 }));
+      set({
+        users,
+        clients:  cR.data.data,
+        tasks:    tR.data.data,
+        todos:    dR.data.data,
+        meetings: mR.data.data,
+        messages: { ...get().messages, dms },
+        loading:  false,
+      });
+    } catch (err) {
+      console.error('loadAllData error:', err.message);
+      set({ loading:false });
+    }
+  },
 
-  // ── Messages (local state) ──────────────────────────────────
-  sendMessage: (threadId, text, attachments = []) => {
-    const { authUser } = get();
+  // ══════════════════════════════════════════════════════════
+  // USERS  — POST /api/users  PUT /api/users/:id  DELETE /api/users/:id
+  // ══════════════════════════════════════════════════════════
+  addUser: async (body) => {
+    try {
+      const { data } = await usersAPI.create(body);
+      set((s) => ({ users: [...s.users, data.data] }));
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to add user'); throw err; }
+  },
+  updateUser: async (id, body) => {
+    try {
+      const { data } = await usersAPI.update(id, body);
+      set((s) => ({ users: s.users.map((u) => getId(u)===id ? data.data : u) }));
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update user'); throw err; }
+  },
+  deleteUser: async (id) => {
+    try {
+      await usersAPI.delete(id);
+      set((s) => ({ users: s.users.filter((u) => getId(u)!==id) }));
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete user'); throw err; }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // CLIENTS  — GET/POST/PUT/DELETE /api/clients  POST /api/clients/:id/notes
+  // ══════════════════════════════════════════════════════════
+  addClient: async (body) => {
+    try {
+      const { data } = await clientsAPI.create(body);
+      set((s) => ({ clients: [data.data, ...s.clients] }));
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to add client'); throw err; }
+  },
+  updateClient: async (id, body) => {
+    try {
+      const { data } = await clientsAPI.update(id, body);
+      set((s) => ({ clients: s.clients.map((c) => getId(c)===id ? data.data : c) }));
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update client'); throw err; }
+  },
+  deleteClient: async (id) => {
+    try {
+      await clientsAPI.delete(id);
+      set((s) => ({ clients: s.clients.filter((c) => getId(c)!==id) }));
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete client'); throw err; }
+  },
+  addClientNote: async (clientId, text) => {
+    try {
+      const { data } = await clientsAPI.addNote(clientId, text);
+      set((s) => ({ clients: s.clients.map((c) => getId(c)===clientId ? data.data : c) }));
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to add note'); throw err; }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // TASKS  — GET/POST/PUT/DELETE /api/tasks
+  // Socket emits task:created / task:updated / task:deleted
+  // ══════════════════════════════════════════════════════════
+  addTask: async (body) => {
+    try {
+      const { data } = await tasksAPI.create(body);
+      // Socket will push task:created — just return
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to create task'); throw err; }
+  },
+  updateTask: async (id, body) => {
+    try {
+      const { data } = await tasksAPI.update(id, body);
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update task'); throw err; }
+  },
+  moveTask: async (id, status) => {
+    return get().updateTask(id, { status, progress: status==='completed'?100:undefined });
+  },
+  deleteTask: async (id) => {
+    try {
+      await tasksAPI.delete(id);
+      // Socket will push task:deleted
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete task'); throw err; }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // TODOS  — GET/POST/PUT/DELETE /api/todos
+  // ══════════════════════════════════════════════════════════
+  addTodo: async (body) => {
+    try {
+      const { data } = await todosAPI.create(body);
+      set((s) => ({ todos: [data.data, ...s.todos] }));
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to create todo'); throw err; }
+  },
+  updateTodo: async (id, body) => {
+    try {
+      const { data } = await todosAPI.update(id, body);
+      set((s) => ({ todos: s.todos.map((t) => getId(t)===id ? data.data : t) }));
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update todo'); throw err; }
+  },
+  deleteTodo: async (id) => {
+    try {
+      await todosAPI.delete(id);
+      set((s) => ({ todos: s.todos.filter((t) => getId(t)!==id) }));
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete todo'); throw err; }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // MEETINGS  — GET/POST/PUT/DELETE /api/meetings
+  // ══════════════════════════════════════════════════════════
+  addMeeting: async (body) => {
+    try {
+      const { data } = await meetingsAPI.create(body);
+      // Socket will push meeting:created
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to schedule meeting'); throw err; }
+  },
+  updateMeeting: async (id, body) => {
+    try {
+      const { data } = await meetingsAPI.update(id, body);
+      set((s) => ({ meetings: s.meetings.map((m) => getId(m)===id ? data.data : m) }));
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update meeting'); throw err; }
+  },
+  deleteMeeting: async (id) => {
+    try {
+      await meetingsAPI.delete(id);
+      set((s) => ({ meetings: s.meetings.filter((m) => getId(m)!==id) }));
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete meeting'); throw err; }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // MESSAGES  — GET/POST/DELETE /api/messages/:threadId
+  // Real-time via Socket.io (Section 11)
+  // ══════════════════════════════════════════════════════════
+  loadThread: async (threadId) => {
+    try {
+      const { data } = await messagesAPI.getThread(threadId);
+      set((s) => ({ messages: { ...s.messages, threads: { ...s.messages.threads, [threadId]: data.data } } }));
+      sock?.emit('join:thread', threadId);
+    } catch {}
+  },
+  leaveThread: (threadId) => { sock?.emit('leave:thread', threadId); },
+
+  sendMessage: async (threadId, text, attachments = []) => {
     if (!text?.trim() && attachments.length === 0) return;
-    const msg = { id: Date.now(), userId: authUser.id, text: text?.trim() || '', attachments, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), date: 'Today' };
-    set((s) => ({
-      messages: {
-        ...s.messages,
-        threads: { ...s.messages.threads, [threadId]: [...(s.messages.threads[threadId] || []), msg] },
-        channels: s.messages.channels.map((c) => c.id === threadId ? { ...c, unread: 0 } : c),
-        dms:      s.messages.dms.map((d)      => d.id === threadId ? { ...d, unread: 0 } : d),
-      },
-    }));
+    try {
+      if (attachments.length > 0) {
+        const fd = new FormData();
+        if (text?.trim()) fd.append('text', text.trim());
+        attachments.forEach((a) => a.file && fd.append('files', a.file));
+        await messagesAPI.sendFiles(threadId, fd);
+      } else {
+        await messagesAPI.send(threadId, text.trim());
+      }
+      // Socket message:new will update state
+    } catch (err) { toast.error('Failed to send message'); }
   },
-  deleteMessage: (threadId, msgId) => set((s) => ({
-    messages: { ...s.messages, threads: { ...s.messages.threads, [threadId]: (s.messages.threads[threadId] || []).filter((m) => m.id !== msgId) } },
-  })),
+  deleteMessage: async (threadId, msgId) => {
+    try {
+      await messagesAPI.delete(msgId);
+      // Socket message:deleted will update state
+    } catch { toast.error('Failed to delete message'); }
+  },
 
-  // ── Work Timer ─────────────────────────────────────────────
+  // Typing indicators (Section 11)
+  emitTypingStart: (threadId) => sock?.emit('typing:start', { threadId }),
+  emitTypingStop:  (threadId) => sock?.emit('typing:stop',  { threadId }),
+  onTypingStart: (cb) => { sock?.on('typing:start', cb); return () => sock?.off('typing:start', cb); },
+  onTypingStop:  (cb) => { sock?.on('typing:stop',  cb); return () => sock?.off('typing:stop',  cb); },
+
+  // ══════════════════════════════════════════════════════════
+  // WORK TIMER  (local tick → syncs to POST /api/worklog every 5min)
+  // ══════════════════════════════════════════════════════════
   startTimer: () => set((s) => {
-    const updated = { ...s.timer, active: true, breakActive: false, sessionDate: s.timer.sessionDate || today(), sessionStart: s.timer.sessionStart || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-    saveTimerLS(s.authUser?.id, updated); return { timer: updated };
+    const uid = getId(s.authUser);
+    const upd = { ...s.timer, active:true, breakActive:false, sessionDate:s.timer.sessionDate||todayStr(), sessionStart:s.timer.sessionStart||new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
+    saveTimerLS(uid, upd);
+    worklogAPI.setActive(true).catch(()=>{});
+    return { timer:upd };
   }),
-  pauseTimer: () => set((s) => { const updated = { ...s.timer, active: false }; saveTimerLS(s.authUser?.id, updated); return { timer: updated }; }),
-  resetTimer: () => set((s) => { localStorage.removeItem(TIMER_KEY(s.authUser?.id)); return { timer: { ...initialTimer(), sessionDate: today() } }; }),
+  pauseTimer: () => set((s) => {
+    const upd = { ...s.timer, active:false };
+    saveTimerLS(getId(s.authUser), upd);
+    return { timer:upd };
+  }),
+  resetTimer: () => set((s) => {
+    localStorage.removeItem(T_KEY(getId(s.authUser)));
+    return { timer:{ ...initialTimer(), sessionDate:todayStr() } };
+  }),
   tickTimer: () => set((s) => {
     if (!s.timer.active || s.timer.breakActive) return {};
     const workSeconds = s.timer.workSeconds + 1;
-    const updated = { ...s.timer, workSeconds };
-    if (workSeconds % 15 === 0) saveTimerLS(s.authUser?.id, updated);
-    return { timer: updated };
+    const upd = { ...s.timer, workSeconds };
+    const uid = getId(s.authUser);
+    if (workSeconds % 15 === 0) {
+      saveTimerLS(uid, upd);
+      // Sync to backend every 5 min (POST /api/worklog)
+      if (workSeconds % 300 === 0) {
+        worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true }).catch(()=>{});
+      }
+    }
+    return { timer:upd };
   }),
-  startBreak: (type, totalSeconds, reason = '') => set((s) => {
-    const updated = { ...s.timer, active: false, breakActive: true, currentBreak: { type, reason, totalSeconds, elapsedSeconds: 0 } };
-    saveTimerLS(s.authUser?.id, updated); return { timer: updated };
+  startBreak: (type, totalSeconds, reason='') => set((s) => {
+    const upd = { ...s.timer, active:false, breakActive:true, currentBreak:{ type, reason, totalSeconds, elapsedSeconds:0 } };
+    saveTimerLS(getId(s.authUser), upd);
+    return { timer:upd };
   }),
   tickBreak: () => set((s) => {
     if (!s.timer.breakActive || !s.timer.currentBreak) return {};
     const elapsed = s.timer.currentBreak.elapsedSeconds + 1;
     const { totalSeconds } = s.timer.currentBreak;
     if (elapsed >= totalSeconds) {
-      const done = { type: s.timer.currentBreak.type, reason: s.timer.currentBreak.reason, planned: totalSeconds, actual: elapsed, endedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-      const updated = { ...s.timer, active: true, breakActive: false, currentBreak: null, breaks: [...s.timer.breaks, done] };
-      saveTimerLS(s.authUser?.id, updated); return { timer: updated };
+      const done = { type:s.timer.currentBreak.type, reason:s.timer.currentBreak.reason, planned:totalSeconds, actual:elapsed, endedAt:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
+      const upd  = { ...s.timer, active:true, breakActive:false, currentBreak:null, breaks:[...s.timer.breaks, done] };
+      saveTimerLS(getId(s.authUser), upd);
+      return { timer:upd };
     }
-    const updated = { ...s.timer, currentBreak: { ...s.timer.currentBreak, elapsedSeconds: elapsed } };
-    if (elapsed % 15 === 0) saveTimerLS(s.authUser?.id, updated);
-    return { timer: updated };
+    const upd = { ...s.timer, currentBreak:{ ...s.timer.currentBreak, elapsedSeconds:elapsed } };
+    if (elapsed % 15 === 0) saveTimerLS(getId(s.authUser), upd);
+    return { timer:upd };
   }),
   endBreak: () => set((s) => {
     if (!s.timer.currentBreak) return {};
-    const done = { type: s.timer.currentBreak.type, reason: s.timer.currentBreak.reason, planned: s.timer.currentBreak.totalSeconds, actual: s.timer.currentBreak.elapsedSeconds, endedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-    const updated = { ...s.timer, active: true, breakActive: false, currentBreak: null, breaks: [...s.timer.breaks, done] };
-    saveTimerLS(s.authUser?.id, updated); return { timer: updated };
+    const done = { type:s.timer.currentBreak.type, reason:s.timer.currentBreak.reason, planned:s.timer.currentBreak.totalSeconds, actual:s.timer.currentBreak.elapsedSeconds, endedAt:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
+    const upd  = { ...s.timer, active:true, breakActive:false, currentBreak:null, breaks:[...s.timer.breaks, done] };
+    saveTimerLS(getId(s.authUser), upd);
+    return { timer:upd };
   }),
 
-  // ── WorkLog ────────────────────────────────────────────────
-  getWorkLog: (userId) => loadWorkLogLS(userId),
+  // ── WorkLog reader (GET /api/worklog) ─────────────────────
+  getWorkLog: (userId) => loadWorkLogLS(userId),   // local cache
+  fetchWorkLog: async (params) => {
+    try {
+      const { data } = await worklogAPI.getAll(params);
+      return data.data;
+    } catch { return []; }
+  },
 }));
 
 export default useAppStore;

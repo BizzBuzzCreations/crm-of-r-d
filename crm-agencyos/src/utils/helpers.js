@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
 
 // ── ID normalizer (handles both MongoDB _id and numeric id) ──────
-export const uid = (obj) => obj?._id || obj?.id || obj;
-export const sameId = (a, b) => String(uid(a)) === String(uid(b));
+// ── ID normalizer — handles both MongoDB _id and numeric id ─────
+export const getId  = (ref) => ref?._id || ref?.id || String(ref || '');
+export const sameId = (a, b) => String(getId(a)) === String(getId(b));
 
 // ── CSS class merge ──────────────────────────────────────────
 export const cn = (...args) => clsx(...args);

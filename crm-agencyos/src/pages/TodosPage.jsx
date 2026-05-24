@@ -114,7 +114,7 @@ function TodoFormModal({ open, onClose, currentUser }) {
 
 // ── Todo Card ──────────────────────────────────────────────────
 function TodoCard({ todo, users, role, onMove, onApprove, onDelete }) {
-  const owner     = users.find((u) => u.id === todo.userId);
+  const owner     = users.find((u) => sameId(u, todo.userId));
   const pCfg      = PRIORITY_CONFIG[todo.priority] || PRIORITY_CONFIG.medium;
   const isManager = canManage(role);
   const cols      = isManager ? ALL_STATUSES : MEMBER_STATUSES;
@@ -144,9 +144,9 @@ function TodoCard({ todo, users, role, onMove, onApprove, onDelete }) {
           <Avatar user={owner} size="xs" />
           <span className="text-[11.5px] text-slate-500">{owner?.name?.split(' ')[0]}</span>
         </div>
-        {todo.createdAt && (
+        {todo.createdAt?.split?.('T')?.[0]||todo.createdAt && (
           <span className="text-[10.5px] text-slate-400 flex items-center gap-1">
-            <Calendar size={9} /> {todo.createdAt}
+            <Calendar size={9} /> {todo.createdAt?.split?.('T')?.[0]||todo.createdAt}
           </span>
         )}
       </div>
@@ -185,7 +185,7 @@ export default function TodosPage() {
 
   // Base: members see only their own
   const baseTodos = role === 'member'
-    ? todos.filter((t) => t.userId === authUser?.id)
+    ? todos.filter((t) => sameId(t.userId, authUser))
     : todos;
 
   // Apply filters
@@ -193,9 +193,9 @@ export default function TodosPage() {
     if (filters.search   && !t.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
     if (filters.priority && t.priority !== filters.priority) return false;
     if (filters.status   && t.status   !== filters.status)   return false;
-    if (filters.memberId && isManager && String(t.userId) !== filters.memberId) return false;
+    if (filters.memberId && isManager && getId(t.userId) !== filters.memberId) return false;
     // Date filter: matches createdAt (the date the todo was logged)
-    if (filters.date && t.createdAt !== filters.date) return false;
+    if (filters.date && t.createdAt?.split?.('T')?.[0]||t.createdAt !== filters.date) return false;
     return true;
   });
 
@@ -208,7 +208,7 @@ export default function TodosPage() {
   const activeFiltersCount   = [filters.search, filters.priority, filters.status, filters.memberId, filters.date].filter(Boolean).length;
 
   // Get unique dates from todos for the "history" date picker hint
-  const allDates = [...new Set(baseTodos.map((t) => t.createdAt).filter(Boolean))].sort().reverse();
+  const allDates = [...new Set(baseTodos.map((t) => t.createdAt?.split?.('T')?.[0]||t.createdAt).filter(Boolean))].sort().reverse();
 
   // Format date for display
   const fmtDate = (ds) => ds ? new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '';
@@ -265,7 +265,7 @@ export default function TodosPage() {
           <select className="form-input w-[155px] text-[13px] py-1.5" value={filters.memberId}
             onChange={(e) => setFilters((f) => ({ ...f, memberId: e.target.value }))}>
             <option value="">All Members</option>
-            {memberUsers.map((u) => <option key={u.id} value={u.id}>{u.name.split(' ')[0]}</option>)}
+            {memberUsers.map((u) => <option key={getId(u)} value={getId(u)}>{u.name.split(' ')[0]}</option>)}
           </select>
         )}
 
@@ -332,7 +332,7 @@ export default function TodosPage() {
             >
               {d === todayStr() ? 'Today' : new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               <span className="ml-1 text-[10px] opacity-60">
-                ({baseTodos.filter((t) => t.createdAt === d).length})
+                ({baseTodos.filter((t) => t.createdAt?.split?.('T')?.[0]||t.createdAt === d).length})
               </span>
             </button>
           ))}
@@ -370,7 +370,7 @@ export default function TodosPage() {
                 <div className="space-y-2.5">
                   <AnimatePresence>
                     {colItems.map((todo) => (
-                      <TodoCard key={todo.id} todo={todo} users={users} role={role}
+                      <TodoCard key={getId(todo)} todo={todo} users={users} role={role}
                         onMove={(id, updates) => updateTodo(id, updates)}
                         onApprove={handleApprove}
                         onDelete={(id) => setConfirmDel(id)}

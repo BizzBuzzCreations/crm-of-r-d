@@ -99,7 +99,7 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
         <div className="grid grid-cols-2 gap-4">
           <Select label="Assign To" error={errors.assignedTo?.message} {...register('assignedTo', { required: 'Please assign this task' })}>
             <option value="">Select member…</option>
-            {memberUsers.map((u) => <option key={u.id} value={u.id}>{u.name} — {u.position}</option>)}
+            {memberUsers.map((u) => <option key={getId(u)} value={getId(u)}>{u.name} — {u.position}</option>)}
           </Select>
           <div>
             <label className="form-label">Task Type</label>
@@ -121,7 +121,7 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
         {taskType === 'client' && (
           <Select label="Client" {...register('clientId', { required: taskType === 'client' })}>
             <option value="">Select client…</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {clients.map((c) => <option key={getId(c)} value={getId(c)}>{c.name}</option>)}
           </Select>
         )}
 
@@ -157,8 +157,8 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
 
 // ── Kanban Card ───────────────────────────────────────────────
 function KanbanCard({ task, users, clients, role, onMove, onApprove, onDelete }) {
-  const assignee  = users.find((u) => u.id === task.assignedTo);
-  const client    = task.clientId ? clients.find((c) => c.id === task.clientId) : null;
+  const assignee  = users.find((u) => sameId(u, task.assignedTo));
+  const client    = task.clientId ? clients.find((c) => sameId(c, task.clientId)) : null;
   const pCfg      = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
   const isManager = canManage(role);
 
@@ -233,7 +233,7 @@ export default function TasksPage() {
 
   // Base: members see only their own tasks
   const baseTasks = role === 'member'
-    ? tasks.filter((t) => t.assignedTo === authUser?.id)
+    ? tasks.filter((t) => sameId(t.assignedTo, authUser))
     : tasks;
 
   // Apply all filters
@@ -241,11 +241,11 @@ export default function TasksPage() {
     if (filters.search   && !t.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
     if (filters.priority && t.priority !== filters.priority) return false;
     if (filters.status   && t.status   !== filters.status)   return false;
-    if (filters.memberId && isManager && String(t.assignedTo) !== filters.memberId) return false;
+    if (filters.memberId && isManager && getId(t.assignedTo) !== filters.memberId) return false;
     // Date filter: matches dueDate OR createdAt
     if (filters.date) {
       const matchDue     = t.dueDate    === filters.date;
-      const matchCreated = t.createdAt  === filters.date;
+      const matchCreated = t.createdAt?.split?.('T')?.[0] || t.createdAt  === filters.date;
       if (!matchDue && !matchCreated) return false;
     }
     return true;
@@ -308,7 +308,7 @@ export default function TasksPage() {
           <select className="form-input w-[155px] text-[13px] py-1.5" value={filters.memberId}
             onChange={(e) => setFilters((f) => ({ ...f, memberId: e.target.value }))}>
             <option value="">All Members</option>
-            {memberUsers.map((u) => <option key={u.id} value={u.id}>{u.name.split(' ')[0]}</option>)}
+            {memberUsers.map((u) => <option key={getId(u)} value={getId(u)}>{u.name.split(' ')[0]}</option>)}
           </select>
         )}
 
@@ -366,7 +366,7 @@ export default function TasksPage() {
                 <div className="space-y-2.5">
                   <AnimatePresence>
                     {colTasks.map((task) => (
-                      <KanbanCard key={task.id} task={task} users={users} clients={clients} role={role}
+                      <KanbanCard key={getId(task)} task={task} users={users} clients={clients} role={role}
                         onMove={moveTask} onApprove={handleApprove} onDelete={(id) => setConfirmDel(id)} />
                     ))}
                   </AnimatePresence>
@@ -387,11 +387,11 @@ export default function TasksPage() {
         <div className="space-y-2">
           <AnimatePresence>
             {filtered.map((task) => {
-              const assignee = users.find((u) => u.id === task.assignedTo);
-              const client   = task.clientId ? clients.find((c) => c.id === task.clientId) : null;
+              const assignee = users.find((u) => sameId(u, task.assignedTo));
+              const client   = task.clientId ? clients.find((c) => sameId(c, task.clientId)) : null;
               const pCfg     = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
               return (
-                <motion.div key={task.id} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                <motion.div key={getId(task)} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
                   className={cn('card p-4 flex items-center gap-4 border-l-[3px]')} style={{ borderLeftColor: pCfg.dot }}
                 >
                   <div className="flex-1 min-w-0">
@@ -399,7 +399,7 @@ export default function TasksPage() {
                     <div className="flex items-center gap-2 mt-1">
                       {client && <span className="text-[11.5px] text-slate-500 flex items-center gap-1"><Building2 size={10} /> {client.name}</span>}
                       {task.dueDate && <span className="text-[11.5px] text-slate-400 flex items-center gap-1"><Calendar size={10} /> {task.dueDate}</span>}
-                      <span className="text-[11px] text-slate-400">Created: {task.createdAt}</span>
+                      <span className="text-[11px] text-slate-400">Created: {task.createdAt?.split?.('T')?.[0] || task.createdAt}</span>
                     </div>
                   </div>
                   <PriorityBadge priority={task.priority} />
@@ -442,17 +442,17 @@ export default function TasksPage() {
             </thead>
             <tbody>
               {filtered.map((task) => {
-                const assignee = users.find((u) => u.id === task.assignedTo);
-                const client   = task.clientId ? clients.find((c) => c.id === task.clientId) : null;
+                const assignee = users.find((u) => sameId(u, task.assignedTo));
+                const client   = task.clientId ? clients.find((c) => sameId(c, task.clientId)) : null;
                 return (
-                  <tr key={task.id}>
+                  <tr key={getId(task)}>
                     <td className="font-semibold max-w-[200px] truncate">{task.title}</td>
                     <td>{client ? <Badge variant="neutral">{client.name}</Badge> : <span className="text-slate-400 text-[12px]">In-house</span>}</td>
                     <td><div className="flex items-center gap-2"><Avatar user={assignee} size="xs" /><span className="text-[13px]">{assignee?.name?.split(' ')[0]}</span></div></td>
                     <td><PriorityBadge priority={task.priority} /></td>
                     <td><StatusBadge status={task.status} /></td>
                     <td className="text-slate-500 text-[12px]">{task.dueDate || '—'}</td>
-                    <td className="text-slate-500 text-[12px]">{task.createdAt || '—'}</td>
+                    <td className="text-slate-500 text-[12px]">{task.createdAt?.split?.('T')?.[0] || task.createdAt || '—'}</td>
                     <td>{task.progress > 0 ? <div className="flex items-center gap-2 min-w-[80px]"><ProgressBar value={task.progress} height={5} className="flex-1" /><span className="text-[11px] text-slate-500">{task.progress}%</span></div> : <span className="text-slate-400 text-[12px]">—</span>}</td>
                     <td>
                       <div className="flex items-center gap-1">

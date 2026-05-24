@@ -12,12 +12,12 @@ import {
   Page, Button, Badge, Avatar, AvatarGroup, Tabs, Modal,
   Input, Select, Textarea, EmptyState, ConfirmDialog,
 } from '../components/ui';
-import { cn, MEETING_TYPE_CONFIG, canManage } from '../utils/helpers';
+import { cn, getId, sameId, MEETING_TYPE_CONFIG, canManage } from '../utils/helpers';
 
 // ── Meeting Card ──────────────────────────────────────────────
 function MeetingCard({ meeting, users, clients, role, onEdit, onDelete }) {
   const tc           = MEETING_TYPE_CONFIG[meeting.type] || MEETING_TYPE_CONFIG.internal;
-  const participants = users.filter((u) => meeting.participants?.includes(u.id));
+  const participants = meeting.participants?.filter(p => p._id || p.id || p)?.map(p => typeof p==='object'?p:users.find(u=>sameId(u,p)))?.filter(Boolean) || [];
   const client       = meeting.clientId ? clients.find((c) => c.id === meeting.clientId) : null;
   const isPast       = meeting.status === 'completed';
   const isManager    = canManage(role);
@@ -124,7 +124,7 @@ function MeetingFormModal({ open, onClose, initialData, users, clients, onSave }
     onSave({
       ...data,
       // participants: treat as array of IDs
-      participants: users.map((u) => u.id), // all users by default; can be refined
+      participants: users.map((u) => getId(u)), // all users by default; can be refined
       clientId:     data.clientId ? Number(data.clientId) : null,
     });
     handleClose();
@@ -229,16 +229,18 @@ export default function MeetingsPage() {
 
   const filtered = meetings.filter((m) => m.status === tab);
 
-  const handleSave = (data) => {
-    if (editData) {
-      updateMeeting(editData.id, data);
-      toast.success('Meeting updated!');
-    } else {
-      addMeeting({ ...data, id: Date.now() });
-      toast.success('Meeting scheduled!');
-    }
-    setEditData(null);
-    setShowForm(false);
+  const handleSave = async (data) => {
+    try {
+      if (editData) {
+        await updateMeeting(getId(editData), data);
+        toast.success('Meeting updated!');
+      } else {
+        await addMeeting(data);
+        toast.success('Meeting scheduled!');
+      }
+      setEditData(null);
+      setShowForm(false);
+    } catch {}
   };
 
   const handleEdit = (meeting) => {
@@ -299,7 +301,7 @@ export default function MeetingsPage() {
           <AnimatePresence>
             {filtered.map((m) => (
               <MeetingCard
-                key={m.id}
+                key={getId(m)}
                 meeting={m}
                 users={users}
                 clients={clients}

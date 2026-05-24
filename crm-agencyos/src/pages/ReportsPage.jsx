@@ -13,7 +13,7 @@ import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Avatar, Badge, ProgressBar } from '../components/ui';
 import { PRODUCTIVITY_DATA, TASK_STATUS_DIST, REVENUE_DATA } from '../mockData';
-import { cn, canManage, ROLE_CONFIG } from '../utils/helpers';
+import { cn, getId, sameId, canManage, ROLE_CONFIG } from '../utils/helpers';
 
 // ── Date helpers ─────────────────────────────────────────────
 const todayStr   = () => new Date().toISOString().split('T')[0];
@@ -132,19 +132,19 @@ export default function ReportsPage() {
   );
 
   // Member filter
-  const selectedMember = memberId ? users.find((u) => String(u.id) === memberId) : null;
+  const selectedMember = memberId ? users.find((u) => getId(u) === memberId) : null;
   const memberUsers    = users.filter((u) => u.role === 'member');
 
   // ── Compute stats ─────────────────────────────────────────
   const filteredTasks = useMemo(() => {
     let t = tasks.filter((t) => inRange(t.createdAt || '', from, to) || inRange(t.dueDate || '', from, to));
-    if (memberId) t = t.filter((t) => String(t.assignedTo) === memberId);
+    if (memberId) t = t.filter((t) => getId(t.assignedTo) === memberId);
     return t;
   }, [tasks, from, to, memberId]);
 
   const filteredTodos = useMemo(() => {
     let t = todos.filter((t) => inRange(t.createdAt || '', from, to));
-    if (memberId) t = t.filter((t) => String(t.userId) === memberId);
+    if (memberId) t = t.filter((t) => getId(t.userId) === memberId);
     return t;
   }, [todos, from, to, memberId]);
 
@@ -158,8 +158,8 @@ export default function ReportsPage() {
   // Per-member breakdown for table
   const memberBreakdown = useMemo(() => {
     return memberUsers.map((u) => {
-      const uTasks = filteredTasks.filter((t) => t.assignedTo === u.id);
-      const uTodos = filteredTodos.filter((t) => t.userId    === u.id);
+      const uTasks = filteredTasks.filter((t) => sameId(t.assignedTo, u));
+      const uTodos = filteredTodos.filter((t) => sameId(t.userId, u));
       const done   = uTasks.filter((t) => t.status === 'completed').length + uTodos.filter((t) => t.status === 'completed').length;
       const total  = uTasks.length + uTodos.length;
       const rate   = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -291,7 +291,7 @@ export default function ReportsPage() {
             onChange={(e) => setMemberId(e.target.value)}
           >
             <option value="">All Members</option>
-            {memberUsers.map((u) => <option key={u.id} value={u.id}>{u.name.split(' ')[0]}</option>)}
+            {memberUsers.map((u) => <option key={getId(u)} value={getId(u)}>{u.name.split(' ')[0]}</option>)}
           </select>
         )}
 
@@ -422,7 +422,7 @@ export default function ReportsPage() {
           </thead>
           <tbody>
             {memberBreakdown.map((m) => (
-              <tr key={m.user.id}>
+              <tr key={getId(m.user)}>
                 <td>
                   <div className="flex items-center gap-2.5">
                     <Avatar user={m.user} size="sm" showStatus />
@@ -461,14 +461,14 @@ export default function ReportsPage() {
                   </div>
                 </td>
                 <td>
-                  {isManager && String(m.user.id) !== memberId ? (
+                  {isManager && String(getId(m.user)) !== memberId ? (
                     <button
                       className="btn-outline btn-xs"
-                      onClick={() => setMemberId(String(m.user.id))}
+                      onClick={() => setMemberId(String(getId(m.user)))}
                     >
                       View Report
                     </button>
-                  ) : isManager && String(m.user.id) === memberId ? (
+                  ) : isManager && String(getId(m.user)) === memberId ? (
                     <button className="btn-ghost btn-xs text-slate-400" onClick={() => setMemberId('')}>Clear</button>
                   ) : null}
                 </td>

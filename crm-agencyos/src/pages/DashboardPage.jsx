@@ -348,7 +348,7 @@ export default function DashboardPage() {
   })));
 
   const role    = authUser?.role;
-  const myTasks = role === 'member' ? tasks.filter((t) => t.assignedTo === authUser?.id) : tasks;
+  const myTasks = role === 'member' ? tasks.filter((t) => sameId(t.assignedTo, authUser)) : tasks;
   const myTodos = role === 'member' ? todos.filter((t) => t.userId     === authUser?.id) : todos;
   const upcoming         = meetings.filter((m) => m.status === 'upcoming').slice(0, 4);
   const pendingApprovals = tasks.filter((t) => t.status === 'sent-for-approval');
@@ -515,7 +515,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               {pendingApprovals.slice(0, 4).map((t) => {
-                const assignee = users.find((u) => u.id === t.assignedTo);
+                const assignee = users.find((u) => sameId(u, t.assignedTo));
                 return (
                   <div
                     key={t.id}

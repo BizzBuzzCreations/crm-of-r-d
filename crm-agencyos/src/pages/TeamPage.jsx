@@ -9,7 +9,7 @@ import {
   Page, Avatar, Badge, ViewToggle, EmptyState,
   Modal, Input, Select, Button, ConfirmDialog,
 } from '../components/ui';
-import { cn, ROLE_CONFIG, canManage } from '../utils/helpers';
+import { cn, getId, sameId, ROLE_CONFIG, canManage } from '../utils/helpers';
 
 const statusColors = { online: '#10b981', away: '#f59e0b', offline: '#94a3b8' };
 const statusLabels = { online: 'Online', away: 'Away', offline: 'Offline' };
@@ -208,29 +208,31 @@ export default function TeamPage() {
     return matchSearch && matchRole;
   });
 
-  const getTaskCount      = (uid) => tasks.filter((t) => t.assignedTo === uid && t.status !== 'completed').length;
-  const getCompletedCount = (uid) => tasks.filter((t) => t.assignedTo === uid && t.status === 'completed').length;
+  const getTaskCount      = (uid) => tasks.filter((t) => getId(t.assignedTo) === getId(uid) && t.status !== 'completed').length;
+  const getCompletedCount = (uid) => tasks.filter((t) => getId(t.assignedTo) === getId(uid) && t.status === 'completed').length;
 
-  const handleAddMember = (data) => {
-    addUser({
-      name:       data.name,
-      email:      data.email,
-      password:   data.password,
-      role:       data.role || 'member',
-      position:   data.position || 'Team Member',
-      department: data.department || 'General',
-      phone:      data.phone || '',
-      joinDate:   data.joinDate
-        ? new Date(data.joinDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-    });
-    toast.success(`${data.name} has been added to the team!`);
-    setShowAdd(false);
+  const handleAddMember = async (data) => {
+    try {
+      await addUser({
+        name:       data.name,
+        email:      data.email,
+        password:   data.password,
+        role:       data.role || 'member',
+        position:   data.position || 'Team Member',
+        department: data.department || 'General',
+        phone:      data.phone || '',
+        joinDate:   data.joinDate
+          ? new Date(data.joinDate + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+          : new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }),
+      });
+      toast.success(`${data.name} has been added to the team!`);
+      setShowAdd(false);
+    } catch {}
   };
 
-  const handleDelete = (id) => {
-    const u = users.find((u) => u.id === id);
-    deleteUser(id);
+  const handleDelete = async (id) => {
+    const u = users.find((u) => getId(u) === id);
+    await deleteUser(id).catch(()=>{});
     toast.success(`${u?.name || 'Member'} removed from team.`);
   };
 
@@ -309,11 +311,11 @@ export default function TeamPage() {
             <AnimatePresence>
               {filtered.map((u) => (
                 <MemberCard
-                  key={u.id}
+                  key={getId(u)}
                   user={u}
                   taskCount={getTaskCount(u.id)}
                   completedCount={getCompletedCount(u.id)}
-                  isCurrentUser={u.id === authUser?.id}
+                  isCurrentUser={sameId(u, authUser)}
                   canDelete={isManager}
                   onDelete={(id) => setConfirmDel(id)}
                 />
@@ -341,10 +343,10 @@ export default function TeamPage() {
                 <AnimatePresence>
                   {filtered.map((u) => {
                     const roleCfg = ROLE_CONFIG[u.role] || {};
-                    const isSelf  = u.id === authUser?.id;
+                    const isSelf  = sameId(u, authUser);
                     return (
                       <motion.tr
-                        key={u.id}
+                        key={getId(u)}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -388,7 +390,7 @@ export default function TeamPage() {
                         <td>
                           {isManager && !isSelf && (
                             <button
-                              onClick={() => setConfirmDel(u.id)}
+                              onClick={() => setConfirmDel(getId(u))}
                               className="btn-icon text-slate-400 hover:text-red-500 p-1.5"
                               title="Remove member"
                             >
@@ -419,7 +421,7 @@ export default function TeamPage() {
         onClose={() => setConfirmDel(null)}
         onConfirm={() => { handleDelete(confirmDel); setConfirmDel(null); }}
         title="Remove Team Member"
-        message={`Remove ${users.find((u) => u.id === confirmDel)?.name || 'this member'} from the team? Their tasks will remain but they will lose access.`}
+        message={`Remove ${users.find((u) => getId(u) === confirmDel)?.name || 'this member'} from the team? Their tasks will remain but they will lose access.`}
         confirmLabel="Remove Member"
         variant="danger"
       />

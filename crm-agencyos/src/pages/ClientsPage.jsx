@@ -14,7 +14,7 @@ import {
   ViewToggle, EmptyState, Input, Textarea, Select, Modal, ProgressBar,
   PriorityBadge, ConfirmDialog,
 } from '../components/ui';
-import { cn, CLIENT_STATUS_CONFIG, PAYMENT_CONFIG, canManage } from '../utils/helpers';
+import { cn, getId, sameId, CLIENT_STATUS_CONFIG, PAYMENT_CONFIG, canManage } from '../utils/helpers';
 
 // ── Calendar helpers ──────────────────────────────────────────
 const MONTH_NAMES  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -515,7 +515,7 @@ export default function ClientsPage() {
   // ── Client Detail View ────────────────────────────────────────
   if (selected) {
     const client  = clients.find((c) => c.id === selected.id) || selected;
-    const team    = users.filter((u) => (client.assignedTeam||[]).includes(u.id));
+    const team    = users.filter((u) => client.assignedTeam?.some((tm) => sameId(tm, u)));
     const cTasks  = tasks.filter((t) => t.clientId === client.id);
     // Todos from team members assigned to this client
     const cTodos  = todos.filter((t) => client.assignedTeam.includes(t.userId));
@@ -673,7 +673,7 @@ export default function ClientsPage() {
               <Button variant="outline" onClick={() => setShowNote(false)}>Cancel</Button>
               <Button variant="primary" onClick={() => {
                 if (!noteText.trim()) return;
-                addClientNote(client.id, noteText);
+                addClientNote(getId(client), noteText);
                 setShowNote(false);
                 setNoteText('');
                 toast.success('Note added!');
@@ -797,7 +797,7 @@ export default function ClientsPage() {
         open={showAddClient}
         onClose={() => setShowAddClient(false)}
         users={users}
-        onSave={(data) => { addClient(data); setShowAddClient(false); toast.success('Client added!'); }}
+        onSave={(data) => { addClient(data).then(()=>setShowAddClient(false)); toast.success('Client added!'); }}
       />
     </Page>
   );

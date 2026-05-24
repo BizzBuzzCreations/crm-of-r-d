@@ -55,18 +55,18 @@ export default function CalendarPage() {
 
   // ── Who are we viewing? ─────────────────────────────────────
   const viewUser = isManager && viewUserId
-    ? users.find((u) => String(u.id) === viewUserId)
+    ? users.find((u) => getId(u) === viewUserId)
     : authUser;
 
-  const viewingOther = isManager && viewUserId && String(viewUserId) !== String(authUser?.id);
+  const viewingOther = isManager && viewUserId && viewUserId && viewUserId !== getId(authUser);
 
   // ── Role-aware data sets ─────────────────────────────────────
   const myTasks = viewUser
-    ? (isManager && viewUserId ? tasks.filter((t) => t.assignedTo === viewUser.id) : (role === 'member' ? tasks.filter((t) => t.assignedTo === authUser?.id) : tasks))
+    ? (isManager && viewUserId ? tasks.filter((t) => sameId(t.assignedTo, viewUser)) : (role === 'member' ? tasks.filter((t) => sameId(t.assignedTo, authUser)) : tasks))
     : tasks;
 
   const myTodos = viewUser
-    ? (isManager && viewUserId ? todos.filter((t) => t.userId === viewUser.id) : (role === 'member' ? todos.filter((t) => t.userId === authUser?.id) : todos))
+    ? (isManager && viewUserId ? todos.filter((t) => sameId(t.userId, viewUser)) : (role === 'member' ? todos.filter((t) => sameId(t.userId, authUser)) : todos))
     : todos;
 
   // All events
@@ -75,8 +75,8 @@ export default function CalendarPage() {
       id: `task-${t.id}`, type: 'task', date: t.dueDate,
       title: t.title, status: t.status, priority: t.priority,
     })),
-    ...myTodos.filter((t) => !!t.createdAt).map((t) => ({
-      id: `todo-${t.id}`, type: 'todo', date: t.createdAt,
+    ...myTodos.filter((t) => !!t.createdAt?.split('T')[0]||t.createdAt).map((t) => ({
+      id: `todo-${t.id}`, type: 'todo', date: t.createdAt?.split('T')[0]||t.createdAt,
       title: t.title, status: t.status, eta: t.eta,
     })),
     ...meetings.map((m) => ({
@@ -131,7 +131,7 @@ export default function CalendarPage() {
                 <option value="">My Calendar</option>
                 <optgroup label="── View Member ──">
                   {memberUsers.map((u) => (
-                    <option key={u.id} value={u.id}>{u.name.split(' ')[0]}'s Calendar</option>
+                    <option key={getId(u)} value={getId(u)}>{u.name.split(' ')[0]}'s Calendar</option>
                   ))}
                 </optgroup>
                 <optgroup label="── All Users ──">
