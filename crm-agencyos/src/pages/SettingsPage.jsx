@@ -419,7 +419,7 @@ function WorkLogSection({ authUser, users }) {
             </thead>
             <tbody>
               {filtered.map((row, i) => {
-                const isActive   = row.sameId(user, authUser) && row.isToday;
+                const isActive   = sameId(row.user, authUser) && row.isToday;
                 const pct        = Math.min(100, (row.workSeconds / WORK_TARGET_S) * 100);
                 const lunchSecs  = breakTotal(row.breaks, 'lunch');
                 const teaSecs    = breakTotal(row.breaks, 'tea');

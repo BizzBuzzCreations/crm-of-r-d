@@ -36,3 +36,14 @@ exports.authorize = (...roles) => (req, res, next) => {
   }
   next();
 };
+
+// Strict Role Guard for corporate financial permissions
+exports.authorizeRoles = (...allowedRoles) => (req, res, next) => {
+  if (!allowedRoles.includes(req.user?.role)) {
+    return res.status(403).json({
+      message: "Access denied. Insufficient corporate permissions."
+    });
+  }
+  next();
+};
+

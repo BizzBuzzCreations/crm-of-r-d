@@ -13,7 +13,7 @@ import {
   Modal, Input, Select, Textarea, ViewToggle, EmptyState,
   ProgressBar, ConfirmDialog, DropdownMenu,
 } from '../components/ui';
-import { cn, PRIORITY_CONFIG, canManage, truncate } from '../utils/helpers';
+import { cn, PRIORITY_CONFIG, canManage, truncate, getId, sameId } from '../utils/helpers';
 
 const KANBAN_COLS = [
   { id: 'pending',           label: 'Pending',      color: '#f59e0b', bg: '#fffbeb' },
@@ -62,19 +62,23 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
   const priorityVal = watch('priority');
   const memberUsers = users.filter((u) => u.role === 'member');
 
-  const onSubmit = (data) => {
-    addTask({
-      ...data,
-      assignedTo: parseInt(data.assignedTo) || currentUser.id,
-      clientId:   data.clientId ? parseInt(data.clientId) : null,
-      assignedBy: currentUser.id,
-      status:     'pending',
-      progress:   0,
-      tags:       data.tags ? data.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
-    });
-    toast.success('Task created!');
-    reset();
-    onClose();
+  const onSubmit = async (data) => {
+    try {
+      await addTask({
+        ...data,
+        assignedTo: data.assignedTo || currentUser.id || currentUser._id,
+        clientId:   data.clientId || null,
+        assignedBy: currentUser.id || currentUser._id,
+        status:     'pending',
+        progress:   0,
+        tags:       data.tags ? data.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
+      });
+      toast.success('Task created!');
+      reset();
+      onClose();
+    } catch {
+      // Error is handled inside the store's action catch block
+    }
   };
 
   return (
@@ -167,9 +171,9 @@ function KanbanCard({ task, users, clients, role, onMove, onApprove, onDelete })
     .filter((c) => isManager || MEMBER_MOVE_TARGETS.includes(c.id));
 
   const menuItems = [
-    ...targets.map((c) => ({ label: `Move → ${c.label}`, onClick: () => onMove(task.id, c.id) })),
+    ...targets.map((c) => ({ label: `Move → ${c.label}`, onClick: () => onMove(getId(task), c.id) })),
     ...(targets.length ? [{ separator: true }] : []),
-    { label: 'Delete', icon: Trash2, danger: true, onClick: () => onDelete(task.id) },
+    { label: 'Delete', icon: Trash2, danger: true, onClick: () => onDelete(getId(task)) },
   ];
 
   return (
@@ -204,7 +208,7 @@ function KanbanCard({ task, users, clients, role, onMove, onApprove, onDelete })
         </div>
       </div>
       {isManager && task.status === 'sent-for-approval' && (
-        <button onClick={() => onApprove(task.id)} className="btn-success btn-sm w-full justify-center mt-2.5">
+        <button onClick={() => onApprove(getId(task))} className="btn-success btn-sm w-full justify-center mt-2.5">
           <Check size={12} /> Approve & Mark Done
         </button>
       )}
@@ -244,8 +248,9 @@ export default function TasksPage() {
     if (filters.memberId && isManager && getId(t.assignedTo) !== filters.memberId) return false;
     // Date filter: matches dueDate OR createdAt
     if (filters.date) {
-      const matchDue     = t.dueDate    === filters.date;
-      const matchCreated = t.createdAt?.split?.('T')?.[0] || t.createdAt  === filters.date;
+      const matchDue     = t.dueDate === filters.date;
+      const createdDate  = t.createdAt?.split?.('T')?.[0] || t.createdAt;
+      const matchCreated = createdDate === filters.date;
       if (!matchDue && !matchCreated) return false;
     }
     return true;
@@ -415,9 +420,9 @@ export default function TasksPage() {
                     </div>
                   )}
                   {isManager && task.status === 'sent-for-approval' && (
-                    <Button variant="success" size="xs" onClick={() => handleApprove(task.id)}><Check size={11} /> Approve</Button>
+                    <Button variant="success" size="xs" onClick={() => handleApprove(getId(task))}><Check size={11} /> Approve</Button>
                   )}
-                  <button className="btn-icon text-slate-400 hover:text-red-500 p-1" onClick={() => setConfirmDel(task.id)}>
+                  <button className="btn-icon text-slate-400 hover:text-red-500 p-1" onClick={() => setConfirmDel(getId(task))}>
                     <Trash2 size={13} />
                   </button>
                 </motion.div>
@@ -456,8 +461,8 @@ export default function TasksPage() {
                     <td>{task.progress > 0 ? <div className="flex items-center gap-2 min-w-[80px]"><ProgressBar value={task.progress} height={5} className="flex-1" /><span className="text-[11px] text-slate-500">{task.progress}%</span></div> : <span className="text-slate-400 text-[12px]">—</span>}</td>
                     <td>
                       <div className="flex items-center gap-1">
-                        {isManager && task.status === 'sent-for-approval' && <Button variant="success" size="xs" onClick={() => handleApprove(task.id)}><Check size={11} /></Button>}
-                        <button className="btn-icon text-slate-400 hover:text-red-500 p-1" onClick={() => setConfirmDel(task.id)}><Trash2 size={13} /></button>
+                        {isManager && task.status === 'sent-for-approval' && <Button variant="success" size="xs" onClick={() => handleApprove(getId(task))}><Check size={11} /></Button>}
+                        <button className="btn-icon text-slate-400 hover:text-red-500 p-1" onClick={() => setConfirmDel(getId(task))}><Trash2 size={13} /></button>
                       </div>
                     </td>
                   </tr>

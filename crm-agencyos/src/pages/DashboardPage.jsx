@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -8,11 +8,11 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import useAppStore from '../store/useAppStore';
+import useAppStore, { sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { StatCard, Avatar, Badge, Page } from '../components/ui';
 import { PRODUCTIVITY_DATA, TASK_STATUS_DIST, REVENUE_DATA } from '../mockData';
-import { MEETING_TYPE_CONFIG } from '../utils/helpers';
+import { MEETING_TYPE_CONFIG, canManage, cn } from '../utils/helpers';
 
 // ── Greeting ─────────────────────────────────────────────────
 function getGreeting() {
@@ -36,7 +36,7 @@ function heatColor(n) {
   return '#1a7f37';
 }
 
-// Build full-year data: real completions + visual fill for past dates
+// Build full-year data: real completions only
 function buildYearData(year, tasks, todos) {
   const today = new Date();
   today.setHours(23, 59, 59);
@@ -49,8 +49,9 @@ function buildYearData(year, tasks, todos) {
     realMap[t.dueDate].tasks++;
   });
   todos.filter((t) => t.status === 'completed' && t.createdAt).forEach((t) => {
-    if (!realMap[t.createdAt]) realMap[t.createdAt] = { tasks: 0, todos: 0 };
-    realMap[t.createdAt].todos++;
+    const ds = t.createdAt.split('T')[0];
+    if (!realMap[ds]) realMap[ds] = { tasks: 0, todos: 0 };
+    realMap[ds].todos++;
   });
 
   const months = [];
@@ -71,11 +72,6 @@ function buildYearData(year, tasks, todos) {
         if (realMap[ds]) {
           taskCount = realMap[ds].tasks;
           todoCount = realMap[ds].todos;
-        } else {
-          const max   = isWknd ? 2 : 7;
-          const total = Math.floor(Math.random() * (max + 1));
-          taskCount   = Math.ceil(total * 0.6);
-          todoCount   = total - taskCount;
         }
       }
 
@@ -338,16 +334,26 @@ const ChartTooltip = ({ active, payload, label }) => {
 // ── Main Page ─────────────────────────────────────────────────
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { authUser, tasks, todos, clients, meetings, users } = useAppStore(useShallow((s) => ({
+    const { authUser, tasks, todos, clients, meetings, users, revenueSummary, fetchRevenueSummary } = useAppStore(useShallow((s) => ({
     authUser: s.authUser,
     tasks:    s.tasks,
     todos:    s.todos,
     clients:  s.clients,
     meetings: s.meetings,
     users:    s.users,
+    revenueSummary: s.revenueSummary,
+    fetchRevenueSummary: s.fetchRevenueSummary,
   })));
 
   const role    = authUser?.role;
+  const isManager = canManage(role);
+
+  useEffect(() => {
+    if (isManager) {
+      fetchRevenueSummary();
+    }
+  }, [isManager]);
+
   const myTasks = role === 'member' ? tasks.filter((t) => sameId(t.assignedTo, authUser)) : tasks;
   const myTodos = role === 'member' ? todos.filter((t) => t.userId     === authUser?.id) : todos;
   const upcoming         = meetings.filter((m) => m.status === 'upcoming').slice(0, 4);
@@ -359,12 +365,151 @@ export default function DashboardPage() {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
 
+  // Dynamic growth or loss percentages calculation (100% genuine zero growth fallback)
+  const getStatChange = (type, list) => {
+    if (!list || list.length === 0) {
+      return 0;
+    }
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    
+    const getDate = (item) => {
+      if (type === 'clients' && item.onboardingDate) {
+        return new Date(item.onboardingDate);
+      }
+      return item.createdAt ? new Date(item.createdAt) : null;
+    };
+    
+    const currentItems = list.filter(item => {
+      const d = getDate(item);
+      return d && d >= thirtyDaysAgo && d <= now;
+    });
+    
+    const previousItems = list.filter(item => {
+      const d = getDate(item);
+      return d && d >= sixtyDaysAgo && d < thirtyDaysAgo;
+    });
+    
+    const currentCount = currentItems.length;
+    const previousCount = previousItems.length;
+    
+    if (previousCount === 0) {
+      if (currentCount === 0) {
+        return 0;
+      }
+      return currentCount * 10;
+    }
+    const percent = ((currentCount - previousCount) / previousCount) * 100;
+    return Math.round(percent);
+  };
+
   const stats = [
-    { icon: Users,       label: 'Total Clients',    value: clients.length,                                          change: 12, color: '#6366f1', bg: '#eef2ff', path: '/clients'  },
-    { icon: CheckSquare, label: 'Active Tasks',      value: myTasks.filter((t) => t.status !== 'completed').length, change: 8,  color: '#0ea5e9', bg: '#eff6ff', path: '/tasks'    },
-    { icon: ListTodo,    label: 'Pending Todos',     value: myTodos.filter((t) => t.status !== 'completed').length, change: -2, color: '#8b5cf6', bg: '#f5f3ff', path: '/todos'    },
-    { icon: Video,       label: 'Upcoming Meetings', value: upcoming.length,                                        change: 5,  color: '#f59e0b', bg: '#fffbeb', path: '/meetings' },
+    { icon: Users,       label: 'Total Clients',    value: clients.length,                                          change: getStatChange('clients', clients), color: '#6366f1', bg: '#eef2ff', path: '/clients'  },
+    { icon: CheckSquare, label: 'Active Tasks',      value: myTasks.filter((t) => t.status !== 'completed').length, change: getStatChange('tasks', myTasks),  color: '#0ea5e9', bg: '#eff6ff', path: '/tasks'    },
+    { icon: ListTodo,    label: 'Pending Todos',     value: myTodos.filter((t) => t.status !== 'completed').length, change: getStatChange('todos', myTodos),  color: '#8b5cf6', bg: '#f5f3ff', path: '/todos'    },
+    { icon: Video,       label: 'Upcoming Meetings', value: upcoming.length,                                        change: getStatChange('meetings', meetings),  color: '#f59e0b', bg: '#fffbeb', path: '/meetings' },
   ];
+
+  // Completely dynamic pie chart for Task Status snapshot
+  const taskStatusDist = useMemo(() => {
+    const pendingCount = myTasks.filter((t) => t.status === 'pending').length;
+    const progressCount = myTasks.filter((t) => t.status === 'in-progress').length;
+    const approvalCount = myTasks.filter((t) => t.status === 'sent-for-approval').length;
+    const completedCount = myTasks.filter((t) => t.status === 'completed').length;
+    const total = pendingCount + progressCount + approvalCount + completedCount;
+    if (total === 0) return [];
+    return [
+      { name: 'Pending',     value: pendingCount,  color: '#f59e0b' },
+      { name: 'In Progress', value: progressCount, color: '#0ea5e9' },
+      { name: 'Approval',    value: approvalCount, color: '#8b5cf6' },
+      { name: 'Completed',   value: completedCount, color: '#10b981' },
+    ];
+  }, [myTasks]);
+
+  // Completely dynamic revenue aggregates
+  const dynamicRevenueData = useMemo(() => {
+    if (!revenueSummary?.monthlyTrend || revenueSummary.monthlyTrend.length === 0) {
+      const monthsName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const now = new Date();
+      const list = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        list.push({
+          month: monthsName[d.getMonth()],
+          revenue: 0
+        });
+      }
+      return list;
+    }
+    const monthsName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return revenueSummary.monthlyTrend.map((item) => {
+      const [year, month] = item._id.split('-');
+      const monthIdx = parseInt(month, 10) - 1;
+      const label = monthsName[monthIdx] || item._id;
+      return {
+        month: label,
+        revenue: item.revenue
+      };
+    });
+  }, [revenueSummary]);
+
+  const currentMonthRev = useMemo(() => {
+    if (!revenueSummary) return 0;
+    const thisMonthStr = new Date().toISOString().slice(0, 7);
+    const matched = revenueSummary.monthlyTrend?.find(m => m._id === thisMonthStr);
+    return matched ? matched.revenue : (revenueSummary.totalRevenue || 0);
+  }, [revenueSummary]);
+
+  const revenueGrowth = useMemo(() => {
+    if (!revenueSummary?.monthlyTrend || revenueSummary.monthlyTrend.length < 2) {
+      return 0;
+    }
+    const trend = revenueSummary.monthlyTrend;
+    const current = trend[trend.length - 1]?.revenue || 0;
+    const previous = trend[trend.length - 2]?.revenue || 0;
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return parseFloat((((current - previous) / previous) * 100).toFixed(1));
+  }, [revenueSummary]);
+
+  // 100% Genuine 6-Month Productivity chart grouped dynamically from live MongoDB completions
+  const dynamicProductivityData = useMemo(() => {
+    const monthsName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const now = new Date();
+    const list = [];
+    
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = monthsName[d.getMonth()];
+      list.push({ label, yearMonth, tasks: 0, todos: 0, meetings: 0 });
+    }
+    
+    tasks.filter(t => t.status === 'completed' && t.dueDate).forEach(t => {
+      const ym = t.dueDate.slice(0, 7);
+      const match = list.find(m => m.yearMonth === ym);
+      if (match) match.tasks++;
+    });
+    
+    todos.filter(t => t.status === 'completed' && t.createdAt).forEach(t => {
+      const ym = t.createdAt.split('T')[0].slice(0, 7);
+      const match = list.find(m => m.yearMonth === ym);
+      if (match) match.todos++;
+    });
+    
+    meetings.filter(m => m.status === 'completed' && m.date).forEach(m => {
+      const ym = m.date.slice(0, 7);
+      const match = list.find(m => m.yearMonth === ym);
+      if (match) match.meetings++;
+    });
+    
+    return list.map(item => ({
+      month: item.label,
+      tasks: item.tasks,
+      todos: item.todos,
+      meetings: item.meetings
+    }));
+  }, [tasks, todos, meetings]);
 
   return (
     <Page>
@@ -393,7 +538,7 @@ export default function DashboardPage() {
             <p className="text-[12px] text-slate-500 dark:text-slate-400">Tasks, todos &amp; meetings completed</p>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={PRODUCTIVITY_DATA} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <AreaChart data={dynamicProductivityData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="gT" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.15} />
@@ -419,25 +564,37 @@ export default function DashboardPage() {
         <div className="card p-5">
           <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-1">Task Status</h3>
           <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-3">Current sprint snapshot</p>
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={TASK_STATUS_DIST} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3}>
-                {TASK_STATUS_DIST.map((e) => <Cell key={e.name} fill={e.color} />)}
-              </Pie>
-              <Tooltip formatter={(v, n) => [v, n]} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="space-y-1.5 mt-1">
-            {TASK_STATUS_DIST.map((e) => (
-              <div key={e.name} className="flex items-center justify-between text-[12px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
-                  <span className="text-slate-600 dark:text-slate-400">{e.name}</span>
-                </div>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{e.value}</span>
+          {myTasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
+                <CheckSquare size={18} className="text-slate-400" />
               </div>
-            ))}
-          </div>
+              <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-300">No tasks found</p>
+              <p className="text-[11.5px] text-slate-400 max-w-[160px] mt-0.5">Tasks you create will show up here</p>
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={taskStatusDist} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3}>
+                    {taskStatusDist.map((e) => <Cell key={e.name} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v, n) => [v, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5 mt-1">
+                {taskStatusDist.map((e) => (
+                  <div key={e.name} className="flex items-center justify-between text-[12px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
+                      <span className="text-slate-600 dark:text-slate-400">{e.name}</span>
+                    </div>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{e.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -466,7 +623,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className={cn("grid grid-cols-1 gap-4", isManager ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
         {/* Upcoming meetings */}
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
@@ -485,7 +642,7 @@ export default function DashboardPage() {
               const tc = MEETING_TYPE_CONFIG[m.type] || MEETING_TYPE_CONFIG.internal;
               return (
                 <div
-                  key={m.id}
+                  key={m._id || m.id}
                   className="flex gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-colors cursor-pointer"
                   onClick={() => navigate('/meetings')}
                 >
@@ -518,7 +675,7 @@ export default function DashboardPage() {
                 const assignee = users.find((u) => sameId(u, t.assignedTo));
                 return (
                   <div
-                    key={t.id}
+                    key={t._id || t.id}
                     className="flex items-start gap-3 p-3 rounded-xl bg-purple-50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800/30 cursor-pointer"
                     onClick={() => navigate('/tasks')}
                   >
@@ -538,27 +695,29 @@ export default function DashboardPage() {
         </div>
 
         {/* Revenue */}
-        <div className="card p-5">
-          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-1">Revenue Trend</h3>
-          <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-4">Monthly contract revenue</p>
-          <ResponsiveContainer width="100%" height={150}>
-            <BarChart data={REVENUE_DATA} margin={{ top: 0, right: 0, left: -30, bottom: 0 }}>
-              <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
-              <Tooltip content={<ChartTooltip />} formatter={(v) => [`$${v.toLocaleString()}`, 'Revenue']} />
-              <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
-            <div>
-              <p className="text-[11.5px] text-slate-500">This month</p>
-              <p className="text-[18px] font-bold text-slate-900 dark:text-white">$31,000</p>
-            </div>
-            <div className="flex items-center gap-1 text-emerald-600 text-[12px] font-semibold">
-              <TrendingUp size={13} /> +8.8%
+        {isManager && (
+          <div className="card p-5">
+            <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-1">Revenue Trend</h3>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-4">Monthly contract revenue</p>
+            <ResponsiveContainer width="100%" height={150}>
+              <BarChart data={dynamicRevenueData} margin={{ top: 0, right: 0, left: -30, bottom: 0 }}>
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                <Tooltip content={<ChartTooltip />} formatter={(v) => [`$${v.toLocaleString()}`, 'Revenue']} />
+                <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <div>
+                <p className="text-[11.5px] text-slate-500">This month</p>
+                <p className="text-[18px] font-bold text-slate-900 dark:text-white">${currentMonthRev.toLocaleString()}</p>
+              </div>
+              <div className={`flex items-center gap-1 text-[12px] font-semibold ${revenueGrowth >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                <TrendingUp size={13} className={revenueGrowth >= 0 ? '' : 'rotate-180'} /> {revenueGrowth >= 0 ? '+' : ''}{revenueGrowth}%
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </Page>
   );

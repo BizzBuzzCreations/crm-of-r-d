@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Toaster } from 'react-hot-toast';
 import AppRouter from './routes/AppRouter';
 import useAppStore from './store/useAppStore';
 
@@ -33,5 +34,25 @@ export default function App() {
     );
   }
 
-  return <AppRouter />;
+  return (
+    <>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#0f172a',
+            color: '#f8fafc',
+            fontSize: '13.5px',
+            fontFamily: '"DM Sans", system-ui, sans-serif',
+            borderRadius: '10px',
+            padding: '12px 16px',
+          },
+          success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
+          error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+        }}
+      />
+      <AppRouter />
+    </>
+  );
 }

@@ -97,7 +97,7 @@ function MeetingCard({ meeting, users, clients, role, onEdit, onDelete }) {
               </button>
               <button
                 className="btn-icon p-1.5 text-slate-400 hover:text-red-500"
-                onClick={() => onDelete(meeting.id)}
+                onClick={() => onDelete(getId(meeting))}
                 title="Delete"
               >
                 <Trash2 size={13} />
@@ -115,16 +115,38 @@ function MeetingFormModal({ open, onClose, initialData, users, clients, onSave }
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm({
     defaultValues: initialData
       ? { ...initialData }
-      : { type: 'internal', status: 'upcoming', duration: '60 min' },
+      : { type: 'internal', status: 'upcoming', duration: '60 min', emergencyFlag: false },
   });
 
-  const handleClose = () => { reset(); onClose(); };
+  const [selectedInvites, setSelectedInvites] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Sync state if initialData is provided
+  useState(() => {
+    if (initialData?.participants) {
+      setSelectedInvites(initialData.participants.map(p => getId(p)));
+    }
+  }, [initialData]);
+
+  const handleClose = () => { setSelectedInvites([]); setSearchQuery(''); reset(); onClose(); };
+
+  const filteredMembers = users.filter(u => 
+    (u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+     u.email.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
 
   const onSubmit = (data) => {
+    const startIso = data.date && data.time ? new Date(`${data.date}T${data.time}`).toISOString() : new Date().toISOString();
+    const durMin = parseInt(data.duration) || 60;
+    const endIso = new Date(new Date(startIso).getTime() + durMin * 60000).toISOString();
+
     onSave({
       ...data,
-      // participants: treat as array of IDs
-      participants: users.map((u) => getId(u)), // all users by default; can be refined
+      startTime: startIso,
+      endTime: endIso,
+      invitedUserIds: selectedInvites,
+      participants: selectedInvites,
+      emergencyFlag: !!data.emergencyFlag,
       clientId:     data.clientId ? Number(data.clientId) : null,
     });
     handleClose();
@@ -170,6 +192,88 @@ function MeetingFormModal({ open, onClose, initialData, users, clients, onSave }
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
 
+        {/* Invite team members checkbox list */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <label className="block text-[12.5px] font-semibold text-slate-700 dark:text-slate-300">
+              Invite Team Members *
+            </label>
+            <div className="flex gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const allIds = filteredMembers.map(u => getId(u));
+                  setSelectedInvites(Array.from(new Set([...selectedInvites, ...allIds])));
+                }}
+                className="btn-outline btn-xs !text-[11px] !px-2 !py-0.5"
+              >
+                Invite All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const filteredIds = filteredMembers.map(u => getId(u));
+                  setSelectedInvites(selectedInvites.filter(id => !filteredIds.includes(id)));
+                }}
+                className="btn-outline btn-xs !text-[11px] !px-2 !py-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-800"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+          
+          <input
+            type="text"
+            placeholder="🔍 Search members by name or email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="form-input text-[12.5px] py-1 px-3 w-full border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800"
+          />
+
+          <div className="grid grid-cols-2 gap-2.5 max-h-[140px] overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-800/40">
+            {filteredMembers.length === 0 ? (
+              <p className="col-span-2 text-[12px] text-slate-400 text-center py-4">No matching team members found</p>
+            ) : filteredMembers.map((u) => (
+              <label key={getId(u)} className="flex items-center gap-2 text-[12.5px] text-slate-600 dark:text-slate-400 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 justify-between w-full p-1 rounded hover:bg-slate-100/50 dark:hover:bg-slate-700/30">
+                <div className="flex items-center gap-2 min-w-0">
+                  <input
+                    type="checkbox"
+                    value={getId(u)}
+                    checked={selectedInvites.includes(getId(u))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedInvites([...selectedInvites, getId(u)]);
+                      } else {
+                        setSelectedInvites(selectedInvites.filter(id => id !== getId(u)));
+                      }
+                    }}
+                    className="rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 flex-shrink-0"
+                  />
+                  <span className="truncate" title={u.name}>{u.name}</span>
+                </div>
+                <span className={cn(
+                  'text-[9.5px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0',
+                  u.role === 'admin' && 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400',
+                  u.role === 'manager' && 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400',
+                  u.role === 'member' && 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                )}>
+                  {u.role}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Forced Emergency Join */}
+        <label className="flex items-center gap-2 text-[12.5px] text-slate-700 dark:text-slate-300 cursor-pointer font-semibold py-1.5">
+          <input
+            type="checkbox"
+            {...register('emergencyFlag')}
+            className="rounded text-red-600 focus:ring-red-500 border-red-300"
+          />
+          <span className="text-red-600 dark:text-red-400">🚨 Forced Corporate Emergency Join (Immediate RSVP Accept)</span>
+        </label>
+
         <div className="grid grid-cols-3 gap-4">
           <Input label="Date *" type="date" error={errors.date?.message} {...register('date', { required: 'Date is required' })} />
           <Input label="Time *" type="time" error={errors.time?.message} {...register('time', { required: 'Time is required' })} />
@@ -206,13 +310,15 @@ function MeetingFormModal({ open, onClose, initialData, users, clients, onSave }
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function MeetingsPage() {
-  const { authUser, meetings, clients, addMeeting, updateMeeting, deleteMeeting } = useAppStore(useShallow((s) => ({
+  const { authUser, meetings, clients, addMeeting, updateMeeting, deleteMeeting, mySchedule, submitRSVP } = useAppStore(useShallow((s) => ({
     authUser:       s.authUser,
     meetings:       s.meetings,
     clients:        s.clients,
     addMeeting:     s.addMeeting,
     updateMeeting:  s.updateMeeting,
     deleteMeeting:  s.deleteMeeting,
+    mySchedule:     s.mySchedule,
+    submitRSVP:     s.submitRSVP,
   })));
   const users = useAppStore((s) => s.users);
 
@@ -275,6 +381,7 @@ export default function MeetingsPage() {
         tabs={[
           { value: 'upcoming',  label: 'Upcoming',  count: upcomingCount  },
           { value: 'completed', label: 'Completed', count: completedCount },
+          { value: 'invitations', label: 'Invitations & RSVPs', count: mySchedule.length },
         ]}
         active={tab}
         onChange={setTab}
@@ -282,7 +389,93 @@ export default function MeetingsPage() {
       />
 
       {/* Meetings grid */}
-      {filtered.length === 0 ? (
+      {tab === 'invitations' ? (
+        mySchedule.length === 0 ? (
+          <EmptyState
+            icon={Video}
+            title="No meeting invitations"
+            description="You have not been invited to any meetings yet."
+          />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {mySchedule.map((item) => {
+              const m = item.meeting;
+              if (!m) return null;
+              const tc = MEETING_TYPE_CONFIG[m.type] || MEETING_TYPE_CONFIG.internal;
+              const createdByUser = users.find((u) => getId(u) === getId(m.createdBy));
+              return (
+                <div key={item.invitationId} className="card p-5 border-l-[3px] transition-all bg-white dark:bg-slate-800" style={{ borderLeftColor: tc.color }}>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-[14px] font-bold text-slate-900 dark:text-white truncate">{m.title}</h3>
+                      {m.description && <p className="text-[12px] text-slate-500 mt-1 leading-relaxed">{m.description}</p>}
+                    </div>
+                    <Badge variant={item.rsvpStatus === 'accepted' ? 'success' : item.rsvpStatus === 'declined' ? 'danger' : 'warning'}>
+                      {item.rsvpStatus}
+                    </Badge>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 gap-y-1.5 mb-3 text-[12px] text-slate-600 dark:text-slate-400">
+                    <div className="flex items-center gap-1.5">
+                      <Clock size={12} className="text-slate-400 flex-shrink-0" />
+                      <span>
+                        {m.startTime ? new Date(m.startTime).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                      </span>
+                    </div>
+                    {m.emergencyFlag && (
+                      <span className="badge text-[10px] bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400 font-bold px-2 py-0.5 rounded w-max mt-1">
+                        🚨 EMERGENCY JOIN REQUIRED
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-4 border-t border-slate-100 dark:border-slate-700/50 pt-3">
+                    <div className="flex items-center gap-2">
+                      <Avatar user={createdByUser || { name: 'Manager', initials: 'M', color: '#6366f1' }} size="xs" />
+                      <span className="text-[11.5px] text-slate-500">Created by {createdByUser?.name || 'Manager'}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {item.rsvpStatus === 'pending' && (
+                        <>
+                          <button
+                            className="btn-outline btn-xs px-2.5 py-1 text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/10"
+                            onClick={() => submitRSVP(item.invitationId, 'declined')}
+                          >
+                            Decline
+                          </button>
+                          <button
+                            className="btn-primary btn-xs px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => submitRSVP(item.invitationId, 'accepted')}
+                          >
+                            Accept
+                          </button>
+                        </>
+                      )}
+                      {item.rsvpStatus === 'accepted' && (
+                        <button
+                          className="btn-outline btn-xs px-2.5 py-1 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700/30"
+                          onClick={() => submitRSVP(item.invitationId, 'declined')}
+                        >
+                          Decline Meeting
+                        </button>
+                      )}
+                      {item.rsvpStatus === 'declined' && (
+                        <button
+                          className="btn-outline btn-xs px-2.5 py-1 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/10"
+                          onClick={() => submitRSVP(item.invitationId, 'accepted')}
+                        >
+                          Accept Meeting
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={Video}
           title={`No ${tab} meetings`}

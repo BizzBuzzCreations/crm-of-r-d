@@ -3,17 +3,19 @@
 // The app.js imports these.
 
 const express = require('express');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, authorizeRoles } = require('../middleware/auth');
 const upload  = require('../middleware/upload');
 
 const auth = require('../controllers/authController');
 const ctrl = require('../controllers/mainControllers');
 const xtra = require('../controllers/extraControllers');
+const revenue = require('../controllers/revenueController');
+const meetingScheduler = require('../controllers/meetingSchedulerController');
 
 // ── Auth routes ───────────────────────────────────────────────
 const authRouter = express.Router();
 authRouter.post('/login',    auth.login);
-authRouter.post('/logout',   protect, auth.logout);
+authRouter.post('/logout',   auth.logout);
 authRouter.post('/refresh',  auth.refresh);
 authRouter.get('/me',        protect, auth.me);
 authRouter.put('/profile',   protect, auth.updateProfile);
@@ -65,6 +67,12 @@ meetingsRouter.get('/',    ctrl.getMeetings);
 meetingsRouter.post('/',   authorize('admin','manager'), ctrl.createMeeting);
 meetingsRouter.put('/:id', authorize('admin','manager'), ctrl.updateMeeting);
 meetingsRouter.delete('/:id', authorize('admin','manager'), ctrl.deleteMeeting);
+
+// Invitation-based scheduler additions
+meetingsRouter.post('/schedule',           meetingScheduler.scheduleMeeting);
+meetingsRouter.put('/rsvp/:invitationId',  meetingScheduler.updateRSVP);
+meetingsRouter.get('/my-schedule',         meetingScheduler.getMySchedule);
+
 module.exports.meetings = meetingsRouter;
 
 // ── Messages routes ───────────────────────────────────────────
@@ -88,3 +96,10 @@ worklogRouter.get('/',      xtra.getWorkLog);
 worklogRouter.post('/',     xtra.upsertWorkLog);
 worklogRouter.patch('/active', xtra.setUserActive);
 module.exports.worklog = worklogRouter;
+
+// ── Revenue routes ────────────────────────────────────────────
+const revenueRouter = express.Router();
+revenueRouter.use(protect);
+revenueRouter.get('/summary', authorizeRoles('admin', 'manager'), revenue.getRevenueSummary);
+revenueRouter.post('/record', authorizeRoles('admin'), revenue.recordRevenue);
+module.exports.revenue = revenueRouter;

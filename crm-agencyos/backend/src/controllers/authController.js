@@ -63,10 +63,35 @@ exports.login = async (req, res, next) => {
 // @POST /api/auth/logout
 exports.logout = async (req, res, next) => {
   try {
-    if (req.user) {
-      await User.findByIdAndUpdate(req.user._id, { status: 'offline' });
+    let userId = null;
+    let token = null;
+
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
     }
-    res.clearCookie('refreshToken');
+
+    if (token) {
+      try {
+        const decoded = jwt.decode(token);
+        if (decoded && decoded.id) {
+          userId = decoded.id;
+        }
+      } catch (err) {
+        // Ignore token decoding errors on logout
+      }
+    }
+
+    if (userId) {
+      await User.findByIdAndUpdate(userId, { status: 'offline' });
+    }
+
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    });
     res.json({ success: true, message: 'Logged out' });
   } catch (err) { next(err); }
 };

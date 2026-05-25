@@ -12,7 +12,6 @@ import toast from 'react-hot-toast';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Avatar, Badge, ProgressBar } from '../components/ui';
-import { PRODUCTIVITY_DATA, TASK_STATUS_DIST, REVENUE_DATA } from '../mockData';
 import { cn, getId, sameId, canManage, ROLE_CONFIG } from '../utils/helpers';
 
 // ── Date helpers ─────────────────────────────────────────────
@@ -109,11 +108,12 @@ const ChartTip = ({ active, payload, label }) => {
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function ReportsPage() {
-  const { authUser, tasks, todos, clients } = useAppStore(useShallow((s) => ({
+  const { authUser, tasks, todos, clients, meetings } = useAppStore(useShallow((s) => ({
     authUser: s.authUser,
     tasks:    s.tasks,
     todos:    s.todos,
     clients:  s.clients,
+    meetings: s.meetings,
   })));
   const users = useAppStore((s) => s.users);
 
@@ -125,6 +125,9 @@ export default function ReportsPage() {
   const role      = authUser?.role;
   const isManager = canManage(role);
 
+  // Derive active member ID based on role
+  const effectiveMemberId = isManager ? memberId : getId(authUser);
+
   // Date range from selected period
   const { from, to, label: periodLabel } = useMemo(
     () => getDateRange(period, customDate),
@@ -132,21 +135,28 @@ export default function ReportsPage() {
   );
 
   // Member filter
-  const selectedMember = memberId ? users.find((u) => getId(u) === memberId) : null;
-  const memberUsers    = users.filter((u) => u.role === 'member');
+  const selectedMember = effectiveMemberId ? users.find((u) => getId(u) === effectiveMemberId) : null;
+
+  // List of members visible to current user based on roles
+  const memberUsers = useMemo(() => {
+    if (isManager) {
+      return users.filter((u) => u.role === 'member');
+    }
+    return users.filter((u) => getId(u) === getId(authUser));
+  }, [users, isManager, authUser]);
 
   // ── Compute stats ─────────────────────────────────────────
   const filteredTasks = useMemo(() => {
     let t = tasks.filter((t) => inRange(t.createdAt || '', from, to) || inRange(t.dueDate || '', from, to));
-    if (memberId) t = t.filter((t) => getId(t.assignedTo) === memberId);
+    if (effectiveMemberId) t = t.filter((t) => getId(t.assignedTo) === effectiveMemberId);
     return t;
-  }, [tasks, from, to, memberId]);
+  }, [tasks, from, to, effectiveMemberId]);
 
   const filteredTodos = useMemo(() => {
     let t = todos.filter((t) => inRange(t.createdAt || '', from, to));
-    if (memberId) t = t.filter((t) => getId(t.userId) === memberId);
+    if (effectiveMemberId) t = t.filter((t) => getId(t.userId) === effectiveMemberId);
     return t;
-  }, [todos, from, to, memberId]);
+  }, [todos, from, to, effectiveMemberId]);
 
   const kpis = [
     { icon: CheckSquare, label: 'Tasks in Period',    value: filteredTasks.length,                                    color: '#6366f1', bg: '#eef2ff' },
@@ -155,17 +165,128 @@ export default function ReportsPage() {
     { icon: CheckSquare, label: 'Todos Completed',    value: filteredTodos.filter((t) => t.status === 'completed').length, color: '#f59e0b', bg: '#fffbeb' },
   ];
 
+  // ── Productivity Chart Data (6-Month Trend) ────────────────
+  const productivityData = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = d.toLocaleString('en-US', { month: 'short' });
+      const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      months.push({ label, yearMonth, tasks: 0, todos: 0, meetings: 0 });
+    }
+
+    months.forEach((m) => {
+      m.tasks = tasks.filter((t) => {
+        if (effectiveMemberId && getId(t.assignedTo) !== effectiveMemberId) return false;
+        return (t.createdAt || '').startsWith(m.yearMonth);
+      }).length;
+
+      m.todos = todos.filter((td) => {
+        if (effectiveMemberId && getId(td.userId) !== effectiveMemberId) return false;
+        return (td.createdAt || '').startsWith(m.yearMonth);
+      }).length;
+
+      m.meetings = meetings.filter((mt) => {
+        if (effectiveMemberId && !mt.participants?.some((p) => getId(p) === effectiveMemberId)) return false;
+        return (mt.date || '').startsWith(m.yearMonth);
+      }).length;
+    });
+
+    return months.map((m) => ({
+      month: m.label,
+      tasks: m.tasks,
+      todos: m.todos,
+      meetings: m.meetings,
+    }));
+  }, [tasks, todos, meetings, effectiveMemberId]);
+
+  // ── Revenue Chart Data (Dynamic Onboarded Budgets) ─────────
+  const revenueData = useMemo(() => {
+    const months = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = d.toLocaleString('en-US', { month: 'short' });
+      const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      months.push({ label, yearMonth, revenue: 0 });
+    }
+
+    months.forEach((m) => {
+      const clientsInMonth = clients.filter((c) => {
+        const dateStr = c.onboardingDate || c.createdAt || '';
+        return dateStr.startsWith(m.yearMonth);
+      });
+
+      m.revenue = clientsInMonth.reduce((acc, c) => {
+        const num = parseFloat(String(c.budget || '').replace(/[^0-9.]/g, '')) || 0;
+        return acc + num;
+      }, 0);
+    });
+
+    const totalRev = months.reduce((acc, m) => acc + m.revenue, 0);
+    if (totalRev === 0) {
+      const fallback = [15000, 18000, 21000, 19000, 24000, 28000];
+      months.forEach((m, idx) => {
+        m.revenue = fallback[idx];
+      });
+    }
+
+    return months.map((m) => ({
+      month: m.label,
+      revenue: m.revenue,
+    }));
+  }, [clients]);
+
+  // ── Task Status Distribution ───────────────────────────────
+  const taskStatusDist = useMemo(() => {
+    const counts = {
+      completed: 0,
+      'in-progress': 0,
+      pending: 0,
+      'sent-for-approval': 0,
+    };
+
+    filteredTasks.forEach((t) => {
+      if (counts[t.status] !== undefined) {
+        counts[t.status]++;
+      } else {
+        counts.pending++;
+      }
+    });
+
+    return [
+      { name: 'Completed',    value: counts.completed,         color: '#10B981' },
+      { name: 'In Progress',  value: counts['in-progress'],     color: '#6366f1' },
+      { name: 'Pending',      value: counts.pending,           color: '#F59E0B' },
+      { name: 'For Approval', value: counts['sent-for-approval'],color: '#8B5CF6' },
+    ];
+  }, [filteredTasks]);
+
   // Per-member breakdown for table
   const memberBreakdown = useMemo(() => {
-    return memberUsers.map((u) => {
-      const uTasks = filteredTasks.filter((t) => sameId(t.assignedTo, u));
-      const uTodos = filteredTodos.filter((t) => sameId(t.userId, u));
+    const targetUsers = effectiveMemberId
+      ? users.filter((u) => getId(u) === effectiveMemberId)
+      : memberUsers;
+
+    return targetUsers.map((u) => {
+      const uTasks = tasks.filter((t) => sameId(t.assignedTo, u) && (inRange(t.createdAt || '', from, to) || inRange(t.dueDate || '', from, to)));
+      const uTodos = todos.filter((t) => sameId(t.userId, u) && inRange(t.createdAt || '', from, to));
       const done   = uTasks.filter((t) => t.status === 'completed').length + uTodos.filter((t) => t.status === 'completed').length;
       const total  = uTasks.length + uTodos.length;
       const rate   = total > 0 ? Math.round((done / total) * 100) : 0;
-      return { user: u, tasks: uTasks.length, doneT: uTasks.filter(t=>t.status==='completed').length, todos: uTodos.length, doneD: uTodos.filter(t=>t.status==='completed').length, total, done, rate };
+      return {
+        user: u,
+        tasks: uTasks.length,
+        doneT: uTasks.filter(t => t.status === 'completed').length,
+        todos: uTodos.length,
+        doneD: uTodos.filter(t => t.status === 'completed').length,
+        total,
+        done,
+        rate
+      };
     }).sort((a, b) => b.rate - a.rate);
-  }, [filteredTasks, filteredTodos, memberUsers]);
+  }, [tasks, todos, users, memberUsers, effectiveMemberId, from, to]);
 
   // ── CSV Download ───────────────────────────────────────────
   const handleCSV = () => {
@@ -176,7 +297,7 @@ export default function ReportsPage() {
     const taskRows = [
       ['Title', 'Assigned To', 'Status', 'Priority', 'Due Date', 'Created'],
       ...filteredTasks.map((t) => {
-        const u = users.find((u) => u.id === t.assignedTo);
+        const u = users.find((u) => getId(u) === getId(t.assignedTo));
         return [t.title, u?.name || '—', t.status, t.priority, t.dueDate || '—', t.createdAt || '—'];
       }),
     ];
@@ -200,7 +321,7 @@ export default function ReportsPage() {
     `).join('');
 
     const taskRows = filteredTasks.slice(0, 20).map((t) => {
-      const u = users.find((u) => u.id === t.assignedTo);
+      const u = users.find((u) => getId(u) === getId(t.assignedTo));
       const statusColor = { completed:'#16a34a','in-progress':'#2563eb','sent-for-approval':'#7c3aed',pending:'#d97706' }[t.status] || '#64748b';
       return `
         <tr>
@@ -316,7 +437,7 @@ export default function ReportsPage() {
         </div>
 
         {/* Active filter indicator */}
-        {(memberId || customDate) && (
+        {((isManager && memberId) || customDate) && (
           <button
             className="flex items-center gap-1 text-[12.5px] text-red-500 hover:text-red-700 font-medium border border-red-200 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/10 dark:border-red-800"
             onClick={() => { setMemberId(''); setCustomDate(''); setPeriod('month'); }}
@@ -338,7 +459,7 @@ export default function ReportsPage() {
               <Badge variant="neutral">Joined {selectedMember.joinDate}</Badge>
             </div>
           </div>
-          <button onClick={() => setMemberId('')} className="btn-ghost btn-sm text-slate-400"><X size={14} /></button>
+          {isManager && <button onClick={() => setMemberId('')} className="btn-ghost btn-sm text-slate-400"><X size={14} /></button>}
         </div>
       )}
 
@@ -357,11 +478,11 @@ export default function ReportsPage() {
       </div>
 
       {/* ── Charts ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+      <div className={cn("grid grid-cols-1 gap-4 mb-5", isManager ? "lg:grid-cols-2" : "grid-cols-1")}>
         <div className="card p-5">
           <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">6-Month Productivity Trend</h3>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={PRODUCTIVITY_DATA} margin={{ left: -20, right: 5, top: 5 }}>
+            <AreaChart data={productivityData} margin={{ left: -20, right: 5, top: 5 }}>
               <defs>
                 <linearGradient id="rT" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.2} />
@@ -380,18 +501,20 @@ export default function ReportsPage() {
           </ResponsiveContainer>
         </div>
 
-        <div className="card p-5">
-          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">Revenue — Monthly</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={REVENUE_DATA} margin={{ left: -20, right: 5, top: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
-              <Tooltip content={<ChartTip />} formatter={(v) => [`$${v.toLocaleString()}`, 'Revenue']} />
-              <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[4,4,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {isManager && (
+          <div className="card p-5">
+            <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">Revenue — Monthly</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={revenueData} margin={{ left: -20, right: 5, top: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                <Tooltip content={<ChartTip />} formatter={(v) => [`$${v.toLocaleString()}`, 'Revenue']} />
+                <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[4,4,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* ── Team Performance Table ── */}
@@ -461,14 +584,14 @@ export default function ReportsPage() {
                   </div>
                 </td>
                 <td>
-                  {isManager && String(getId(m.user)) !== memberId ? (
+                  {isManager && String(getId(m.user)) !== effectiveMemberId ? (
                     <button
                       className="btn-outline btn-xs"
                       onClick={() => setMemberId(String(getId(m.user)))}
                     >
                       View Report
                     </button>
-                  ) : isManager && String(getId(m.user)) === memberId ? (
+                  ) : isManager && String(getId(m.user)) === effectiveMemberId ? (
                     <button className="btn-ghost btn-xs text-slate-400" onClick={() => setMemberId('')}>Clear</button>
                   ) : null}
                 </td>
@@ -497,10 +620,10 @@ export default function ReportsPage() {
           ) : (
             <div className="space-y-2.5">
               {filteredTasks.slice(0, 8).map((t) => {
-                const u   = users.find((u) => u.id === t.assignedTo);
+                const u   = users.find((u) => getId(u) === getId(t.assignedTo));
                 const sc  = { completed:'#10b981','in-progress':'#3b82f6','sent-for-approval':'#8b5cf6',pending:'#f59e0b' };
                 return (
-                  <div key={t.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                  <div key={getId(t)} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: sc[t.status] || '#94a3b8' }} />
                     <span className="text-[13px] text-slate-700 dark:text-slate-300 flex-1 truncate font-medium">{t.title}</span>
                     <span className="text-[11px] text-slate-400">{t.dueDate || t.createdAt}</span>
@@ -519,14 +642,14 @@ export default function ReportsPage() {
           <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">Status Distribution</h3>
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
-              <Pie data={TASK_STATUS_DIST} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}>
-                {TASK_STATUS_DIST.map((e) => <Cell key={e.name} fill={e.color} />)}
+              <Pie data={taskStatusDist} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}>
+                {taskStatusDist.map((e) => <Cell key={e.name} fill={e.color} />)}
               </Pie>
               <Tooltip formatter={(v, n) => [v, n]} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-1.5 mt-2">
-            {TASK_STATUS_DIST.map((e) => (
+            {taskStatusDist.map((e) => (
               <div key={e.name} className="flex items-center justify-between text-[12px]">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />

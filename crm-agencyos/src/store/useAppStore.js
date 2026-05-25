@@ -3,8 +3,9 @@ import { io }       from 'socket.io-client';
 import toast        from 'react-hot-toast';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
-  todosAPI, meetingsAPI, messagesAPI, worklogAPI,
+  todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI,
 } from '../services/api';
+import { MOCK_NOTIFICATIONS } from '../mockData';
 
 // ── Helpers ──────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -89,15 +90,25 @@ const useAppStore = create((set, get, store) => ({
   todos:      [],
   clients:    [],
   meetings:   [],
+  mySchedule: [],
+  revenueSummary: null,
   messages:   { channels: DEFAULT_CHANNELS, dms: [], threads: {} },
+  notifications: MOCK_NOTIFICATIONS,
   timer:      initialTimer(),
   sidebarOpen:true,
   darkMode:   false,
   loading:    false,
+  _loggingOut:false,
 
   // ── UI ─────────────────────────────────────────────────────
   toggleSidebar:  () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleDarkMode: () => set((s) => { const n=!s.darkMode; document.documentElement.classList.toggle('dark',n); return { darkMode:n }; }),
+  markAllRead: () => set((s) => ({
+    notifications: s.notifications.map((n) => ({ ...n, unread: false }))
+  })),
+  dismissNotification: (id) => set((s) => ({
+    notifications: s.notifications.filter((n) => n.id !== id)
+  })),
 
   // ══════════════════════════════════════════════════════════
   // AUTH
@@ -131,19 +142,26 @@ const useAppStore = create((set, get, store) => ({
   },
 
   logout: async () => {
-    const { authUser } = get();
-    try { await authAPI.logout(); } catch {}
-    localStorage.removeItem('crm_access_token');
+    // Guard against re-entrant calls (crm:logout event can re-trigger this)
+    if (get()._loggingOut) return;
+    set({ _loggingOut: true });
+
+    const { authUser, timer } = get();
+
+    // Make API calls BEFORE removing the token so they still have auth
     if (authUser) {
       // Sync final worklog
-      const { timer } = get();
       if (timer.workSeconds > 0) {
         worklogAPI.upsert({ date:timer.sessionDate||todayStr(), workSeconds:timer.workSeconds, sessionStart:timer.sessionStart, breaks:timer.breaks, active:false }).catch(()=>{});
       }
       worklogAPI.setActive(false).catch(()=>{});
     }
+    try { await authAPI.logout(); } catch {}
+
+    // NOW clear the token and state
+    localStorage.removeItem('crm_access_token');
     disconnectSocket();
-    set({ authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} } });
+    set({ _loggingOut: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: MOCK_NOTIFICATIONS });
   },
 
   // Restore session on page reload using stored token
@@ -191,6 +209,10 @@ const useAppStore = create((set, get, store) => ({
         messages: { ...get().messages, dms },
         loading:  false,
       });
+      await get().fetchMySchedule();
+      if (me?.role === 'admin' || me?.role === 'manager') {
+        await get().fetchRevenueSummary();
+      }
     } catch (err) {
       console.error('loadAllData error:', err.message);
       set({ loading:false });
@@ -307,8 +329,8 @@ const useAppStore = create((set, get, store) => ({
   // ══════════════════════════════════════════════════════════
   addMeeting: async (body) => {
     try {
-      const { data } = await meetingsAPI.create(body);
-      // Socket will push meeting:created
+      const { data } = await meetingsAPI.schedule(body);
+      await get().fetchMySchedule();
       return data.data;
     } catch (err) { toast.error(err.response?.data?.message || 'Failed to schedule meeting'); throw err; }
   },
@@ -324,6 +346,49 @@ const useAppStore = create((set, get, store) => ({
       await meetingsAPI.delete(id);
       set((s) => ({ meetings: s.meetings.filter((m) => getId(m)!==id) }));
     } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete meeting'); throw err; }
+  },
+  fetchMySchedule: async () => {
+    try {
+      const { data } = await meetingsAPI.getMySchedule();
+      set({ mySchedule: data.data || [] });
+    } catch (err) {
+      console.error('Error in fetchMySchedule Zustand:', err);
+    }
+  },
+  submitRSVP: async (invitationId, status) => {
+    try {
+      const { data } = await meetingsAPI.rsvp(invitationId, status);
+      set((s) => ({
+        mySchedule: s.mySchedule.map((item) =>
+          getId(item.invitationId) === invitationId
+            ? { ...item, rsvpStatus: status }
+            : item
+        )
+      }));
+      // Also update standard meeting status in main list if present
+      await get().loadAllData();
+      toast.success(`RSVP updated to ${status}!`);
+    } catch (err) {
+      toast.error('Failed to submit RSVP');
+    }
+  },
+  fetchRevenueSummary: async () => {
+    try {
+      const { data } = await revenueAPI.getSummary();
+      set({ revenueSummary: data.data });
+    } catch (err) {
+      console.error('Error in fetchRevenueSummary Zustand:', err);
+    }
+  },
+  recordRevenue: async (body) => {
+    try {
+      const { data } = await revenueAPI.record(body);
+      await get().fetchRevenueSummary();
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record revenue');
+      throw err;
+    }
   },
 
   // ══════════════════════════════════════════════════════════

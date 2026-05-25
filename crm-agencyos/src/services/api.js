@@ -30,8 +30,15 @@ api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const orig = err.config;
-    // Avoid refresh loop on /auth/refresh itself
-    if (err.response?.status === 401 && !orig._retry && !orig.url?.includes('/auth/refresh')) {
+    // Avoid refresh loop on /auth/refresh itself, login, or logout endpoints
+    const isAuthEndpoint = orig.url?.includes('/auth/refresh') || 
+                           orig.url?.includes('/auth/login') || 
+                           orig.url?.includes('/auth/logout');
+
+    // Also skip refresh if there's no token (already logged out)
+    const hasToken = !!localStorage.getItem('crm_access_token');
+
+    if (err.response?.status === 401 && !orig._retry && !isAuthEndpoint && hasToken) {
       if (refreshing) {
         return new Promise((resolve, reject) => queue.push({ resolve, reject }))
           .then((token) => { orig.headers.Authorization = `Bearer ${token}`; return api(orig); });
@@ -119,10 +126,13 @@ export const todosAPI = {
 // ── Meetings  (Section 7)
 // ─────────────────────────────────────────────────────────────
 export const meetingsAPI = {
-  getAll:  ()          => api.get('/meetings'),
-  create:  (body)      => api.post('/meetings',      body),
-  update:  (id, body)  => api.put(`/meetings/${id}`, body),
-  delete:  (id)        => api.delete(`/meetings/${id}`),
+  getAll:  ()                        => api.get('/meetings'),
+  create:  (body)                    => api.post('/meetings',      body),
+  schedule: (body)                   => api.post('/meetings/schedule', body),
+  update:  (id, body)                => api.put(`/meetings/${id}`, body),
+  delete:  (id)                      => api.delete(`/meetings/${id}`),
+  getMySchedule: ()                  => api.get('/meetings/my-schedule'),
+  rsvp:    (invitationId, status)    => api.put(`/meetings/rsvp/${invitationId}`, { status }),
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -137,6 +147,14 @@ export const messagesAPI = {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
   delete:     (id)                => api.delete(`/messages/${id}`),
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Revenue  (Section 9)
+// ─────────────────────────────────────────────────────────────
+export const revenueAPI = {
+  getSummary: () => api.get('/revenue/summary'),
+  record: (body) => api.post('/revenue/record', body),
 };
 
 // ─────────────────────────────────────────────────────────────

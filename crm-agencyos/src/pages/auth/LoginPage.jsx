@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { CheckSquare, BarChart3, Users, Zap, Loader2 } from 'lucide-react';
+import { CheckSquare, BarChart3, Users, Zap, Loader2, AlertCircle } from 'lucide-react';
 import useAppStore from '../../store/useAppStore';
 import { Input, Button } from '../../components/ui';
 import { cn, ROLE_CONFIG } from '../../utils/helpers';
 
 // Demo account quick-login buttons (credentials match seeded data)
 const DEMO = [
+  // { name:'Tejash Yadav',  email:'tejash@gmail.com',   password:'tejash',     role:'admin',   initials:'TY', color:'#6366F1', desc:'Your custom admin access' },
   { name:'Alex Johnson',  email:'admin@agency.com',   password:'admin123',   role:'admin',   initials:'AJ', color:'#7C3AED', desc:'Full system access'    },
   { name:'Sarah Chen',    email:'manager@agency.com', password:'manager123', role:'manager', initials:'SC', color:'#0EA5E9', desc:'Team & project access'  },
   { name:'Mike Davis',    email:'member@agency.com',  password:'member123',  role:'member',  initials:'MD', color:'#10B981', desc:'Member access + timer'  },
@@ -27,14 +28,24 @@ export default function LoginPage() {
   const login    = useAppStore((s) => s.login);
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const { register, handleSubmit, setValue, formState: { errors } } = useForm();
 
   const doLogin = async (email, password) => {
-    const result = await login(email, password);
-    if (result.success) {
-      toast.success(`Welcome back, ${result.user.name.split(' ')[0]}!`);
-      navigate('/dashboard');
+    setErrorMsg('');
+    try {
+      const result = await login(email, password);
+      if (result.success) {
+        toast.success(`Welcome back, ${result.user.name.split(' ')[0]}!`);
+        navigate('/dashboard');
+        return true;
+      }
+      setErrorMsg(result.message || 'Invalid email or password');
+      return false;
+    } catch {
+      setErrorMsg('Login failed — is the backend running?');
+      return false;
     }
   };
 
@@ -95,6 +106,17 @@ export default function LoginPage() {
 
           <h2 className="text-[26px] font-bold text-slate-900 dark:text-white mb-1.5">Sign in</h2>
           <p className="text-slate-500 dark:text-slate-400 text-[14px] mb-7">Use a demo account or enter your credentials</p>
+
+          {errorMsg && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-5 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 text-[12.5px] text-red-600 dark:text-red-400 font-semibold flex items-start gap-2.5 shadow-sm"
+            >
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </motion.div>
+          )}
 
           {/* Demo accounts */}
           <div className="space-y-2.5 mb-6">

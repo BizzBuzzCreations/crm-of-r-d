@@ -9,7 +9,7 @@ import {
   Page, Button, PriorityBadge, Avatar, Modal, Input, Select,
   Textarea, EmptyState, ConfirmDialog, DropdownMenu,
 } from '../components/ui';
-import { cn, PRIORITY_CONFIG, canManage, truncate } from '../utils/helpers';
+import { cn, PRIORITY_CONFIG, canManage, truncate, getId, sameId } from '../utils/helpers';
 
 const MEMBER_STATUSES = [
   { id: 'pending',           label: 'Pending',      color: '#f59e0b', bg: '#fffbeb' },
@@ -121,9 +121,9 @@ function TodoCard({ todo, users, role, onMove, onApprove, onDelete }) {
   const targets   = cols.filter((c) => c.id !== todo.status);
 
   const menuItems = [
-    ...targets.map((c) => ({ label: `Move → ${c.label}`, onClick: () => onMove(todo.id, { status: c.id }) })),
+    ...targets.map((c) => ({ label: `Move → ${c.label}`, onClick: () => onMove(getId(todo), { status: c.id }) })),
     ...(targets.length ? [{ separator: true }] : []),
-    { label: 'Delete', icon: Trash2, danger: true, onClick: () => onDelete(todo.id) },
+    { label: 'Delete', icon: Trash2, danger: true, onClick: () => onDelete(getId(todo)) },
   ];
 
   return (
@@ -151,7 +151,7 @@ function TodoCard({ todo, users, role, onMove, onApprove, onDelete }) {
         )}
       </div>
       {isManager && todo.status === 'sent-for-approval' && (
-        <button onClick={() => onApprove(todo.id)} className="btn-success btn-sm w-full justify-center mt-2.5">
+        <button onClick={() => onApprove(getId(todo))} className="btn-success btn-sm w-full justify-center mt-2.5">
           <Check size={12} /> Approve & Mark Done
         </button>
       )}
@@ -195,7 +195,10 @@ export default function TodosPage() {
     if (filters.status   && t.status   !== filters.status)   return false;
     if (filters.memberId && isManager && getId(t.userId) !== filters.memberId) return false;
     // Date filter: matches createdAt (the date the todo was logged)
-    if (filters.date && t.createdAt?.split?.('T')?.[0]||t.createdAt !== filters.date) return false;
+    if (filters.date) {
+      const todoDate = t.createdAt?.split?.('T')?.[0] || t.createdAt;
+      if (todoDate !== filters.date) return false;
+    }
     return true;
   });
 

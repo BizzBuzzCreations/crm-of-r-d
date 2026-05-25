@@ -55,18 +55,41 @@ const TodoSchema = new mongoose.Schema({
 
 // ── Meeting ───────────────────────────────────────────────────
 const MeetingSchema = new mongoose.Schema({
-  title:       { type: String, required: [true,'Title is required'], trim: true },
-  type:        { type: String, enum: ['client','internal','lead'], default: 'internal' },
-  date:        { type: String, required: [true,'Date is required'] },
-  time:        { type: String, required: [true,'Time is required'] },
-  duration:    { type: String, default: '60 min' },
-  status:      { type: String, enum: ['upcoming','completed'], default: 'upcoming' },
-  participants:[{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
-  location:    { type: String, default: '' },
-  notes:       { type: String, default: '' },
-  meetingLink: { type: String, default: '' },
-  createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  title:         { type: String, required: [true,'Title is required'], trim: true },
+  description:   { type: String, default: '' },
+  type:          { type: String, enum: ['client','internal','lead'], default: 'internal' },
+  date:          { type: String, default: '' }, // Made optional to support general schedulers
+  time:          { type: String, default: '' }, // Made optional
+  duration:      { type: String, default: '60 min' },
+  startTime:     { type: Date },
+  endTime:       { type: Date },
+  status:        { type: String, enum: ['upcoming','completed'], default: 'upcoming' },
+  participants:  [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  clientId:      { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
+  location:      { type: String, default: '' },
+  notes:         { type: String, default: '' },
+  meetingLink:   { type: String, default: '' },
+  createdBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  emergencyFlag: { type: Boolean, default: false },
+}, { timestamps: true });
+
+// ── MeetingInvitation ──────────────────────────────────────────
+const MeetingInvitationSchema = new mongoose.Schema({
+  meetingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Meeting', required: true },
+  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  status:    { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
+}, { timestamps: true });
+
+MeetingInvitationSchema.index({ meetingId: 1, userId: 1 }, { unique: true });
+
+// ── Revenue ───────────────────────────────────────────────────
+const RevenueSchema = new mongoose.Schema({
+  amount:      { type: Number, required: [true, 'Amount is required'] },
+  currency:    { type: String, default: 'INR' },
+  source:      { type: String, required: [true, 'Source is required'] },
+  status:      { type: String, enum: ['pending', 'received', 'refunded'], default: 'pending' },
+  processedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  date:        { type: Date, default: Date.now },
 }, { timestamps: true });
 
 // ── Message ───────────────────────────────────────────────────
@@ -108,10 +131,12 @@ const WorkLogSchema = new mongoose.Schema({
 WorkLogSchema.index({ userId: 1, date: -1 });
 
 module.exports = {
-  Client:  mongoose.model('Client',  ClientSchema),
-  Task:    mongoose.model('Task',    TaskSchema),
-  Todo:    mongoose.model('Todo',    TodoSchema),
-  Meeting: mongoose.model('Meeting', MeetingSchema),
-  Message: mongoose.model('Message', MessageSchema),
-  WorkLog: mongoose.model('WorkLog', WorkLogSchema),
+  Client:            mongoose.model('Client',            ClientSchema),
+  Task:              mongoose.model('Task',              TaskSchema),
+  Todo:              mongoose.model('Todo',              TodoSchema),
+  Meeting:           mongoose.model('Meeting',           MeetingSchema),
+  MeetingInvitation: mongoose.model('MeetingInvitation', MeetingInvitationSchema),
+  Revenue:           mongoose.model('Revenue',           RevenueSchema),
+  Message:           mongoose.model('Message',           MessageSchema),
+  WorkLog:           mongoose.model('WorkLog',           WorkLogSchema),
 };

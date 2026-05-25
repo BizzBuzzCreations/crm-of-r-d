@@ -35,6 +35,7 @@ app.use('/api/meetings', require('./routes/meetings'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/reports',  require('./routes/reports'));
 app.use('/api/worklog',  require('./routes/worklog'));
+app.use('/api/revenue',  require('./routes/revenue'));
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {

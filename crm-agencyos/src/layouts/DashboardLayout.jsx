@@ -1,5 +1,4 @@
 import { Outlet } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import useAppStore from '../store/useAppStore';
@@ -18,22 +17,6 @@ export default function DashboardLayout() {
           </main>
         </div>
       </div>
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          duration: 3000,
-          style: {
-            background: '#0f172a',
-            color: '#f8fafc',
-            fontSize: '13.5px',
-            fontFamily: '"DM Sans", system-ui, sans-serif',
-            borderRadius: '10px',
-            padding: '12px 16px',
-          },
-          success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
-          error:   { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
-        }}
-      />
     </div>
   );
 }
