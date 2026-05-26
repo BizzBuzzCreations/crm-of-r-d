@@ -224,14 +224,6 @@ export default function ReportsPage() {
       }, 0);
     });
 
-    const totalRev = months.reduce((acc, m) => acc + m.revenue, 0);
-    if (totalRev === 0) {
-      const fallback = [15000, 18000, 21000, 19000, 24000, 28000];
-      months.forEach((m, idx) => {
-        m.revenue = fallback[idx];
-      });
-    }
-
     return months.map((m) => ({
       month: m.label,
       revenue: m.revenue,
