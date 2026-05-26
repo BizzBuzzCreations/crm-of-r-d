@@ -4,11 +4,23 @@ const { Message, Task, Todo, WorkLog } = require('../models/index');
 // ═══════════════════════════════════════════════════
 // MESSAGES
 // ═══════════════════════════════════════════════════
+const getCanonicalThreadId = (threadId, reqUser) => {
+  if (threadId && threadId.startsWith('dm-')) {
+    const otherUserId = threadId.replace('dm-', '');
+    const myId = String(reqUser._id || reqUser.id);
+    const sorted = [myId, otherUserId].sort();
+    return `dm-${sorted[0]}-${sorted[1]}`;
+  }
+  return threadId;
+};
+
 exports.getThreadMessages = async (req, res, next) => {
   try {
     const { threadId } = req.params;
-    const messages = await Message.find({ threadId })
+    const canonicalId = getCanonicalThreadId(threadId, req.user);
+    const messages = await Message.find({ threadId: canonicalId })
       .populate('userId', 'name color initials status')
+      .populate('reactions.userId', 'name')
       .sort({ createdAt: 1 })
       .limit(200);
     res.json({ success: true, data: messages });
@@ -18,6 +30,7 @@ exports.getThreadMessages = async (req, res, next) => {
 exports.sendMessage = async (req, res, next) => {
   try {
     const { threadId } = req.params;
+    const canonicalId = getCanonicalThreadId(threadId, req.user);
     const { text } = req.body;
 
     // Handle file attachments
@@ -34,7 +47,7 @@ exports.sendMessage = async (req, res, next) => {
     }
 
     const msg = await Message.create({
-      threadId,
+      threadId: canonicalId,
       userId: req.user._id,
       text:   text?.trim() || '',
       attachments,
@@ -42,7 +55,7 @@ exports.sendMessage = async (req, res, next) => {
     const populated = await msg.populate('userId', 'name color initials status');
 
     // Emit via socket
-    req.app.get('io')?.to(threadId).emit('message:new', populated);
+    req.app.get('io')?.to(canonicalId).emit('message:new', populated);
 
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
@@ -59,10 +72,12 @@ exports.deleteMessage = async (req, res, next) => {
     }
 
     const { threadId } = msg;
-    await msg.deleteOne();
+    msg.isDeleted = true;
+    await msg.save();
+
     req.app.get('io')?.to(threadId).emit('message:deleted', { id: req.params.id, threadId });
 
-    res.json({ success: true, message: 'Message deleted' });
+    res.json({ success: true, message: 'Message deleted', data: msg });
   } catch (err) { next(err); }
 };
 
@@ -152,10 +167,10 @@ exports.getWorkLog = async (req, res, next) => {
 
 exports.upsertWorkLog = async (req, res, next) => {
   try {
-    const { date, workSeconds, sessionStart, breaks, active } = req.body;
+    const { date, workSeconds, sessionStart, breaks, active, targetSeconds } = req.body;
     const log = await WorkLog.findOneAndUpdate(
       { userId: req.user._id, date },
-      { userId: req.user._id, date, workSeconds, sessionStart, breaks, active },
+      { userId: req.user._id, date, workSeconds, sessionStart, breaks, active, targetSeconds },
       { upsert: true, new: true, runValidators: true }
     ).populate('userId', 'name color initials status');
     res.json({ success: true, data: log });
@@ -171,5 +186,33 @@ exports.setUserActive = async (req, res, next) => {
       { upsert: true }
     );
     res.json({ success: true });
+  } catch (err) { next(err); }
+};
+
+exports.toggleReaction = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { emoji = '👍' } = req.body;
+    const myId = req.user._id;
+
+    const msg = await Message.findById(id);
+    if (!msg) return res.status(404).json({ success: false, message: 'Message not found' });
+
+    if (!msg.reactions) msg.reactions = [];
+    const existingIdx = msg.reactions.findIndex((r) => String(r.userId) === String(myId) && r.emoji === emoji);
+    if (existingIdx >= 0) {
+      msg.reactions.splice(existingIdx, 1);
+    } else {
+      msg.reactions.push({ userId: myId, emoji });
+    }
+    await msg.save();
+
+    const populated = await Message.findById(id)
+      .populate('userId', 'name color initials status')
+      .populate('reactions.userId', 'name');
+
+    req.app.get('io')?.to(msg.threadId).emit('message:updated', populated);
+
+    res.json({ success: true, data: populated });
   } catch (err) { next(err); }
 };

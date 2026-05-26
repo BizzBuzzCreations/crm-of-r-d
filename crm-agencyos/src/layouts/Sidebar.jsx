@@ -34,6 +34,7 @@ function MemberTimer({ open }) {
   const [showCustom,    setShowCustom]    = useState(false);
   const [customMins,    setCustomMins]    = useState('15');
   const [customReason,  setCustomReason]  = useState('');
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
 
   // ── Master tick using getState() to avoid stale closure ──────
   useEffect(() => {
@@ -48,10 +49,11 @@ function MemberTimer({ open }) {
 
   // ── Derived ───────────────────────────────────────────────
   const workSecs    = timer?.workSeconds || 0;
-  const pct         = Math.min(100, (workSecs / WORK_TARGET_S) * 100);
-  const leftSecs    = Math.max(0, WORK_TARGET_S - workSecs);
+  const targetSecs  = timer?.targetSeconds || (9 * 3600);
+  const pct         = Math.min(100, (workSecs / targetSecs) * 100);
+  const leftSecs    = Math.max(0, targetSecs - workSecs);
   const leftHrs     = (leftSecs / 3600).toFixed(1);
-  const workDone    = workSecs >= WORK_TARGET_S;
+  const workDone    = workSecs >= targetSecs;
 
   const brk         = timer?.currentBreak;
   const breakRemain = brk ? Math.max(0, brk.totalSeconds - brk.elapsedSeconds) : 0;
@@ -140,14 +142,46 @@ function MemberTimer({ open }) {
           <div className="font-mono text-[22px] font-bold text-white tracking-tight leading-none">
             {fmtHMS(workSecs)}
           </div>
-          <div className="text-right">
-            {workDone ? (
-              <div className="text-[11px] font-bold text-emerald-400 mt-0.5">✓ Goal met!</div>
+          <div className="text-right flex flex-col items-end justify-center min-h-[34px]">
+            {isEditingTarget ? (
+              <select
+                value={Math.round(targetSecs / 3600)}
+                onChange={(e) => {
+                  const hrs = parseInt(e.target.value, 10);
+                  if (hrs >= 1 && hrs <= 24) {
+                    useAppStore.getState().updateTargetSeconds(hrs * 3600);
+                  }
+                  setIsEditingTarget(false);
+                }}
+                onBlur={() => setIsEditingTarget(false)}
+                autoFocus
+                className="bg-slate-800 text-white border border-slate-700/60 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 font-semibold cursor-pointer max-w-[90px]"
+              >
+                {[...Array(24)].map((_, i) => (
+                  <option key={i+1} value={i+1}>{i+1}h target</option>
+                ))}
+              </select>
             ) : (
-              <>
-                <div className="text-[12px] font-bold text-white">{leftHrs}h left</div>
-                <div className="text-[9.5px] text-slate-500 mt-0.5">of 7h target</div>
-              </>
+              <div
+                onClick={() => setIsEditingTarget(true)}
+                className="group cursor-pointer text-right select-none"
+                title="Click to adjust daily target time"
+              >
+                {workDone ? (
+                  <div className="text-[11px] font-bold text-emerald-400 mt-0.5 flex items-center justify-end gap-1">
+                    ✓ Goal met!
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[9px] text-slate-400">✏️</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-[12px] font-bold text-white transition-colors group-hover:text-indigo-300">{leftHrs}h left</div>
+                    <div className="text-[9.5px] text-slate-500 mt-0.5 flex items-center justify-end gap-0.5 transition-colors group-hover:text-indigo-400">
+                      of {Math.round(targetSecs / 3600)}h target
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[8px]">✏️</span>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -164,7 +198,7 @@ function MemberTimer({ open }) {
           </div>
         )}
 
-        {/* Progress bar: 0h — % — 7h */}
+        {/* Progress bar: 0h — % — target */}
         {!timer?.breakActive && (
           <div className="mb-3">
             <div className="h-1.5 rounded-full overflow-hidden mb-1.5" style={{ background: 'rgba(255,255,255,0.1)' }}>
@@ -179,7 +213,7 @@ function MemberTimer({ open }) {
             <div className="flex items-center justify-between text-[10px] text-slate-500">
               <span>0h</span>
               <span>{pct.toFixed(0)}%</span>
-              <span>7h</span>
+              <span>{Math.round(targetSecs / 3600)}h</span>
             </div>
           </div>
         )}

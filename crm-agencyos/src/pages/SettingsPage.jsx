@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock } from 'lucide-react';
@@ -125,15 +125,26 @@ function ProfileSection({ user }) {
 // Security section
 // ─────────────────────────────────────────────────────────────
 function SecuritySection() {
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm();
+  const [loading, setLoading] = useState(false);
+  const { register, handleSubmit, reset, formState: { errors } } = useForm({
+    defaultValues: { currentPwd: '', newPwd: '', confirmPwd: '' },
+  });
+  const changePassword = useAppStore((s) => s.changePassword);
 
-  const onSubmit = (data) => {
+  const onSubmit = async (data) => {
     if (data.newPwd !== data.confirmPwd) {
       toast.error('Passwords do not match');
       return;
     }
-    toast.success('Password updated successfully!');
-    reset();
+    setLoading(true);
+    try {
+      const res = await changePassword(data.currentPwd, data.newPwd);
+      if (res.success) {
+        reset();
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -173,8 +184,13 @@ function SecuritySection() {
           />
         </div>
 
-        <Button variant="primary" type="submit">
-          <Lock size={14} /> Update Password
+        <Button variant="primary" type="submit" disabled={loading}>
+          {loading ? (
+            <RefreshCw size={14} className="animate-spin mr-1.5" />
+          ) : (
+            <Lock size={14} className="mr-1.5" />
+          )}
+          {loading ? 'Updating…' : 'Update Password'}
         </Button>
       </form>
     </div>
@@ -325,56 +341,58 @@ function DataSection() {
 function WorkLogSection({ authUser, users }) {
   const isManager   = canManage(authUser?.role);
   const [filterUser, setFilterUser] = useState('all');
-  const getWorkLog = useAppStore((s) => s.getWorkLog);
   const fetchWorkLog = useAppStore((s) => s.fetchWorkLog);
+  const [dbLogs, setDbLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  // Build rows: for each user, load their worklog from localStorage
-  const allRows = useMemo(() => {
-    const targetUsers = isManager
-      ? users
-      : users.filter((u) => sameId(u, authUser));
-
-    const rows = [];
-    targetUsers.forEach((u) => {
-      const log = getWorkLog(u.id); // array of {date, workSeconds, breaks, sessionStart}
-      if (log.length === 0) {
-        // No log yet, check live timer for this user
-        rows.push({
-          user: u,
-          date: null,
-          workSeconds: 0,
-          breaks: [],
-          isToday: false,
-        });
-      } else {
-        log.forEach((entry) => {
-          rows.push({
-            user:       u,
-            date:       entry.date,
-            workSeconds:entry.workSeconds || 0,
-            breaks:     entry.breaks     || [],
-            isToday:    entry.date === new Date().toISOString().split('T')[0],
-          });
-        });
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const data = await fetchWorkLog();
+        if (active) setDbLogs(data || []);
+      } catch (err) {
+        console.error('Failed to fetch work logs from backend', err);
+      } finally {
+        if (active) setLoading(false);
       }
+    };
+    load();
+    return () => { active = false; };
+  }, [fetchWorkLog]);
+
+  // Build rows from database work logs
+  const allRows = useMemo(() => {
+    const rows = [];
+    dbLogs.forEach((log) => {
+      const u = users.find((usr) => sameId(usr, log.userId));
+      if (!u) return;
+
+      if (!isManager && !sameId(u, authUser)) return;
+
+      rows.push({
+        user:          u,
+        date:          log.date,
+        workSeconds:   log.workSeconds || 0,
+        breaks:        log.breaks || [],
+        isToday:       log.date === new Date().toISOString().split('T')[0],
+        targetSeconds: log.targetSeconds || (9 * 3600),
+      });
     });
 
     // Sort: active today first, then by date desc
-    return rows
-      .filter((r) => r.date)
-      .sort((a, b) => {
-        if (a.isToday && !b.isToday) return -1;
-        if (!a.isToday && b.isToday) return 1;
-        return (b.date || '').localeCompare(a.date || '');
-      });
-  }, [users, authUser, isManager]);
+    return rows.sort((a, b) => {
+      if (a.isToday && !b.isToday) return -1;
+      if (!a.isToday && b.isToday) return 1;
+      return (b.date || '').localeCompare(a.date || '');
+    });
+  }, [dbLogs, users, authUser, isManager]);
 
   const filtered = useMemo(() => {
     if (!isManager || filterUser === 'all') return allRows;
     return allRows.filter((r) => String(r.user.id) === filterUser);
   }, [allRows, filterUser, isManager]);
-
-  const WORK_TARGET_S = 7 * 3600;
 
   return (
     <div>
@@ -420,7 +438,8 @@ function WorkLogSection({ authUser, users }) {
             <tbody>
               {filtered.map((row, i) => {
                 const isActive   = sameId(row.user, authUser) && row.isToday;
-                const pct        = Math.min(100, (row.workSeconds / WORK_TARGET_S) * 100);
+                const target     = row.targetSeconds || (9 * 3600);
+                const pct        = Math.min(100, (row.workSeconds / target) * 100);
                 const lunchSecs  = breakTotal(row.breaks, 'lunch');
                 const teaSecs    = breakTotal(row.breaks, 'tea');
                 const customSecs = breakTotal(row.breaks, 'custom');

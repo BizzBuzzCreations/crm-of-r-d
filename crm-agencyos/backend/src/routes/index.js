@@ -81,6 +81,7 @@ messagesRouter.use(protect);
 messagesRouter.get('/:threadId',  xtra.getThreadMessages);
 messagesRouter.post('/:threadId', upload.array('files', 5), xtra.sendMessage);
 messagesRouter.delete('/:id',     xtra.deleteMessage);
+messagesRouter.post('/:id/react', xtra.toggleReaction);
 module.exports.messages = messagesRouter;
 
 // ── Reports routes ────────────────────────────────────────────

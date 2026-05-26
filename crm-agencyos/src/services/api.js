@@ -147,6 +147,7 @@ export const messagesAPI = {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
   delete:     (id)                => api.delete(`/messages/${id}`),
+  react:      (id, emoji = '👍')  => api.post(`/messages/${id}/react`, { emoji }),
 };
 
 // ─────────────────────────────────────────────────────────────

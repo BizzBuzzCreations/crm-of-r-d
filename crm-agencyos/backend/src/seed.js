@@ -591,6 +591,7 @@ async function seed() {
           breaks: [
             { type: 'lunch', reason: 'Team lunch', planned: 3600, actual: 3720, endedAt: '01:00 PM' }
           ],
+          targetSeconds: 9 * 3600,
           createdAt:    daysAgo(day)
         });
       });

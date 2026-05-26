@@ -2,18 +2,36 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Hash, MessageCircle, Send, Trash2, Search, Paperclip,
-  X, FileText, ImageIcon, Film, File, Download, Loader2,
+  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
-import { Page, Avatar } from '../components/ui';
+import { Page, Avatar, Modal, Badge } from '../components/ui';
 import { messagesAPI } from '../services/api';
 import { cn, getId, sameId } from '../utils/helpers';
 
 // ── File helpers ──────────────────────────────────────────────
-function fileIconCfg(type='') {
-  if (type.startsWith('image/')) return { icon:ImageIcon, color:'#8b5cf6', bg:'#f5f3ff' };
-  if (type.startsWith('video/')) return { icon:Film,      color:'#ef4444', bg:'#fef2f2' };
+const IMG_EXTS = /\.(jpe?g|png|gif|webp|svg|bmp|ico|tiff?)$/i;
+const VID_EXTS = /\.(mp4|mov|webm|avi|mkv)$/i;
+
+function isImageFile(att) {
+  if ((att.type||'').startsWith('image/')) return true;
+  if (att.name && IMG_EXTS.test(att.name)) return true;
+  if (att.filename && IMG_EXTS.test(att.filename)) return true;
+  if (att.url && IMG_EXTS.test(att.url)) return true;
+  return false;
+}
+
+function isVideoFile(att) {
+  if ((att.type||'').startsWith('video/')) return true;
+  if (att.name && VID_EXTS.test(att.name)) return true;
+  return false;
+}
+
+function fileIconCfg(att) {
+  const type = typeof att === 'string' ? att : (att?.type || '');
+  if (isImageFile(typeof att === 'object' ? att : { type })) return { icon:ImageIcon, color:'#8b5cf6', bg:'#f5f3ff' };
+  if (isVideoFile(typeof att === 'object' ? att : { type })) return { icon:Film,      color:'#ef4444', bg:'#fef2f2' };
   if (type==='application/pdf')  return { icon:FileText,  color:'#ef4444', bg:'#fef2f2' };
   if (type.includes('sheet')||type.includes('csv')) return { icon:FileText, color:'#16a34a', bg:'#ecfdf5' };
   return { icon:File, color:'#6366f1', bg:'#eef2ff' };
@@ -21,7 +39,7 @@ function fileIconCfg(type='') {
 function fmtSize(b) { if(b<1024) return `${b} B`; if(b<1048576) return `${(b/1024).toFixed(1)} KB`; return `${(b/1048576).toFixed(1)} MB`; }
 
 function AttachmentPill({ att, onRemove }) {
-  const { icon:Icon, color, bg } = fileIconCfg(att.type);
+  const { icon:Icon, color, bg } = fileIconCfg(att);
   return (
     <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-[12px]">
       <div className="w-6 h-6 rounded flex items-center justify-center flex-shrink-0" style={{background:bg}}><Icon size={12} style={{color}}/></div>
@@ -31,30 +49,89 @@ function AttachmentPill({ att, onRemove }) {
   );
 }
 
+function handleDownload(url, filename) {
+  fetch(url)
+    .then((res) => res.blob())
+    .then((blob) => {
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'download';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 100);
+    })
+    .catch(() => { window.open(url, '_blank'); });
+}
+
 function AttachmentCard({ att, isMe }) {
-  const { icon:Icon, color, bg } = fileIconCfg(att.type||'');
-  const isImg = (att.type||'').startsWith('image/');
+  const { icon:Icon, color, bg } = fileIconCfg(att);
+  const isImg = isImageFile(att);
   const base  = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
   const url   = att.url?.startsWith('http') ? att.url : `${base}${att.url}`;
+  const [preview, setPreview] = useState(false);
   return (
-    <div className={cn('mt-1.5 rounded-xl overflow-hidden border max-w-[240px]', isMe?'border-white/20 bg-white/10':'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700')}>
-      {isImg ? (
-        <div><img src={url} alt={att.name} className="w-full max-h-[180px] object-cover cursor-pointer" onClick={()=>window.open(url,'_blank')}/>
-          <div className="flex items-center justify-between px-2.5 py-1.5">
-            <span className={cn('text-[11px] truncate max-w-[150px]',isMe?'text-white/80':'text-slate-500')}>{att.name}</span>
-            <a href={url} download={att.name} className={cn('ml-2',isMe?'text-white/70':'text-indigo-500')}><Download size={12}/></a>
-          </div></div>
-      ) : (
-        <div className="flex items-center gap-2.5 p-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{background:isMe?'rgba(255,255,255,0.15)':bg}}><Icon size={15} style={{color:isMe?'#fff':color}}/></div>
-          <div className="flex-1 min-w-0">
-            <p className={cn('text-[12px] font-medium truncate',isMe?'text-white':'text-slate-700 dark:text-slate-300')}>{att.name}</p>
-            <p className={cn('text-[10.5px]',isMe?'text-white/60':'text-slate-400')}>{fmtSize(att.size||0)}</p>
+    <>
+      {preview && (
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setPreview(false)}
+        >
+          <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <img src={url} alt={att.name} className="max-w-full max-h-[80vh] rounded-xl object-contain shadow-2xl"/>
+            <div className="flex items-center justify-between mt-3 px-1">
+              <span className="text-white/80 text-[12px] truncate max-w-[300px]">{att.name}</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDownload(url, att.name); }}
+                  className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-[12px] font-medium px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <Download size={13}/> Download
+                </button>
+                <button onClick={() => setPreview(false)} className="bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-lg transition-colors">
+                  <X size={14}/>
+                </button>
+              </div>
+            </div>
           </div>
-          <a href={url} download={att.name} className={cn('flex-shrink-0',isMe?'text-white/70 hover:text-white':'text-indigo-500 hover:text-indigo-700')}><Download size={13}/></a>
         </div>
       )}
-    </div>
+      <div className={cn(
+        'mt-1.5 rounded-xl overflow-hidden border max-w-[240px]',
+        isMe
+          ? 'border-indigo-300 dark:border-white/20 bg-indigo-50 dark:bg-white/10'
+          : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700'
+      )}>
+        {isImg ? (
+          <div>
+            <img
+              src={url}
+              alt={att.name}
+              className="w-full max-h-[180px] object-cover cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => setPreview(true)}
+            />
+            <div className="flex items-center justify-between px-2.5 py-1.5">
+              <span className={cn('text-[11px] truncate max-w-[150px]', isMe ? 'text-indigo-800 dark:text-white/80' : 'text-slate-600 dark:text-slate-400')}>{att.name}</span>
+              <button onClick={() => handleDownload(url, att.name)} className={cn('ml-2', isMe ? 'text-indigo-600 dark:text-white/70 hover:text-indigo-800 dark:hover:text-white' : 'text-indigo-500 hover:text-indigo-700')}><Download size={12}/></button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 p-2.5">
+            <div
+              className={cn('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', isMe && 'bg-indigo-100 dark:bg-white/[0.15]')}
+              style={isMe ? undefined : { background: bg }}
+            >
+              <Icon size={15} className={isMe ? 'text-indigo-600 dark:text-white' : ''} style={isMe ? undefined : { color }}/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={cn('text-[12px] font-medium truncate', isMe ? 'text-indigo-900 dark:text-white' : 'text-slate-700 dark:text-slate-300')}>{att.name}</p>
+              <p className={cn('text-[10.5px]', isMe ? 'text-indigo-500 dark:text-white/60' : 'text-slate-400')}>{fmtSize(att.size||0)}</p>
+            </div>
+            <button onClick={() => handleDownload(url, att.name)} className={cn('flex-shrink-0', isMe ? 'text-indigo-500 dark:text-white/70 hover:text-indigo-700 dark:hover:text-white' : 'text-indigo-500 hover:text-indigo-700')}><Download size={13}/></button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -73,9 +150,11 @@ function TypingDots({ names }) {
 }
 
 export default function MessagesPage() {
-  const { authUser, messages, sendMessage, deleteMessage, loadThread, leaveThread, emitTypingStart, emitTypingStop } = useAppStore(useShallow((s) => ({
+  const { authUser, messages, activeThread, setActiveThread, sendMessage, deleteMessage, loadThread, leaveThread, emitTypingStart, emitTypingStop } = useAppStore(useShallow((s) => ({
     authUser:       s.authUser,
     messages:       s.messages,
+    activeThread:   s.activeThread,
+    setActiveThread:s.setActiveThread,
     sendMessage:    s.sendMessage,
     deleteMessage:  s.deleteMessage,
     loadThread:     s.loadThread,
@@ -85,16 +164,19 @@ export default function MessagesPage() {
   })));
   const users = useAppStore((s) => s.users);
 
-  const [activeThread,  setActiveThread]  = useState('general');
-  const [localMsgs,     setLocalMsgs]     = useState([]);
   const [loadingMsgs,   setLoadingMsgs]   = useState(false);
   const [input,         setInput]         = useState('');
   const [search,        setSearch]        = useState('');
+  const [msgSearch,     setMsgSearch]     = useState('');
   const [hoveredMsg,    setHoveredMsg]    = useState(null);
   const [pendingFiles,  setPendingFiles]  = useState([]);
   const [sending,       setSending]       = useState(false);
+  const [showNewDM,     setShowNewDM]     = useState(false);
+  const [dmSearch,      setDmSearch]      = useState('');
   const [typingNames,   setTypingNames]   = useState([]);  // users typing in current thread
   const [onlineIds,     setOnlineIds]     = useState(new Set());
+
+  const localMsgs = messages.threads[activeThread] || [];
 
   const endRef      = useRef(null);
   const fileRef     = useRef(null);
@@ -106,47 +188,44 @@ export default function MessagesPage() {
   useEffect(() => {
     const { onTypingStart, onTypingStop } = useAppStore.getState();
     const cleanStart = onTypingStart?.((data) => {
-      if (data.threadId !== activeThread) return;
+      let tid = data.threadId;
       const myId = getId(authUser);
+      if (tid && tid.startsWith('dm-') && tid.includes('-')) {
+        const parts = tid.split('-');
+        const otherId = parts[1] === myId ? parts[2] : parts[1];
+        tid = `dm-${otherId}`;
+      }
+      if (tid !== activeThread) return;
       if (data.userId === myId) return;
       setTypingNames((prev) => prev.includes(data.name) ? prev : [...prev, data.name]);
     });
     const cleanStop = onTypingStop?.((data) => {
-      if (data.threadId !== activeThread) return;
+      let tid = data.threadId;
+      const myId = getId(authUser);
+      if (tid && tid.startsWith('dm-') && tid.includes('-')) {
+        const parts = tid.split('-');
+        const otherId = parts[1] === myId ? parts[2] : parts[1];
+        tid = `dm-${otherId}`;
+      }
+      if (tid !== activeThread) return;
       setTypingNames((prev) => prev.filter((n) => n !== data.name));
     });
     return () => { cleanStart?.(); cleanStop?.(); };
   }, [activeThread, authUser]);
 
-  // ── Messages from Zustand (socket pushed) ────────────────
-  const storeThread = messages.threads[activeThread] || [];
-  useEffect(() => {
-    // Merge store thread with localMsgs (dedup by _id)
-    const merged = [...storeThread];
-    localMsgs.forEach((lm) => { if (!merged.some((m) => m._id === lm._id)) merged.push(lm); });
-    merged.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
-    // Only update if changed
-    if (JSON.stringify(merged.map(m=>m._id)) !== JSON.stringify(storeThread.map(m=>m._id))) {
-      setLocalMsgs(merged);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeThread]);
+  // Merged store thread is read directly as localMsgs
 
-  // ── Load thread from API on switch ───────────────────────
+  // ── Load thread on switch ────────────────────────────────
   useEffect(() => {
     if (prevThread.current) leaveThread(prevThread.current);
     prevThread.current = activeThread;
     setTypingNames([]);
-    setLocalMsgs([]);
     setLoadingMsgs(true);
 
-    messagesAPI.getThread(activeThread)
-      .then(({ data }) => setLocalMsgs(data.data || []))
-      .catch(() => setLocalMsgs([]))
-      .finally(() => setLoadingMsgs(false));
-
-    // Tell socket to join this thread room
-    loadThread(activeThread);
+    // Load from database into store dynamically
+    loadThread(activeThread).finally(() => {
+      setLoadingMsgs(false);
+    });
   }, [activeThread]);
 
   useEffect(() => {
@@ -185,29 +264,18 @@ export default function MessagesPage() {
     setSending(true);
     emitTypingStop(activeThread);
     try {
-      let resp;
-      if (pendingFiles.length > 0) {
-        const fd = new FormData();
-        if (input.trim()) fd.append('text', input.trim());
-        pendingFiles.forEach((f) => f.file && fd.append('files', f.file));
-        resp = await messagesAPI.sendFiles(activeThread, fd);
-      } else {
-        resp = await messagesAPI.send(activeThread, input.trim());
-      }
-      const newMsg = resp.data.data;
-      setLocalMsgs((prev) => prev.some((m) => m._id===newMsg._id) ? prev : [...prev, newMsg]);
+      await sendMessage(activeThread, input.trim(), pendingFiles);
       setInput('');
       setPendingFiles([]);
       if (textareaRef.current) textareaRef.current.style.height='auto';
-    } catch { /* toast handled in API layer */ }
+    } catch { /* toast handled in store */ }
     finally { setSending(false); }
   };
 
   // ── Delete (DELETE /api/messages/:id) ────────────────────
   const handleDelete = async (msgId) => {
     try {
-      await messagesAPI.delete(msgId);
-      setLocalMsgs((prev) => prev.filter((m) => m._id!==msgId));
+      await deleteMessage(activeThread, msgId);
     } catch {}
   };
 
@@ -229,25 +297,78 @@ export default function MessagesPage() {
             <div>
               <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Channels</div>
               {messages.channels.filter((c)=>!search||c.name.includes(search)).map((ch)=>(
-                <button key={ch.id} onClick={()=>setActiveThread(ch.id)} className={cn('flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all',activeThread===ch.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
-                  <Hash size={13} className="flex-shrink-0"/><span className="flex-1 truncate">{ch.name}</span>
-                  {ch.unread>0&&<span className="bg-red-500 text-white text-[10px] font-bold px-1.5 rounded-full">{ch.unread}</span>}
+                <button key={ch.id} onClick={()=>setActiveThread(ch.id)} className={cn('flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group',activeThread===ch.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
+                  <div className="relative flex-shrink-0">
+                    <Hash size={13} className="flex-shrink-0"/>
+                    {ch.unread > 0 && (
+                      <span className="absolute -top-1 -right-1 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse border border-slate-900" />
+                    )}
+                  </div>
+                  <span className="flex-1 truncate">{ch.name}</span>
+                  <div className="relative flex items-center justify-center min-w-[20px] h-5">
+                    {ch.unread > 0 && (
+                      <span className="group-hover:hidden bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                        {ch.unread}
+                      </span>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        useAppStore.getState().markThreadRead(ch.id);
+                      }}
+                      className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                      title="Mark as Read"
+                    >
+                      ✓
+                    </button>
+                  </div>
                 </button>
               ))}
             </div>
             {/* DMs */}
             <div>
-              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Direct Messages</div>
+              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1 flex items-center justify-between">
+                <span>Direct Messages</span>
+                <button
+                  onClick={() => { setShowNewDM(true); setDmSearch(''); }}
+                  className="w-4.5 h-4.5 flex items-center justify-center rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+                  title="New Direct Message"
+                >
+                  <Plus size={12}/>
+                </button>
+              </div>
               {messages.dms.map((dm)=>{
                 const u = users.find((u)=>getId(u)===String(dm.userId));
                 if (!u) return null;
                 if (search&&!u.name.toLowerCase().includes(search.toLowerCase())) return null;
                 const isOnline = u.status==='online';
                 return (
-                  <button key={dm.id} onClick={()=>setActiveThread(dm.id)} className={cn('flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all',activeThread===dm.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
-                    <div className="relative flex-shrink-0"><Avatar user={u} size="xs"/><span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-900" style={{background:statusColors[u.status]||'#94a3b8'}}/></div>
+                  <button key={dm.id} onClick={()=>setActiveThread(dm.id)} className={cn('flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group',activeThread===dm.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
+                    <div className="relative flex-shrink-0">
+                      <Avatar user={u} size="xs"/>
+                      <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-900" style={{background:statusColors[u.status]||'#94a3b8'}}/>
+                      {dm.unread > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full border border-slate-900 animate-pulse" />
+                      )}
+                    </div>
                     <span className="flex-1 truncate">{u.name.split(' ')[0]}</span>
-                    {dm.unread>0&&<span className="bg-red-500 text-white text-[10px] font-bold px-1.5 rounded-full">{dm.unread}</span>}
+                    <div className="relative flex items-center justify-center min-w-[20px] h-5">
+                      {dm.unread > 0 && (
+                        <span className="group-hover:hidden bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                          {dm.unread}
+                        </span>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          useAppStore.getState().markThreadRead(dm.id);
+                        }}
+                        className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                        title="Mark as Read"
+                      >
+                        ✓
+                      </button>
+                    </div>
                   </button>
                 );
               })}
@@ -276,7 +397,26 @@ export default function MessagesPage() {
                 <p className="text-[11.5px] text-slate-500">{threadDesc}</p>
               </div>
             </div>
-            <div className="text-[12px] text-slate-400">{localMsgs.length} messages</div>
+            <div className="flex items-center gap-3">
+              {/* Message Search */}
+              <div className="relative max-w-[180px] hidden sm:block">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                <input
+                  type="text"
+                  placeholder="Search messages…"
+                  value={msgSearch}
+                  onChange={(e) => setMsgSearch(e.target.value)}
+                  className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 placeholder-slate-400 text-[12.5px] rounded-lg pl-7 pr-7 py-1 outline-none border border-slate-200 dark:border-slate-700 focus:border-indigo-500 transition-colors"
+                />
+                {msgSearch && (
+                  <button onClick={() => setMsgSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-250"><X size={11}/></button>
+                )}
+              </div>
+
+
+
+              <div className="text-[12px] text-slate-400 font-medium">{localMsgs.length} messages</div>
+            </div>
           </div>
 
           {/* Messages */}
@@ -293,7 +433,23 @@ export default function MessagesPage() {
               </div>
             ) : (() => {
               let lastDate = null;
-              return localMsgs.map((msg, i) => {
+              // Filter messages in real-time by search query
+              const filteredMsgs = localMsgs.filter((msg) => {
+                if (!msgSearch.trim()) return true;
+                return msg.text && msg.text.toLowerCase().includes(msgSearch.toLowerCase());
+              });
+
+              if (filteredMsgs.length === 0 && msgSearch.trim() !== '') {
+                return (
+                  <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                    <Search size={32} className="mb-2.5 opacity-20"/>
+                    <p className="text-[13.5px] font-semibold">No matching messages found</p>
+                    <p className="text-[12px] mt-0.5">Try searching for a different keyword</p>
+                  </div>
+                );
+              }
+
+              return filteredMsgs.map((msg, i) => {
                 const senderObj = msg.userId && typeof msg.userId === 'object' ? msg.userId : null;
                 const senderId  = getId(msg.userId);
                 const myId      = getId(authUser);
@@ -324,18 +480,125 @@ export default function MessagesPage() {
                             <span className="text-[11px] text-slate-400">{msgTime}</span>
                           </div>
                         )}
-                        {msg.text && <div className={cn(isMe?'msg-bubble-out':'msg-bubble-in')}>{msg.text}</div>}
-                        {hasAtts && (
-                          <div className={cn('flex flex-col gap-1',isMe?'items-end':'items-start')}>
-                            {msg.attachments.map((a,ai)=><AttachmentCard key={ai} att={a} isMe={isMe}/>)}
+                        {msg.isDeleted ? (
+                          <div className="text-slate-400 dark:text-slate-500 italic text-[12.5px] bg-slate-50 dark:bg-slate-800/25 px-3.5 py-2 rounded-xl border border-slate-100 dark:border-slate-800/80 flex items-center gap-1.5 shadow-sm max-w-[280px]">
+                            <span className="text-slate-300 dark:text-slate-600 text-[11px]">🚫</span> This message was deleted
                           </div>
+                        ) : (
+                          <>
+                            {msg.text && <div className={cn(isMe?'msg-bubble-out':'msg-bubble-in')}>{msg.text}</div>}
+                            {hasAtts && (
+                              <div className={cn('flex flex-col gap-1',isMe?'items-end':'items-start')}>
+                                {msg.attachments.map((a,ai)=><AttachmentCard key={ai} att={a} isMe={isMe}/>)}
+                              </div>
+                            )}
+
+                            {/* Reactions Badges Row */}
+                            {msg.reactions && msg.reactions.length > 0 && (
+                              <div className={cn('flex flex-wrap gap-1 mt-1.5', isMe ? 'justify-end' : 'justify-start')}>
+                                {Object.values(
+                                  msg.reactions.reduce((acc, r) => {
+                                    const emoji = r.emoji || '👍';
+                                    if (!acc[emoji]) {
+                                      acc[emoji] = {
+                                        emoji,
+                                        count: 0,
+                                        userIds: [],
+                                        userNames: [],
+                                        hasReacted: false,
+                                      };
+                                    }
+                                    acc[emoji].count += 1;
+                                    const rUserId = getId(r.userId);
+                                    acc[emoji].userIds.push(rUserId);
+                                    if (sameId(rUserId, authUser)) {
+                                      acc[emoji].hasReacted = true;
+                                    }
+                                    const name = r.userId?.name || users.find(u => getId(u) === rUserId)?.name || 'Someone';
+                                    acc[emoji].userNames.push(name);
+                                    return acc;
+                                  }, {})
+                                ).map((item) => (
+                                  <button
+                                    key={item.emoji}
+                                    onClick={() => useAppStore.getState().toggleReaction(activeThread, msg._id, item.emoji)}
+                                    className={cn(
+                                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all relative group/tooltip",
+                                      item.hasReacted
+                                        ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20"
+                                        : "bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/80"
+                                    )}
+                                  >
+                                    <span>{item.emoji}</span>
+                                    <span className="text-[10px]">{item.count}</span>
+
+                                    {/* Tooltip */}
+                                    <span className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover/tooltip:block bg-slate-900/90 dark:bg-slate-950/90 text-white text-[9.5px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50">
+                                      {item.userNames.join(', ')}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                       <AnimatePresence>
-                        {hoveredMsg===msg._id && (isMe||authUser?.role==='admin') && (
-                          <motion.button initial={{opacity:0,scale:0.8}} animate={{opacity:1,scale:1}} exit={{opacity:0}} onClick={()=>handleDelete(msg._id)} className="self-start mt-1 p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex-shrink-0">
-                            <Trash2 size={12}/>
-                          </motion.button>
+                        {hoveredMsg === msg._id && !msg.isDeleted && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: 2 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: 2 }}
+                            className={cn(
+                              "flex items-center gap-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-md rounded-full px-1.5 py-0.5 flex-shrink-0 self-start mt-1 z-10",
+                              isMe ? "mr-2" : "ml-2"
+                            )}
+                          >
+                            {/* Default Thumbs up button */}
+                            <button
+                              onClick={() => useAppStore.getState().toggleReaction(activeThread, msg._id, '👍')}
+                              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors text-[13px]"
+                              title="React 👍"
+                            >
+                              👍
+                            </button>
+
+                            {/* + Emoji Sub-Picker */}
+                            <div className="relative group/picker">
+                              <button
+                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-405 hover:text-slate-600 dark:hover:text-slate-200 flex items-center justify-center font-bold text-[12px] w-6 h-6"
+                                title="Add Reaction"
+                              >
+                                +
+                              </button>
+                              
+                              {/* Hover menu with seamless bridge wrapper */}
+                              <div className="absolute bottom-[80%] pb-2.5 left-1/2 -translate-x-1/2 hidden group-hover/picker:flex flex-col items-center z-50">
+                                <div className="flex items-center gap-1.5 bg-slate-900/95 dark:bg-slate-950/95 border border-slate-700/60 rounded-xl px-2 py-1.5 shadow-lg">
+                                  {['👍', '❤️', '🔥', '😂', '😮', '🎉'].map((emo) => (
+                                    <button
+                                      key={emo}
+                                      onClick={() => useAppStore.getState().toggleReaction(activeThread, msg._id, emo)}
+                                      className="hover:scale-125 transition-transform duration-100 text-[14px] px-0.5"
+                                    >
+                                      {emo}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Delete button (sender or admin only) */}
+                            {(isMe || authUser?.role === 'admin') && (
+                              <button
+                                onClick={() => handleDelete(msg._id)}
+                                className="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 rounded-full transition-colors"
+                                title="Delete Message"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </motion.div>
                         )}
                       </AnimatePresence>
                     </motion.div>
@@ -390,6 +653,149 @@ export default function MessagesPage() {
           </div>
         </div>
       </div>
+
+      {/* ── New DM User Search Modal ──────────────────────────────── */}
+      <AnimatePresence>
+        {showNewDM && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="dm-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              onClick={() => setShowNewDM(false)}
+            />
+
+            {/* Modal */}
+            <motion.div
+              key="dm-modal"
+              initial={{ opacity: 0, scale: 0.92, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: -10 }}
+              transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+              className="fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden"
+            >
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 dark:border-slate-700">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+                    <MessageCircle size={14} className="text-indigo-600 dark:text-indigo-400"/>
+                  </div>
+                  <p className="text-[14px] font-semibold text-slate-800 dark:text-white">New Direct Message</p>
+                </div>
+                <button
+                  onClick={() => setShowNewDM(false)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <X size={14}/>
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Search teammates by name or email…"
+                    value={dmSearch}
+                    onChange={(e) => setDmSearch(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200 placeholder-slate-400 text-[13px] rounded-xl pl-8 pr-3 py-2 outline-none border border-transparent focus:border-indigo-500/60 focus:bg-white dark:focus:bg-slate-700 transition-all"
+                  />
+                  {dmSearch && (
+                    <button
+                      onClick={() => setDmSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={11}/>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* User list */}
+              <div className="max-h-[280px] overflow-y-auto py-2">
+                {(() => {
+                  const filtered = users.filter((u) => {
+                    if (getId(u) === getId(authUser)) return false;
+                    if (!dmSearch.trim()) return true;
+                    const q = dmSearch.toLowerCase();
+                    return (
+                      u.name?.toLowerCase().includes(q) ||
+                      u.email?.toLowerCase().includes(q) ||
+                      u.position?.toLowerCase().includes(q)
+                    );
+                  });
+
+                  if (filtered.length === 0) return (
+                    <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+                      <Search size={28} className="mb-2 opacity-25"/>
+                      <p className="text-[13px] font-medium">No teammates found</p>
+                      <p className="text-[11.5px] mt-0.5">Try a different name or email</p>
+                    </div>
+                  );
+
+                  return filtered.map((u) => {
+                    const threadId = `dm-${getId(u)}`;
+                    const isActive = activeThread === threadId;
+                    const statusColor = { online:'#10b981', away:'#f59e0b', offline:'#94a3b8' }[u.status] || '#94a3b8';
+                    return (
+                      <button
+                        key={getId(u)}
+                        onClick={() => {
+                          setActiveThread(threadId);
+                          setShowNewDM(false);
+                          setDmSearch('');
+                        }}
+                        className={cn(
+                          'flex items-center gap-3 w-full px-4 py-2.5 transition-all text-left',
+                          isActive
+                            ? 'bg-indigo-50 dark:bg-indigo-900/20'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                        )}
+                      >
+                        <div className="relative flex-shrink-0">
+                          <Avatar user={u} size="sm"/>
+                          <span
+                            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-800"
+                            style={{ background: statusColor }}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn(
+                            'text-[13px] font-medium truncate',
+                            isActive ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-slate-200'
+                          )}>{u.name}</p>
+                          <p className="text-[11.5px] text-slate-400 truncate">{u.position || u.email}</p>
+                        </div>
+                        <span
+                          className="text-[10.5px] capitalize px-2 py-0.5 rounded-full font-medium flex-shrink-0"
+                          style={{
+                            background: statusColor + '22',
+                            color: statusColor,
+                          }}
+                        >
+                          {u.status || 'offline'}
+                        </span>
+                      </button>
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Footer */}
+              <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+                <p className="text-[11.5px] text-slate-400 text-center">
+                  {users.filter(u => getId(u) !== getId(authUser)).length} teammate{users.length !== 2 ? 's' : ''} available
+                </p>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </Page>
   );
 }

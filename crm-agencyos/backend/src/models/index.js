@@ -41,6 +41,7 @@ const TaskSchema = new mongoose.Schema({
   status:      { type: String, enum: ['pending','in-progress','sent-for-approval','completed'], default: 'pending' },
   progress:    { type: Number, default: 0, min: 0, max: 100 },
   tags:        [{ type: String }],
+  readyForApproval: { type: Boolean, default: false },
 }, { timestamps: true });
 
 // ── Todo ──────────────────────────────────────────────────────
@@ -106,6 +107,11 @@ const MessageSchema = new mongoose.Schema({
   userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   text:        { type: String, default: '' },
   attachments: [AttachmentSchema],
+  isDeleted:   { type: Boolean, default: false },
+  reactions:   [{
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    emoji:  { type: String, default: '👍' }
+  }],
 }, { timestamps: true });
 
 MessageSchema.index({ threadId: 1, createdAt: 1 });
@@ -126,6 +132,7 @@ const WorkLogSchema = new mongoose.Schema({
   sessionStart: { type: String, default: '' },
   breaks:       [BreakEntrySchema],
   active:       { type: Boolean, default: false },
+  targetSeconds:{ type: Number, default: 9 * 3600 },
 }, { timestamps: true });
 
 WorkLogSchema.index({ userId: 1, date: -1 });

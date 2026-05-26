@@ -26,7 +26,7 @@ const loadWorkLogLS = (uid)  => {
 };
 
 function initialTimer() {
-  return { active:false, workSeconds:0, sessionDate:null, sessionStart:null, breaks:[], breakActive:false, currentBreak:null };
+  return { active:false, workSeconds:0, sessionDate:null, sessionStart:null, breaks:[], breakActive:false, currentBreak:null, targetSeconds: 9 * 3600 };
 }
 
 // ── Default channels ──────────────────────────────────────────
@@ -40,6 +40,30 @@ const DEFAULT_CHANNELS = [
 
 // ── Socket singleton ──────────────────────────────────────────
 let sock = null;
+let _beforeUnloadFn = null;  // reference so we can remove it on disconnect
+
+// Flush the timer to the DB using sendBeacon (fires even when tab closes)
+function flushTimerToDb(store) {
+  const { timer, authUser } = store.getState();
+  if (!timer || !authUser) return;
+  if (timer.workSeconds <= 0) return;
+  const token = localStorage.getItem('crm_access_token');
+  if (!token) return;
+  const base = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+  const body = JSON.stringify({
+    date: timer.sessionDate || new Date().toISOString().split('T')[0],
+    workSeconds: timer.workSeconds,
+    sessionStart: timer.sessionStart,
+    breaks: timer.breaks || [],
+    active: false,   // tab is closing so mark inactive
+    targetSeconds: timer.targetSeconds || 9 * 3600,
+  });
+  // sendBeacon is the only API that reliably fires on tab close
+  navigator.sendBeacon(
+    `${base}/api/worklog?_token=${encodeURIComponent(token)}`,
+    new Blob([body], { type: 'application/json' })
+  );
+}
 
 function connectSocket(token, store) {
   if (sock?.connected) return;
@@ -48,8 +72,14 @@ function connectSocket(token, store) {
     reconnectionAttempts: 5,
   });
 
-  sock.on('connect',    ()    => console.log('🔌 Socket connected'));
-  sock.on('disconnect', ()    => console.log('🔌 Socket disconnected'));
+  sock.on('connect', () => {
+    console.log('🔌 Socket connected');
+    // Register beforeunload flush (remove any previous listener first)
+    if (_beforeUnloadFn) window.removeEventListener('beforeunload', _beforeUnloadFn);
+    _beforeUnloadFn = () => flushTimerToDb(store);
+    window.addEventListener('beforeunload', _beforeUnloadFn);
+  });
+  sock.on('disconnect', () => console.log('🔌 Socket disconnected'));
 
   // Tasks (Section 11)
   sock.on('task:created', (t) => store.setState((s) => ({ tasks: [t, ...s.tasks] })));
@@ -61,22 +91,107 @@ function connectSocket(token, store) {
 
   // Messages
   sock.on('message:new', (msg) => store.setState((s) => {
-    const tid = msg.threadId;
+    let tid = msg.threadId;
+    const myId = getId(s.authUser);
+    if (tid && tid.startsWith('dm-') && tid.includes('-')) {
+      const parts = tid.split('-');
+      const otherId = parts[1] === myId ? parts[2] : parts[1];
+      tid = `dm-${otherId}`;
+    }
     const already = (s.messages.threads[tid] || []).some((x) => x._id === msg._id);
     if (already) return {};
-    return { messages: { ...s.messages, threads: { ...s.messages.threads, [tid]: [...(s.messages.threads[tid] || []), msg] } } };
+    const msgWithLocalTid = { ...msg, threadId: tid };
+
+    // Increment unread count if NOT currently viewing this thread
+    let channels = s.messages.channels;
+    let dms = s.messages.dms;
+    if (tid !== s.activeThread) {
+      const isChannel = channels.some((c) => c.id === tid);
+      if (isChannel) {
+        channels = channels.map((c) => c.id === tid ? { ...c, unread: (c.unread || 0) + 1 } : c);
+      } else {
+        dms = dms.map((d) => d.id === tid ? { ...d, unread: (d.unread || 0) + 1 } : d);
+      }
+    }
+
+    return {
+      messages: {
+        ...s.messages,
+        channels,
+        dms,
+        threads: {
+          ...s.messages.threads,
+          [tid]: [...(s.messages.threads[tid] || []), msgWithLocalTid]
+        }
+      }
+    };
   }));
-  sock.on('message:deleted', ({ id, threadId }) => store.setState((s) => ({
-    messages: { ...s.messages, threads: { ...s.messages.threads, [threadId]: (s.messages.threads[threadId] || []).filter((m) => m._id !== id) } },
-  })));
+  sock.on('message:deleted', ({ id, threadId }) => store.setState((s) => {
+    let tid = threadId;
+    const myId = getId(s.authUser);
+    if (tid && tid.startsWith('dm-') && tid.includes('-')) {
+      const parts = tid.split('-');
+      const otherId = parts[1] === myId ? parts[2] : parts[1];
+      tid = `dm-${otherId}`;
+    }
+    return {
+      messages: {
+        ...s.messages,
+        threads: {
+          ...s.messages.threads,
+          [tid]: (s.messages.threads[tid] || []).map((m) =>
+            m._id === id ? { ...m, isDeleted: true } : m
+          )
+        }
+      }
+    };
+  }));
+  sock.on('message:updated', (msg) => store.setState((s) => {
+    let tid = msg.threadId;
+    const myId = getId(s.authUser);
+    if (tid && tid.startsWith('dm-') && tid.includes('-')) {
+      const parts = tid.split('-');
+      const otherId = parts[1] === myId ? parts[2] : parts[1];
+      tid = `dm-${otherId}`;
+    }
+    return {
+      messages: {
+        ...s.messages,
+        threads: {
+          ...s.messages.threads,
+          [tid]: (s.messages.threads[tid] || []).map((m) => m._id === msg._id ? msg : m)
+        }
+      }
+    };
+  }));
 
   // User presence
   sock.on('user:online',  ({ userId })         => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'online'  } : u) })));
   sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline' } : u) })));
   sock.on('user:status',  ({ userId, status }) => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status } : u) })));
+
+  // Cross-session timer sync — adopt the authoritative value from another browser tab
+  sock.on('timer:sync', (payload) => {
+    store.setState((s) => {
+      const incoming = payload.workSeconds ?? 0;
+      // Always take the higher value (the tab that's been ticking longer wins)
+      // Also sync active/break state so pause/resume propagates instantly
+      const merged = {
+        ...s.timer,
+        workSeconds:  Math.max(s.timer.workSeconds, incoming),
+        active:       payload.active       ?? s.timer.active,
+        breakActive:  payload.breakActive  ?? s.timer.breakActive,
+        sessionDate:  payload.sessionDate  || s.timer.sessionDate,
+        sessionStart: payload.sessionStart || s.timer.sessionStart,
+        targetSeconds:payload.targetSeconds|| s.timer.targetSeconds,
+      };
+      return { timer: merged };
+    });
+  });
 }
 
 function disconnectSocket() {
+  if (_beforeUnloadFn) { window.removeEventListener('beforeunload', _beforeUnloadFn); _beforeUnloadFn = null; }
   if (sock) { sock.disconnect(); sock = null; }
 }
 
@@ -95,6 +210,7 @@ const useAppStore = create((set, get, store) => ({
   messages:   { channels: DEFAULT_CHANNELS, dms: [], threads: {} },
   notifications: MOCK_NOTIFICATIONS,
   timer:      initialTimer(),
+  activeThread:'general',
   sidebarOpen:true,
   darkMode:   false,
   loading:    false,
@@ -109,6 +225,32 @@ const useAppStore = create((set, get, store) => ({
   dismissNotification: (id) => set((s) => ({
     notifications: s.notifications.filter((n) => n.id !== id)
   })),
+  setActiveThread: (threadId) => {
+    set({ activeThread: threadId });
+    get().markThreadRead(threadId);
+  },
+  markThreadRead: (threadId) => set((s) => {
+    const isChannel = s.messages.channels.some((c) => c.id === threadId);
+    if (isChannel) {
+      return {
+        messages: {
+          ...s.messages,
+          channels: s.messages.channels.map((c) =>
+            c.id === threadId ? { ...c, unread: 0 } : c
+          )
+        }
+      };
+    } else {
+      return {
+        messages: {
+          ...s.messages,
+          dms: s.messages.dms.map((d) =>
+            d.id === threadId ? { ...d, unread: 0 } : d
+          )
+        }
+      };
+    }
+  }),
 
   // ══════════════════════════════════════════════════════════
   // AUTH
@@ -119,15 +261,50 @@ const useAppStore = create((set, get, store) => ({
       localStorage.setItem('crm_access_token', data.accessToken);
       const user = data.user;
 
-      // Timer: restore same-day or start fresh
-      const saved = loadTimerLS(getId(user));
+      // Timer: restore same-day from DB or localStorage or start fresh
       const today = todayStr();
-      const timerState = saved && saved.sessionDate === today
-        ? { ...saved, breakActive:false, currentBreak:null }
-        : { ...initialTimer(), active:true, sessionDate:today, sessionStart:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
+      let dbTimer = null;
+      try {
+        const { data: wlData } = await worklogAPI.getAll();
+        const logs = wlData?.data || [];
+        const todayLog = logs.find(l => l.date === today);
+        if (todayLog) {
+          dbTimer = {
+            active: todayLog.active,
+            workSeconds: todayLog.workSeconds || 0,
+            sessionDate: todayLog.date,
+            sessionStart: todayLog.sessionStart || new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+            breaks: todayLog.breaks || [],
+            breakActive: false,
+            currentBreak: null,
+            targetSeconds: todayLog.targetSeconds || (9 * 3600),
+          };
+        }
+      } catch (err) {
+        console.error('Failed to load timer from DB', err);
+      }
+
+      const saved = loadTimerLS(getId(user));
+      const timerState = dbTimer
+        ? dbTimer
+        : (saved && saved.sessionDate === today
+          ? { ...saved, breakActive:false, currentBreak:null }
+          : { ...initialTimer(), active:true, sessionDate:today, sessionStart:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) });
 
       set({ authUser:user, timer:timerState, loading:false });
       saveTimerLS(getId(user), timerState);
+
+      // If there was no DB log yet, create it so subsequent refreshes find it in the DB
+      if (!dbTimer && user.role === 'member') {
+        worklogAPI.upsert({
+          date: timerState.sessionDate,
+          workSeconds: timerState.workSeconds,
+          sessionStart: timerState.sessionStart,
+          breaks: timerState.breaks,
+          active: timerState.active,
+          targetSeconds: timerState.targetSeconds,
+        }).catch(()=>{});
+      }
 
       // Load all data then connect socket
       await get().loadAllData();
@@ -164,6 +341,18 @@ const useAppStore = create((set, get, store) => ({
     set({ _loggingOut: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: MOCK_NOTIFICATIONS });
   },
 
+  changePassword: async (currentPassword, newPassword) => {
+    try {
+      await authAPI.changePassword({ currentPassword, newPassword });
+      toast.success('Password updated successfully!');
+      return { success: true };
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to update password';
+      toast.error(msg);
+      return { success: false, message: msg };
+    }
+  },
+
   // Restore session on page reload using stored token
   restoreSession: async () => {
     const token = localStorage.getItem('crm_access_token');
@@ -171,11 +360,34 @@ const useAppStore = create((set, get, store) => ({
     try {
       const { data } = await authAPI.me();
       const user = data.user;
-      const saved = loadTimerLS(getId(user));
       const today = todayStr();
-      const timerState = saved && saved.sessionDate === today
-        ? { ...saved, breakActive:false, currentBreak:null }
-        : initialTimer();
+      let dbTimer = null;
+      try {
+        const { data: wlData } = await worklogAPI.getAll();
+        const logs = wlData?.data || [];
+        const todayLog = logs.find(l => l.date === today);
+        if (todayLog) {
+          dbTimer = {
+            active: todayLog.active,
+            workSeconds: todayLog.workSeconds || 0,
+            sessionDate: todayLog.date,
+            sessionStart: todayLog.sessionStart || new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+            breaks: todayLog.breaks || [],
+            breakActive: false,
+            currentBreak: null,
+            targetSeconds: todayLog.targetSeconds || (9 * 3600),
+          };
+        }
+      } catch (err) {
+        console.error('Failed to restore timer from DB', err);
+      }
+
+      const saved = loadTimerLS(getId(user));
+      const timerState = dbTimer
+        ? dbTimer
+        : (saved && saved.sessionDate === today
+          ? { ...saved, breakActive:false, currentBreak:null }
+          : initialTimer());
       set({ authUser:user, timer:timerState });
       await get().loadAllData();
       connectSocket(token, store);
@@ -285,13 +497,29 @@ const useAppStore = create((set, get, store) => ({
     } catch (err) { toast.error(err.response?.data?.message || 'Failed to create task'); throw err; }
   },
   updateTask: async (id, body) => {
+    // Optimistically update the store state immediately to eliminate latency and race conditions
+    set((s) => ({
+      tasks: s.tasks.map((t) => getId(t) === id ? { ...t, ...body } : t)
+    }));
     try {
       const { data } = await tasksAPI.update(id, body);
       return data.data;
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update task'); throw err; }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update task');
+      throw err;
+    }
   },
   moveTask: async (id, status) => {
-    return get().updateTask(id, { status, progress: status==='completed'?100:undefined });
+    const updates = { status };
+    if (status === 'completed') updates.progress = 100;
+    else if (status === 'pending') updates.progress = 0;
+    else if (status === 'in-progress') updates.progress = 50;
+    else if (status === 'sent-for-approval') updates.progress = 90;
+
+    if (status === 'sent-for-approval' || status === 'completed') {
+      updates.readyForApproval = false;
+    }
+    return get().updateTask(id, updates);
   },
   deleteTask: async (id) => {
     try {
@@ -398,31 +626,84 @@ const useAppStore = create((set, get, store) => ({
   loadThread: async (threadId) => {
     try {
       const { data } = await messagesAPI.getThread(threadId);
-      set((s) => ({ messages: { ...s.messages, threads: { ...s.messages.threads, [threadId]: data.data } } }));
+      const mappedMsgs = (data.data || []).map((m) => ({ ...m, threadId }));
+      set((s) => ({ messages: { ...s.messages, threads: { ...s.messages.threads, [threadId]: mappedMsgs } } }));
       sock?.emit('join:thread', threadId);
-    } catch {}
+      return mappedMsgs;
+    } catch (err) {
+      return [];
+    }
   },
   leaveThread: (threadId) => { sock?.emit('leave:thread', threadId); },
 
   sendMessage: async (threadId, text, attachments = []) => {
-    if (!text?.trim() && attachments.length === 0) return;
+    if (!text?.trim() && attachments.length === 0) return null;
     try {
+      let resp;
       if (attachments.length > 0) {
         const fd = new FormData();
         if (text?.trim()) fd.append('text', text.trim());
         attachments.forEach((a) => a.file && fd.append('files', a.file));
-        await messagesAPI.sendFiles(threadId, fd);
+        resp = await messagesAPI.sendFiles(threadId, fd);
       } else {
-        await messagesAPI.send(threadId, text.trim());
+        resp = await messagesAPI.send(threadId, text.trim());
       }
-      // Socket message:new will update state
-    } catch (err) { toast.error('Failed to send message'); }
+      const newMsg = { ...resp.data.data, threadId };
+      set((s) => {
+        const threadMsgs = s.messages.threads[threadId] || [];
+        const already = threadMsgs.some((x) => x._id === newMsg._id);
+        if (already) return {};
+        return {
+          messages: {
+            ...s.messages,
+            threads: {
+              ...s.messages.threads,
+              [threadId]: [...threadMsgs, newMsg]
+            }
+          }
+        };
+      });
+      return newMsg;
+    } catch (err) {
+      toast.error('Failed to send message');
+      throw err;
+    }
   },
   deleteMessage: async (threadId, msgId) => {
     try {
       await messagesAPI.delete(msgId);
-      // Socket message:deleted will update state
-    } catch { toast.error('Failed to delete message'); }
+      set((s) => ({
+        messages: {
+          ...s.messages,
+          threads: {
+            ...s.messages.threads,
+            [threadId]: (s.messages.threads[threadId] || []).map((m) =>
+              m._id === msgId ? { ...m, isDeleted: true } : m
+            )
+          }
+        }
+      }));
+    } catch {
+      toast.error('Failed to delete message');
+    }
+  },
+  toggleReaction: async (threadId, msgId, emoji = '👍') => {
+    try {
+      const { data: resp } = await messagesAPI.react(msgId, emoji);
+      set((s) => ({
+        messages: {
+          ...s.messages,
+          threads: {
+            ...s.messages.threads,
+            [threadId]: (s.messages.threads[threadId] || []).map((m) =>
+              m._id === msgId ? resp.data : m
+            )
+          }
+        }
+      }));
+    } catch {
+      toast.error('Failed to toggle reaction');
+    }
   },
 
   // Typing indicators (Section 11)
@@ -432,18 +713,38 @@ const useAppStore = create((set, get, store) => ({
   onTypingStop:  (cb) => { sock?.on('typing:stop',  cb); return () => sock?.off('typing:stop',  cb); },
 
   // ══════════════════════════════════════════════════════════
-  // WORK TIMER  (local tick → syncs to POST /api/worklog every 5min)
+  // WORK TIMER  (local tick → syncs to POST /api/worklog every 60s,
+  //              cross-session sync via socket timer:sync every 10s)
   // ══════════════════════════════════════════════════════════
+
+  // Helper: emit the current timer state to all other sessions of this user
+  _emitTimerSync: () => {
+    const { timer } = get();
+    sock?.emit('timer:sync', {
+      workSeconds:  timer.workSeconds,
+      active:       timer.active,
+      breakActive:  timer.breakActive,
+      sessionDate:  timer.sessionDate,
+      sessionStart: timer.sessionStart,
+      targetSeconds:timer.targetSeconds,
+    });
+  },
   startTimer: () => set((s) => {
     const uid = getId(s.authUser);
     const upd = { ...s.timer, active:true, breakActive:false, sessionDate:s.timer.sessionDate||todayStr(), sessionStart:s.timer.sessionStart||new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
     saveTimerLS(uid, upd);
+    worklogAPI.upsert({ date:upd.sessionDate, workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
     worklogAPI.setActive(true).catch(()=>{});
+    // Notify other sessions immediately
+    sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
   }),
   pauseTimer: () => set((s) => {
     const upd = { ...s.timer, active:false };
     saveTimerLS(getId(s.authUser), upd);
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    // Notify other sessions immediately so they pause too
+    sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:false, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
   }),
   resetTimer: () => set((s) => {
@@ -457,16 +758,23 @@ const useAppStore = create((set, get, store) => ({
     const uid = getId(s.authUser);
     if (workSeconds % 15 === 0) {
       saveTimerLS(uid, upd);
-      // Sync to backend every 5 min (POST /api/worklog)
-      if (workSeconds % 300 === 0) {
-        worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true }).catch(()=>{});
+      // Sync to backend every 60s
+      if (workSeconds % 60 === 0) {
+        worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
       }
+    }
+    // Broadcast to other sessions every 10s to stay in sync
+    if (workSeconds % 10 === 0) {
+      sock?.emit('timer:sync', { workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     }
     return { timer:upd };
   }),
   startBreak: (type, totalSeconds, reason='') => set((s) => {
     const upd = { ...s.timer, active:false, breakActive:true, currentBreak:{ type, reason, totalSeconds, elapsedSeconds:0 } };
     saveTimerLS(getId(s.authUser), upd);
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    // Notify other sessions — they should also show break state
+    sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:false, breakActive:true, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
   }),
   tickBreak: () => set((s) => {
@@ -488,8 +796,30 @@ const useAppStore = create((set, get, store) => ({
     const done = { type:s.timer.currentBreak.type, reason:s.timer.currentBreak.reason, planned:s.timer.currentBreak.totalSeconds, actual:s.timer.currentBreak.elapsedSeconds, endedAt:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
     const upd  = { ...s.timer, active:true, breakActive:false, currentBreak:null, breaks:[...s.timer.breaks, done] };
     saveTimerLS(getId(s.authUser), upd);
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
     return { timer:upd };
   }),
+  updateTargetSeconds: async (seconds) => {
+    const { authUser, timer } = get();
+    if (!authUser) return;
+    const upd = { ...timer, targetSeconds: seconds };
+    set({ timer: upd });
+    saveTimerLS(getId(authUser), upd);
+    try {
+      await worklogAPI.upsert({
+        date: upd.sessionDate || todayStr(),
+        workSeconds: upd.workSeconds,
+        sessionStart: upd.sessionStart,
+        breaks: upd.breaks,
+        active: upd.active,
+        targetSeconds: seconds
+      });
+      toast.success(`Target time updated to ${Math.round(seconds / 3600)}h`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to save target time to database');
+    }
+  },
 
   // ── WorkLog reader (GET /api/worklog) ─────────────────────
   getWorkLog: (userId) => loadWorkLogLS(userId),   // local cache

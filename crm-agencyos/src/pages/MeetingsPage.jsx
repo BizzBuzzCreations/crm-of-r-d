@@ -271,7 +271,7 @@ function MeetingFormModal({ open, onClose, initialData, users, clients, onSave }
             {...register('emergencyFlag')}
             className="rounded text-red-600 focus:ring-red-500 border-red-300"
           />
-          <span className="text-red-600 dark:text-red-400">🚨 Forced Corporate Emergency Join (Immediate RSVP Accept)</span>
+          <span className="text-red-600 dark:text-red-400"> Invite all members</span>
         </label>
 
         <div className="grid grid-cols-3 gap-4">

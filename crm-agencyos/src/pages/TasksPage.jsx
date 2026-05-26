@@ -22,7 +22,7 @@ const KANBAN_COLS = [
   { id: 'completed',         label: 'Completed',    color: '#10b981', bg: '#ecfdf5' },
 ];
 
-const MEMBER_MOVE_TARGETS = ['pending', 'in-progress', 'sent-for-approval'];
+const MEMBER_MOVE_TARGETS = ['pending', 'in-progress'];
 
 // ── Date filter button ────────────────────────────────────────
 function DateFilter({ value, onChange, label = 'All Dates' }) {
@@ -160,7 +160,7 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
 }
 
 // ── Kanban Card ───────────────────────────────────────────────
-function KanbanCard({ task, users, clients, role, onMove, onApprove, onDelete }) {
+function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, onDelete }) {
   const assignee  = users.find((u) => sameId(u, task.assignedTo));
   const client    = task.clientId ? clients.find((c) => sameId(c, task.clientId)) : null;
   const pCfg      = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
@@ -186,15 +186,43 @@ function KanbanCard({ task, users, clients, role, onMove, onApprove, onDelete })
       </div>
       {client && <div className="flex items-center gap-1 text-[11.5px] text-slate-500 mb-2"><Building2 size={11} /> {client.name}</div>}
       {task.description && <p className="text-[12px] text-slate-500 leading-relaxed mb-2.5">{truncate(task.description, 80)}</p>}
-      {task.progress > 0 && (
+      {task.status === 'completed' && (
         <div className="mb-2.5">
-          <div className="flex justify-between text-[11px] text-slate-400 mb-1"><span>Progress</span><span>{task.progress}%</span></div>
-          <ProgressBar value={task.progress} height={4} />
+          <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+            <span>Progress</span>
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">100%</span>
+          </div>
+          <ProgressBar value={100} height={4} />
+        </div>
+      )}
+      {(task.status === 'in-progress' || task.status === 'sent-for-approval') && (
+        <div className="mb-2.5">
+          <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+            <span>Progress</span>
+            <span className="font-semibold text-indigo-600 dark:text-indigo-400">{task.progress || 0}%</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={task.progress || 0}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              useAppStore.getState().updateTask(getId(task), { progress: val });
+            }}
+            className="w-full h-1 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 dark:accent-indigo-400 outline-none"
+          />
         </div>
       )}
       {task.tags?.length > 0 && (
         <div className="flex gap-1 flex-wrap mb-2.5">
           {task.tags.map((t) => <span key={t} className="badge badge-neutral text-[10px]">{t}</span>)}
+        </div>
+      )}
+      {task.readyForApproval && (
+        <div className="mb-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10.5px] font-bold text-emerald-500 w-fit select-none animate-pulse">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          Ready for Approval
         </div>
       )}
       <div className="flex items-center justify-between mt-1 pt-2 border-t border-slate-100 dark:border-slate-700/50">
@@ -210,6 +238,22 @@ function KanbanCard({ task, users, clients, role, onMove, onApprove, onDelete })
       {isManager && task.status === 'sent-for-approval' && (
         <button onClick={() => onApprove(getId(task))} className="btn-success btn-sm w-full justify-center mt-2.5">
           <Check size={12} /> Approve & Mark Done
+        </button>
+      )}
+      {!isManager && sameId(task.assignedTo, authUser) && task.status !== 'completed' && task.status !== 'sent-for-approval' && (
+        <button
+          onClick={() => {
+            useAppStore.getState().updateTask(getId(task), { readyForApproval: !task.readyForApproval });
+            toast.success(task.readyForApproval ? 'Task unmarked from Ready for Approval' : 'Task marked as Ready for Approval!');
+          }}
+          className={cn(
+            "w-full py-1.5 rounded-lg text-[11.5px] font-semibold transition-all justify-center items-center flex gap-1 mt-2.5 border border-dashed select-none",
+            task.readyForApproval
+              ? "bg-slate-50 border-slate-200 dark:bg-slate-800/30 dark:border-slate-700 text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+              : "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800/30 text-emerald-600 hover:bg-emerald-100"
+          )}
+        >
+          {task.readyForApproval ? '✕ Cancel Ready for Approval' : '✓ Mark Ready for Approval'}
         </button>
       )}
     </motion.div>
@@ -371,7 +415,7 @@ export default function TasksPage() {
                 <div className="space-y-2.5">
                   <AnimatePresence>
                     {colTasks.map((task) => (
-                      <KanbanCard key={getId(task)} task={task} users={users} clients={clients} role={role}
+                      <KanbanCard key={getId(task)} task={task} users={users} clients={clients} role={role} authUser={authUser}
                         onMove={moveTask} onApprove={handleApprove} onDelete={(id) => setConfirmDel(id)} />
                     ))}
                   </AnimatePresence>

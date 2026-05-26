@@ -365,50 +365,64 @@ export default function DashboardPage() {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
 
-  // Dynamic growth or loss percentages calculation (100% genuine zero growth fallback)
-  const getStatChange = (type, list) => {
-    if (!list || list.length === 0) {
-      return 0;
-    }
+  // Dynamic growth or loss percentages calculation (100% genuine mathematically correct growth)
+  const getStatChange = (type) => {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-    
-    const getDate = (item) => {
-      if (type === 'clients' && item.onboardingDate) {
-        return new Date(item.onboardingDate);
-      }
-      return item.createdAt ? new Date(item.createdAt) : null;
-    };
-    
-    const currentItems = list.filter(item => {
-      const d = getDate(item);
-      return d && d >= thirtyDaysAgo && d <= now;
-    });
-    
-    const previousItems = list.filter(item => {
-      const d = getDate(item);
-      return d && d >= sixtyDaysAgo && d < thirtyDaysAgo;
-    });
-    
-    const currentCount = currentItems.length;
-    const previousCount = previousItems.length;
-    
-    if (previousCount === 0) {
-      if (currentCount === 0) {
-        return 0;
-      }
-      return currentCount * 10;
+
+    let currentVal = 0;
+    let previousVal = 0;
+
+    if (type === 'clients') {
+      currentVal = clients.length;
+      previousVal = clients.filter(c => {
+        const d = c.onboardingDate ? new Date(c.onboardingDate) : null;
+        return d && d < thirtyDaysAgo;
+      }).length;
+    } else if (type === 'tasks') {
+      currentVal = myTasks.filter(t => t.status !== 'completed').length;
+      previousVal = myTasks.filter(t => {
+        const created = t.createdAt ? new Date(t.createdAt) : null;
+        if (!created || created >= thirtyDaysAgo) return false;
+        if (t.status !== 'completed') return true;
+        const updated = t.updatedAt ? new Date(t.updatedAt) : null;
+        return updated && updated >= thirtyDaysAgo;
+      }).length;
+    } else if (type === 'todos') {
+      currentVal = myTodos.filter(t => t.status !== 'completed').length;
+      previousVal = myTodos.filter(t => {
+        const created = t.createdAt ? new Date(t.createdAt) : null;
+        if (!created || created >= thirtyDaysAgo) return false;
+        if (t.status !== 'completed') return true;
+        const updated = t.updatedAt ? new Date(t.updatedAt) : null;
+        return updated && updated >= thirtyDaysAgo;
+      }).length;
+    } else if (type === 'meetings') {
+      // Compare meetings scheduled in current 30 days vs previous 30 days
+      currentVal = meetings.filter(m => {
+        const d = m.date ? new Date(m.date) : null;
+        return d && d >= thirtyDaysAgo && d <= now;
+      }).length;
+      previousVal = meetings.filter(m => {
+        const d = m.date ? new Date(m.date) : null;
+        return d && d >= sixtyDaysAgo && d < thirtyDaysAgo;
+      }).length;
     }
-    const percent = ((currentCount - previousCount) / previousCount) * 100;
+
+    if (previousVal === 0) {
+      return currentVal > 0 ? 100 : 0;
+    }
+
+    const percent = ((currentVal - previousVal) / previousVal) * 100;
     return Math.round(percent);
   };
 
   const stats = [
-    { icon: Users,       label: 'Total Clients',    value: clients.length,                                          change: getStatChange('clients', clients), color: '#6366f1', bg: '#eef2ff', path: '/clients'  },
-    { icon: CheckSquare, label: 'Active Tasks',      value: myTasks.filter((t) => t.status !== 'completed').length, change: getStatChange('tasks', myTasks),  color: '#0ea5e9', bg: '#eff6ff', path: '/tasks'    },
-    { icon: ListTodo,    label: 'Pending Todos',     value: myTodos.filter((t) => t.status !== 'completed').length, change: getStatChange('todos', myTodos),  color: '#8b5cf6', bg: '#f5f3ff', path: '/todos'    },
-    { icon: Video,       label: 'Upcoming Meetings', value: upcoming.length,                                        change: getStatChange('meetings', meetings),  color: '#f59e0b', bg: '#fffbeb', path: '/meetings' },
+    { icon: Users,       label: 'Total Clients',    value: clients.length,                                             change: getStatChange('clients'),  color: '#6366f1', bg: '#eef2ff', path: '/clients'  },
+    { icon: CheckSquare, label: 'Active Tasks',      value: myTasks.filter((t) => t.status !== 'completed').length,    change: getStatChange('tasks'),    color: '#0ea5e9', bg: '#eff6ff', path: '/tasks'    },
+    { icon: ListTodo,    label: 'Pending Todos',     value: myTodos.filter((t) => t.status !== 'completed').length,    change: getStatChange('todos'),    color: '#8b5cf6', bg: '#f5f3ff', path: '/todos'    },
+    { icon: Video,       label: 'Upcoming Meetings', value: meetings.filter((m) => m.status === 'upcoming').length, change: getStatChange('meetings'), color: '#f59e0b', bg: '#fffbeb', path: '/meetings' },
   ];
 
   // Completely dynamic pie chart for Task Status snapshot
