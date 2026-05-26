@@ -2,6 +2,9 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const mongoose = require('mongoose');
 const User     = require('./models/User');
+const {
+  Client, Task, Todo, Meeting, MeetingInvitation, Revenue, WorkLog, Message
+} = require('./models/index');
 
 // ── Admin accounts to create ──────────────────────────────────
 // Edit these before running on the server
@@ -26,15 +29,24 @@ async function createAdmins() {
     await mongoose.connect(process.env.MONGO_URI);
     console.log('✅ Connected to MongoDB\n');
 
-    for (const adminData of ADMINS) {
-      const existing = await User.findOne({ email: adminData.email });
+    // Wipe all existing data
+    await Promise.all([
+      User.deleteMany({}),
+      Client.deleteMany({}),
+      Task.deleteMany({}),
+      Todo.deleteMany({}),
+      Meeting.deleteMany({}),
+      MeetingInvitation.deleteMany({}),
+      Revenue.deleteMany({}),
+      WorkLog.deleteMany({}),
+      Message.deleteMany({}),
+    ]);
+    console.log('🗑️  Cleared all existing data\n');
 
-      if (existing) {
-        console.log(`⚠️  Skipped  — ${adminData.email} already exists (not modified)`);
-      } else {
-        await User.create(adminData);
-        console.log(`✅ Created  — ${adminData.name} (${adminData.email}) [${adminData.role}]`);
-      }
+    // Create admin accounts (password hashed by pre-save hook in User model)
+    for (const adminData of ADMINS) {
+      await User.create(adminData);
+      console.log(`✅ Created  — ${adminData.name} (${adminData.email}) [${adminData.role}]`);
     }
 
     console.log('\n🎉 Done. Admin accounts are ready.');
