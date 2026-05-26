@@ -157,12 +157,12 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <p className="text-center text-[12px] text-slate-400 mt-5">
+          {/*<p className="text-center text-[12px] text-slate-400 mt-5">
             Login: <span className="font-mono">dev@bizzbuzzcreations.com</span> / <span className="font-mono">bbc655</span>
           </p>
           <p className="text-center text-[11px] text-slate-400 mt-1.5">
             ⚡ Make sure your backend is running on <span className="font-mono">localhost:5000</span>
-          </p>
+          </p>*/}
         </motion.div>
       </div>
     </div>
