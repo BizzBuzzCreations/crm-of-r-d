@@ -7,9 +7,24 @@ const errorHandler= require('./middleware/errorHandler');
 
 const app = express();
 
-// ── Core middleware ─────────────────────────────────────────
+// ── CORS — allow dev (localhost:5173), configured CLIENT_URL, and any LAN IP ──
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5000',
+  process.env.CLIENT_URL,
+].filter(Boolean);
+
 app.use(cors({
-  origin:      process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, Postman, same-origin production requests)
+    if (!origin) return callback(null, true);
+    // Allow any configured origin exactly
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Allow any LAN IP (192.168.x.x or 10.x.x.x) on any port
+    if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
+  },
   credentials: true,
   methods:     ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
@@ -18,7 +33,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-if (process.env.NODE_ENV === 'development') {
+if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
@@ -39,15 +54,24 @@ app.use('/api/revenue',  require('./routes/revenue'));
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  res.json({ status: 'OK', timestamp: new Date().toISOString(), env: process.env.NODE_ENV });
 });
 
-// ── 404 ──────────────────────────────────────────────────────
-app.use((_req, res) => {
-  res.status(404).json({ success: false, message: 'Route not found' });
+// ── Serve built React frontend in production ─────────────────
+// dist/ lives at crm-agencyos/dist/ — two levels up from backend/src/
+const distPath = path.join(__dirname, '../../dist');
+app.use(express.static(distPath));
+// SPA fallback — must come AFTER all /api routes
+app.get('*', (req, res) => {
+  // Don't intercept actual API calls that reached here somehow
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ success: false, message: 'Route not found' });
+  }
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 // ── Error handler ─────────────────────────────────────────────
 app.use(errorHandler);
 
 module.exports = app;
+

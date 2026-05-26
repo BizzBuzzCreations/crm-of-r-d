@@ -158,7 +158,7 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-[12px] text-slate-400 mt-5">
-            Demo: <span className="font-mono">admin@agency.com</span> / <span className="font-mono">admin123</span>
+            Login: <span className="font-mono">dev@bizzbuzzcreations.com</span> / <span className="font-mono">bbc655</span>
           </p>
           <p className="text-center text-[11px] text-slate-400 mt-1.5">
             ⚡ Make sure your backend is running on <span className="font-mono">localhost:5000</span>
