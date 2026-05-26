@@ -1,6 +1,21 @@
 import axios from 'axios';
 
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const getApiUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && envUrl.startsWith('http')) return envUrl;
+  
+  if (typeof window !== 'undefined') {
+    // If in development (Vite dev server), fallback to backend port 5000
+    if (window.location.port === '5173') {
+      return 'http://localhost:5000/api';
+    }
+    // In production, dynamically use the current browser origin!
+    return `${window.location.origin}/api`;
+  }
+  return 'http://localhost:5000/api';
+};
+
+const BASE = getApiUrl();
 
 // ── Axios instance ────────────────────────────────────────────
 const api = axios.create({

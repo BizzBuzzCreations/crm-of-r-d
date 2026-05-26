@@ -42,6 +42,21 @@ const DEFAULT_CHANNELS = [
 let sock = null;
 let _beforeUnloadFn = null;  // reference so we can remove it on disconnect
 
+const getSocketUrl = () => {
+  const envUrl = import.meta.env.VITE_SOCKET_URL;
+  if (envUrl && envUrl.startsWith('http')) return envUrl;
+  
+  if (typeof window !== 'undefined') {
+    // If in development (Vite dev server), fallback to backend port 5000
+    if (window.location.port === '5173') {
+      return 'http://localhost:5000';
+    }
+    // In production, dynamically use the current browser origin!
+    return window.location.origin;
+  }
+  return 'http://localhost:5000';
+};
+
 // Flush the timer to the DB using sendBeacon (fires even when tab closes)
 function flushTimerToDb(store) {
   const { timer, authUser } = store.getState();
@@ -49,7 +64,7 @@ function flushTimerToDb(store) {
   if (timer.workSeconds <= 0) return;
   const token = localStorage.getItem('crm_access_token');
   if (!token) return;
-  const base = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+  const base = getSocketUrl();
   const body = JSON.stringify({
     date: timer.sessionDate || new Date().toISOString().split('T')[0],
     workSeconds: timer.workSeconds,
@@ -67,7 +82,7 @@ function flushTimerToDb(store) {
 
 function connectSocket(token, store) {
   if (sock?.connected) return;
-  sock = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
+  sock = io(getSocketUrl(), {
     auth: { token },
     reconnectionAttempts: 5,
   });
