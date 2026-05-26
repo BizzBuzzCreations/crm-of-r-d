@@ -119,7 +119,7 @@ export default function LoginPage() {
           )}
 
           {/* Demo accounts */}
-          <div className="space-y-2.5 mb-6">
+          {/* <div className="space-y-2.5 mb-6">
             <p className="text-[12px] font-semibold uppercase tracking-wider text-slate-400 mb-3">Quick access — demo accounts</p>
             {DEMO.map((acc) => {
               const roleCfg = ROLE_CONFIG[acc.role] || {};
@@ -145,7 +145,7 @@ export default function LoginPage() {
 
           <div className="flex items-center gap-3 text-slate-400 text-[12px] mb-6">
             <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" /> or sign in manually <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
-          </div>
+          </div> */}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <Input label="Email" type="email" placeholder="you@agency.com" error={errors.email?.message}
