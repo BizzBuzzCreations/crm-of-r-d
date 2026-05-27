@@ -31,7 +31,7 @@ const io = new Server(server, {
       
       const normalizedOrigin = origin.replace(/\/$/, '');
       if (ALLOWED_ORIGINS.includes(normalizedOrigin)) return callback(null, true);
-      if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(normalizedOrigin)) return callback(null, true);
+      if (/^https?:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(normalizedOrigin)) return callback(null, true);
       
       callback(new Error(`CORS blocked by Socket: ${origin}`));
     },

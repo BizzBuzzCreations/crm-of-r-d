@@ -27,7 +27,7 @@ app.use(cors({
     // Allow any configured origin exactly
     if (ALLOWED_ORIGINS.includes(normalizedOrigin)) return callback(null, true);
     // Allow any LAN IP (192.168.x.x or 10.x.x.x) on any port
-    if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(normalizedOrigin)) return callback(null, true);
+    if (/^https?:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(normalizedOrigin)) return callback(null, true);
     
     callback(new Error(`CORS blocked: ${origin}`));
   },

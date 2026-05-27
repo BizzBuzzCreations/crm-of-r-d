@@ -414,7 +414,9 @@ const useAppStore = create((set, get, store) => ({
           : initialTimer());
       set({ authUser:user, timer:timerState });
       await get().loadAllData();
-      connectSocket(token, store);
+      // Re-read from localStorage: the 401 interceptor may have silently refreshed
+      // the token during authAPI.me(), making the `token` variable above stale.
+      connectSocket(localStorage.getItem('crm_access_token'), store);
       return true;
     } catch {
       localStorage.removeItem('crm_access_token');
