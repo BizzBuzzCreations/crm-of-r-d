@@ -169,7 +169,7 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
       </div>
 
       {/* Dynamic Timer Status Widget */}
-      {user.timerWorkSeconds !== undefined && user.timerWorkSeconds > 0 && (
+      {user.role === 'member' && user.timerWorkSeconds !== undefined && user.timerWorkSeconds > 0 && (
         <div className="mt-1 mb-4 px-3 py-2.5 rounded-xl border border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-white/[0.02] text-left">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-bold tracking-wide uppercase text-slate-400 dark:text-slate-500">
@@ -463,7 +463,7 @@ export default function TeamPage() {
                           </span>
                         </td>
                         <td>
-                          {u.timerWorkSeconds !== undefined && u.timerWorkSeconds > 0 ? (
+                          {u.role === 'member' && u.timerWorkSeconds !== undefined && u.timerWorkSeconds > 0 ? (
                             <div className="flex flex-col gap-0.5">
                               <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-[12.5px] flex items-center gap-1.5">
                                 <span className={cn(
