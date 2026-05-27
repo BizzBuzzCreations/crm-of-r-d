@@ -3,9 +3,8 @@ import { io }       from 'socket.io-client';
 import toast        from 'react-hot-toast';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
-  todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI,
+  todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI,
 } from '../services/api';
-import { MOCK_NOTIFICATIONS } from '../mockData';
 
 // ── Helpers ──────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -188,6 +187,11 @@ function connectSocket(token, store) {
     };
   }));
 
+  // Notifications
+  sock.on('notification:new', (notif) => {
+    store.setState((s) => ({ notifications: [notif, ...s.notifications] }));
+  });
+
   // User presence
   sock.on('user:online',  ({ userId })         => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'online'  } : u) })));
   sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline' } : u) })));
@@ -231,7 +235,7 @@ const useAppStore = create((set, get, store) => ({
   mySchedule: [],
   revenueSummary: null,
   messages:   { channels: DEFAULT_CHANNELS, dms: [], threads: {} },
-  notifications: MOCK_NOTIFICATIONS,
+  notifications: [],
   timer:      initialTimer(),
   activeThread:'general',
   sidebarOpen:true,
@@ -243,12 +247,14 @@ const useAppStore = create((set, get, store) => ({
   // ── UI ─────────────────────────────────────────────────────
   toggleSidebar:  () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleDarkMode: () => set((s) => { const n=!s.darkMode; document.documentElement.classList.toggle('dark',n); return { darkMode:n }; }),
-  markAllRead: () => set((s) => ({
-    notifications: s.notifications.map((n) => ({ ...n, unread: false }))
-  })),
-  dismissNotification: (id) => set((s) => ({
-    notifications: s.notifications.filter((n) => n.id !== id)
-  })),
+  markAllRead: async () => {
+    set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) }));
+    try { await notificationsAPI.markAllRead(); } catch {}
+  },
+  dismissNotification: async (id) => {
+    set((s) => ({ notifications: s.notifications.filter((n) => n._id !== id) }));
+    try { await notificationsAPI.delete(id); } catch {}
+  },
   setActiveThread: (threadId) => {
     set({ activeThread: threadId });
     get().markThreadRead(threadId);
@@ -362,7 +368,7 @@ const useAppStore = create((set, get, store) => ({
     // NOW clear the token and state
     localStorage.removeItem('crm_access_token');
     disconnectSocket();
-    set({ _loggingOut: false, socketConnected: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: MOCK_NOTIFICATIONS });
+    set({ _loggingOut: false, socketConnected: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: [] });
   },
 
   changePassword: async (currentPassword, newPassword) => {
@@ -430,8 +436,9 @@ const useAppStore = create((set, get, store) => ({
   loadAllData: async () => {
     set({ loading:true });
     try {
-      const [uR, cR, tR, dR, mR] = await Promise.all([
+      const [uR, cR, tR, dR, mR, nR] = await Promise.all([
         usersAPI.getAll(), clientsAPI.getAll(), tasksAPI.getAll(), todosAPI.getAll(), meetingsAPI.getAll(),
+        notificationsAPI.getAll(),
       ]);
       const users = uR.data.data;
       const me    = get().authUser;
@@ -440,12 +447,13 @@ const useAppStore = create((set, get, store) => ({
         .map((u)   => ({ id:`dm-${getId(u)}`, userId:getId(u), unread:0 }));
       set({
         users,
-        clients:  cR.data.data,
-        tasks:    tR.data.data,
-        todos:    dR.data.data,
-        meetings: mR.data.data,
-        messages: { ...get().messages, dms },
-        loading:  false,
+        clients:       cR.data.data,
+        tasks:         tR.data.data,
+        todos:         dR.data.data,
+        meetings:      mR.data.data,
+        notifications: nR.data.data,
+        messages:      { ...get().messages, dms },
+        loading:       false,
       });
       await get().fetchMySchedule();
       if (me?.role === 'admin' || me?.role === 'manager') {

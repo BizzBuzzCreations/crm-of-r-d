@@ -1,4 +1,5 @@
 const { Meeting, MeetingInvitation } = require('../models');
+const notifService = require('../services/notificationService');
 
 // POST /api/meetings/schedule
 exports.scheduleMeeting = async (req, res, next) => {
@@ -34,6 +35,33 @@ exports.scheduleMeeting = async (req, res, next) => {
 
       // Bulk write invitations, compound index checks duplicate constraints automatically
       invitations = await MeetingInvitation.insertMany(invitationDocs);
+    }
+
+    // Populate createdBy field on the meeting document
+    const populated = await Meeting.findById(meeting._id).populate({
+      path: 'createdBy',
+      select: 'name email initials color status position'
+    });
+
+    // Get Socket.io instance
+    const io = req.app.get('io');
+
+    // Broadcast to all clients to update calendar/schedules in real-time
+    io?.emit('meeting:created', populated);
+
+    // Dispatch persistent notifications to all invited team members
+    if (Array.isArray(invitedUserIds) && invitedUserIds.length > 0) {
+      invitedUserIds.forEach((uid) => {
+        notifService.dispatch(io, {
+          recipient: uid,
+          sender:    req.user._id,
+          type:      'meeting_scheduled',
+          title:     'New Meeting Scheduled',
+          message:   `${req.user.name} invited you to "${meeting.title}"`,
+          link:      '/meetings',
+          metadata:  { meetingId: String(meeting._id) },
+        });
+      });
     }
 
     res.status(201).json({

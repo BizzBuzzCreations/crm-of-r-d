@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, Search, Bell, Sun, Moon, Settings, LogOut, User, ChevronDown, CheckCheck, X } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
+import { notificationsAPI } from '../services/api';
 import { Avatar, Badge } from '../components/ui';
 import { cn, ROLE_CONFIG } from '../utils/helpers';
 
@@ -19,7 +20,7 @@ export default function Navbar() {
   const [search, setSearch] = useState('');
   const [showResults, setShowResults] = useState(false);
 
-  const unread = notifications.filter((n) => n.unread).length;
+  const unread = notifications.filter((n) => !n.read).length;
 
   // Close on outside click
   const notifRef   = useRef(null);
@@ -70,10 +71,26 @@ export default function Navbar() {
   }, [search, tasks, clients, meetings]);
 
   const notifIconMap = {
-    task:    { bg: 'bg-indigo-100', color: 'text-indigo-600', icon: '✓' },
-    meeting: { bg: 'bg-amber-100',  color: 'text-amber-600',  icon: '📅' },
-    client:  { bg: 'bg-emerald-100',color: 'text-emerald-600',icon: '🏢' },
-    system:  { bg: 'bg-slate-100',  color: 'text-slate-600',  icon: 'ℹ' },
+    task_assigned:       { bg: 'bg-indigo-100 dark:bg-indigo-900/40', color: 'text-indigo-600 dark:text-indigo-400', icon: '✓' },
+    task_approved:       { bg: 'bg-emerald-100 dark:bg-emerald-900/40', color: 'text-emerald-600 dark:text-emerald-400', icon: '🎉' },
+    task_ready_approval: { bg: 'bg-amber-100 dark:bg-amber-900/40',   color: 'text-amber-600 dark:text-amber-400',   icon: '👀' },
+    meeting_scheduled:   { bg: 'bg-violet-100 dark:bg-violet-900/40', color: 'text-violet-600 dark:text-violet-400', icon: '📅' },
+    message_dm:          { bg: 'bg-sky-100 dark:bg-sky-900/40',       color: 'text-sky-600 dark:text-sky-400',       icon: '💬' },
+    client_update:       { bg: 'bg-teal-100 dark:bg-teal-900/40',     color: 'text-teal-600 dark:text-teal-400',     icon: '🏢' },
+    todo_submitted:      { bg: 'bg-orange-100 dark:bg-orange-900/40', color: 'text-orange-600 dark:text-orange-400', icon: '📋' },
+    default:             { bg: 'bg-slate-100 dark:bg-slate-700',      color: 'text-slate-600 dark:text-slate-400',   icon: 'ℹ' },
+  };
+
+  const fmtTime = (iso) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1)  return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHrs = Math.floor(diffMins / 60);
+    if (diffHrs < 24)  return `${diffHrs}h ago`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   const roleCfg = ROLE_CONFIG[authUser?.role] || {};
@@ -246,19 +263,36 @@ export default function Navbar() {
                   {notifications.length === 0 ? (
                     <div className="py-8 text-center text-slate-400 text-[13px]">All caught up! 🎉</div>
                   ) : notifications.map((n) => {
-                    const cfg = notifIconMap[n.type] || notifIconMap.system;
+                    const cfg = notifIconMap[n.type] || notifIconMap.default;
                     return (
                       <div
-                        key={n.id}
-                        className={cn('flex gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-700/50 last:border-b-0 transition-colors', n.unread ? 'bg-primary-50/40 dark:bg-primary-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30')}
+                        key={n._id}
+                        onClick={() => {
+                          if (n.link) { navigate(n.link); setShowNotif(false); }
+                          if (!n.read) {
+                            // optimistic mark-read on click
+                            useAppStore.setState((s) => ({
+                              notifications: s.notifications.map((x) => x._id === n._id ? { ...x, read: true } : x)
+                            }));
+                            notificationsAPI.markRead(n._id).catch(() => {});
+                          }
+                        }}
+                        className={cn(
+                          'flex gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-700/50 last:border-b-0 transition-colors',
+                          n.link ? 'cursor-pointer' : 'cursor-default',
+                          !n.read ? 'bg-primary-50/40 dark:bg-primary-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                        )}
                       >
                         <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-[14px] flex-shrink-0', cfg.bg)}>{cfg.icon}</div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 truncate">{n.title}</p>
-                          <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{n.body}</p>
-                          <p className="text-[11px] text-slate-400 mt-1">{n.time}</p>
+                          <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{n.message}</p>
+                          <p className="text-[11px] text-slate-400 mt-1">{fmtTime(n.createdAt)}</p>
                         </div>
-                        <button onClick={() => dismissNotification(n.id)} className="text-slate-300 hover:text-slate-500 flex-shrink-0 mt-0.5">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); dismissNotification(n._id); }}
+                          className="text-slate-300 hover:text-slate-500 dark:hover:text-slate-300 flex-shrink-0 mt-0.5"
+                        >
                           <X size={13} />
                         </button>
                       </div>

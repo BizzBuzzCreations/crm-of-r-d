@@ -1,5 +1,6 @@
 const path    = require('path');
 const { Message, Task, Todo, WorkLog } = require('../models/index');
+const notifService = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
 // MESSAGES
@@ -54,8 +55,24 @@ exports.sendMessage = async (req, res, next) => {
     });
     const populated = await msg.populate('userId', 'name color initials status');
 
-    // Emit via socket
-    req.app.get('io')?.to(canonicalId).emit('message:new', populated);
+    const io = req.app.get('io');
+    io?.to(canonicalId).emit('message:new', populated);
+
+    // Notify DM recipient (not channel messages)
+    if (canonicalId.startsWith('dm-')) {
+      const [, id1, id2] = canonicalId.split('-');
+      const myId = String(req.user._id);
+      const recipientId = id1 === myId ? id2 : id1;
+      notifService.dispatch(io, {
+        recipient: recipientId,
+        sender:    req.user._id,
+        type:      'message_dm',
+        title:     `New message from ${req.user.name}`,
+        message:   msg.text || '📎 Sent an attachment',
+        link:      '/messages',
+        metadata:  { threadId: canonicalId, senderId: myId },
+      });
+    }
 
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }

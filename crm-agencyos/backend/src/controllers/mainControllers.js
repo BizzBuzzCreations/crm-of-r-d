@@ -1,5 +1,6 @@
 const User            = require('../models/User');
 const { Client, Task, Todo, Meeting } = require('../models/index');
+const notifService    = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
 // USERS
@@ -123,17 +124,62 @@ exports.createTask = async (req, res, next) => {
     const populated = await task.populate(taskPopulate);
     const io = req.app.get('io');
     io?.emit('task:created', populated);
+
+    const assignedToId = String(task.assignedTo?._id ?? task.assignedTo);
+    if (assignedToId !== String(req.user._id)) {
+      notifService.dispatch(io, {
+        recipient: task.assignedTo?._id ?? task.assignedTo,
+        sender:    req.user._id,
+        type:      'task_assigned',
+        title:     'New task assigned',
+        message:   `${req.user.name} assigned you: "${task.title}"`,
+        link:      '/tasks',
+        metadata:  { taskId: String(task._id) },
+      });
+    }
+
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
 
 exports.updateTask = async (req, res, next) => {
   try {
+    const prev = await Task.findById(req.params.id).lean();
     const task = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
       .populate(taskPopulate);
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
     const io = req.app.get('io');
     io?.emit('task:updated', task);
+
+    // Member marked task ready for approval → notify assigner
+    if (req.body.readyForApproval && !prev.readyForApproval && task.assignedBy) {
+      notifService.dispatch(io, {
+        recipient: task.assignedBy?._id ?? task.assignedBy,
+        sender:    req.user._id,
+        type:      'task_ready_approval',
+        title:     'Task ready for review',
+        message:   `${req.user.name} marked "${task.title}" ready for approval`,
+        link:      '/tasks',
+        metadata:  { taskId: String(task._id) },
+      });
+    }
+
+    // Manager approved (status → completed) → notify assignee
+    if (req.body.status === 'completed' && prev.status !== 'completed') {
+      const recipientId = String(task.assignedTo?._id || task.assignedTo);
+      if (recipientId !== String(req.user._id)) {
+        notifService.dispatch(io, {
+          recipient: task.assignedTo?._id || task.assignedTo,
+          sender:    req.user._id,
+          type:      'task_approved',
+          title:     'Task approved!',
+          message:   `"${task.title}" has been approved and marked complete`,
+          link:      '/tasks',
+          metadata:  { taskId: String(task._id) },
+        });
+      }
+    }
+
     res.json({ success: true, data: task });
   } catch (err) { next(err); }
 };
@@ -203,7 +249,22 @@ exports.createMeeting = async (req, res, next) => {
   try {
     const meeting = await Meeting.create({ ...req.body, createdBy: req.user._id });
     const populated = await meeting.populate(meetPopulate);
-    req.app.get('io')?.emit('meeting:created', populated);
+    const io = req.app.get('io');
+    io?.emit('meeting:created', populated);
+
+    const participants = (req.body.participants || []).filter((id) => String(id) !== String(req.user._id));
+    participants.forEach((pid) => {
+      notifService.dispatch(io, {
+        recipient: pid,
+        sender:    req.user._id,
+        type:      'meeting_scheduled',
+        title:     'Meeting scheduled',
+        message:   `${req.user.name} scheduled "${meeting.title}"${meeting.date ? ` on ${meeting.date}` : ''}`,
+        link:      '/meetings',
+        metadata:  { meetingId: String(meeting._id) },
+      });
+    });
+
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
