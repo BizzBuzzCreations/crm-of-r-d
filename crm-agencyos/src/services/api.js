@@ -2,7 +2,15 @@ import axios from 'axios';
 
 const getApiUrl = () => {
   const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl && envUrl.startsWith('http')) return envUrl;
+  if (envUrl && envUrl.startsWith('http')) {
+    const isLocalEnv = envUrl.includes('localhost') || envUrl.includes('127.0.0.1');
+    const isLocalBrowser = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '5173');
+    
+    if (!isLocalEnv || isLocalBrowser) {
+      return envUrl;
+    }
+  }
   
   if (typeof window !== 'undefined') {
     // If in development (Vite dev server), fallback to backend port 5000

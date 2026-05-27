@@ -44,12 +44,26 @@ let _beforeUnloadFn = null;  // reference so we can remove it on disconnect
 
 const getSocketUrl = () => {
   const envUrl = import.meta.env.VITE_SOCKET_URL;
-  if (envUrl && envUrl.startsWith('http')) return envUrl;
+  if (envUrl && envUrl.startsWith('http')) {
+    const isLocalEnv = envUrl.includes('localhost') || envUrl.includes('127.0.0.1');
+    const isLocalBrowser = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '5173');
+    
+    if (!isLocalEnv || isLocalBrowser) {
+      return envUrl;
+    }
+  }
 
   const apiUrl = import.meta.env.VITE_API_URL;
   if (apiUrl && apiUrl.startsWith('http')) {
-    // Sockets connect to the root of the API server (without '/api' suffix)
-    return apiUrl.replace(/\/api\/?$/, '');
+    const isLocalEnv = apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1');
+    const isLocalBrowser = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '5173');
+    
+    if (!isLocalEnv || isLocalBrowser) {
+      // Sockets connect to the root of the API server (without '/api' suffix)
+      return apiUrl.replace(/\/api\/?$/, '');
+    }
   }
   
   if (typeof window !== 'undefined') {
