@@ -409,7 +409,7 @@ export default function Sidebar() {
         !sidebarOpen && 'justify-center px-0'
       )}>
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-[13px] flex-shrink-0">
-          AO
+          BBC
         </div>
         <AnimatePresence>
           {sidebarOpen && (
@@ -417,7 +417,7 @@ export default function Sidebar() {
               initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              <div className="text-white font-bold text-[14px] leading-tight">AgencyOS</div>
+              <div className="text-white font-bold text-[14px] leading-tight">BBC CRM</div>
               <div className="text-slate-500 text-[10.5px]">Team Workspace</div>
             </motion.div>
           )}

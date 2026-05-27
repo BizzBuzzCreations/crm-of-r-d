@@ -72,9 +72,9 @@ export default function LoginPage() {
         <motion.div className="relative z-10 max-w-lg w-full" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="backdrop-blur-md bg-white/[0.06] border border-white/10 rounded-2xl p-10">
             <div className="flex items-center gap-3 mb-8">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-lg">AO</div>
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-lg">BBC</div>
               <div>
-                <div className="text-white font-bold text-xl">AgencyOS</div>
+                <div className="text-white font-bold text-xl">Bizz Buzz Creations</div>
                 <div className="text-slate-400 text-[12px] mt-0.5">Premium CRM Platform</div>
               </div>
             </div>
@@ -82,7 +82,7 @@ export default function LoginPage() {
               Manage your agency{' '}
               <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">like a pro</span>
             </h1>
-            <p className="text-slate-400 text-[14.5px] leading-relaxed mb-8">The all-in-one CRM built for digital agencies — powered by a live backend API.</p>
+            <p className="text-slate-400 text-[14.5px] leading-relaxed mb-8">The all-in-one CRM built for digital agencies.</p>
             <div className="space-y-3">
               {FEATURES.map(({ icon: Icon, text }) => (
                 <div key={text} className="flex items-center gap-3">

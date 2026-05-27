@@ -14,11 +14,11 @@ import { cn, getId, sameId, ROLE_CONFIG, canManage } from '../utils/helpers';
 const statusColors = { online: '#10b981', away: '#f59e0b', offline: '#94a3b8' };
 const statusLabels = { online: 'Online', away: 'Away', offline: 'Offline' };
 
-const DEPARTMENTS = ['Engineering','Design','Marketing','Operations','Management','Sales','Support'];
+const DEPARTMENTS = ['Marketing'];
 const POSITIONS   = [
-  'Senior Developer','Junior Developer','UI/UX Designer','Graphic Designer',
-  'Content Strategist','SEO Specialist','Project Manager','Account Manager',
-  'Marketing Executive','Operations Manager','Support Specialist','Other',
+  'Developer','Graphic Designer',
+  'Video Editor','SEO','HR',
+  'BDE','SMM','Other',
 ];
 
 // ── Add Member Modal ──────────────────────────────────────────
