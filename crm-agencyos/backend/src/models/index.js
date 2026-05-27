@@ -138,6 +138,15 @@ const WorkLogSchema = new mongoose.Schema({
 
 WorkLogSchema.index({ userId: 1, date: -1 });
 
+const ChannelSchema = new mongoose.Schema({
+  name:        { type: String, required: [true, 'Channel name is required'], unique: true, trim: true },
+  description: { type: String, default: '' },
+  isPrivate:   { type: Boolean, default: false },
+  members:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  isDeleted:   { type: Boolean, default: false }, // Soft deletion support
+}, { timestamps: true });
+
 module.exports = {
   Client:            mongoose.model('Client',            ClientSchema),
   Task:              mongoose.model('Task',              TaskSchema),
@@ -147,4 +156,6 @@ module.exports = {
   Revenue:           mongoose.model('Revenue',           RevenueSchema),
   Message:           mongoose.model('Message',           MessageSchema),
   WorkLog:           mongoose.model('WorkLog',           WorkLogSchema),
+  Channel:           mongoose.model('Channel',           ChannelSchema),
 };
+

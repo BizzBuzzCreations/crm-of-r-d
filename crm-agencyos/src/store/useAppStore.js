@@ -3,7 +3,7 @@ import { io }       from 'socket.io-client';
 import toast        from 'react-hot-toast';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
-  todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI,
+  todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -191,6 +191,61 @@ function connectSocket(token, store) {
   sock.on('notification:new', (notif) => {
     store.setState((s) => ({ notifications: [notif, ...s.notifications] }));
   });
+
+  // Dynamic channels
+  sock.on('channel:created', (ch) => store.setState((s) => {
+    const formatted = { 
+      id: ch._id, 
+      name: ch.name, 
+      type: 'channel', 
+      description: ch.description || '', 
+      isPrivate: !!ch.isPrivate, 
+      members: ch.members || [],
+      unread: 0 
+    };
+    if (s.messages.channels.some((c) => c.id === ch._id)) return {};
+    sock?.emit('join:thread', ch._id);
+    return {
+      messages: {
+        ...s.messages,
+        channels: [...s.messages.channels, formatted]
+      }
+    };
+  }));
+
+  sock.on('channel:updated', (ch) => store.setState((s) => {
+    return {
+      messages: {
+        ...s.messages,
+        channels: s.messages.channels.map((c) =>
+          c.id === ch._id
+            ? { 
+                ...c, 
+                name: ch.name, 
+                description: ch.description || '',
+                isPrivate: !!ch.isPrivate,
+                members: ch.members || []
+              }
+            : c
+        )
+      }
+    };
+  }));
+
+  sock.on('channel:deleted', (id) => store.setState((s) => {
+    const newChannels = s.messages.channels.filter((c) => c.id !== String(id));
+    let activeThread = s.activeThread;
+    if (activeThread === String(id)) {
+      activeThread = newChannels[0]?.id || 'general';
+    }
+    return {
+      activeThread,
+      messages: {
+        ...s.messages,
+        channels: newChannels
+      }
+    };
+  }));
 
   // User presence
   sock.on('user:online',  ({ userId })         => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'online'  } : u) })));
@@ -478,15 +533,24 @@ const useAppStore = create((set, get, store) => ({
   loadAllData: async () => {
     set({ loading:true });
     try {
-      const [uR, cR, tR, dR, mR, nR] = await Promise.all([
+      const [uR, cR, tR, dR, mR, nR, chR] = await Promise.all([
         usersAPI.getAll(), clientsAPI.getAll(), tasksAPI.getAll(), todosAPI.getAll(), meetingsAPI.getAll(),
-        notificationsAPI.getAll(),
+        notificationsAPI.getAll(), channelsAPI.getAll(),
       ]);
       const users = uR.data.data;
       const me    = get().authUser;
       const dms   = users
         .filter((u) => getId(u) !== getId(me))
         .map((u)   => ({ id:`dm-${getId(u)}`, userId:getId(u), unread:0 }));
+      const channels = (chR.data.data || []).map((c) => ({
+        id: c._id,
+        name: c.name,
+        type: 'channel',
+        description: c.description || '',
+        isPrivate: !!c.isPrivate,
+        members: c.members || [],
+        unread: 0,
+      }));
       set({
         users,
         clients:       cR.data.data,
@@ -494,7 +558,7 @@ const useAppStore = create((set, get, store) => ({
         todos:         dR.data.data,
         meetings:      mR.data.data,
         notifications: nR.data.data,
-        messages:      { ...get().messages, dms },
+        messages:      { ...get().messages, dms, channels },
         loading:       false,
       });
       await get().fetchMySchedule();
@@ -504,6 +568,34 @@ const useAppStore = create((set, get, store) => ({
     } catch (err) {
       console.error('loadAllData error:', err.message);
       set({ loading:false });
+    }
+  },
+
+  // ── Channels Actions ─────────────────────────────────────────
+  addChannel: async (body) => {
+    try {
+      const { data } = await channelsAPI.create(body);
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create channel');
+      throw err;
+    }
+  },
+  updateChannel: async (id, body) => {
+    try {
+      const { data } = await channelsAPI.update(id, body);
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update channel');
+      throw err;
+    }
+  },
+  deleteChannel: async (id) => {
+    try {
+      await channelsAPI.delete(id);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete channel');
+      throw err;
     }
   },
 

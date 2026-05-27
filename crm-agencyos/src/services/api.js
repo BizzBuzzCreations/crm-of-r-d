@@ -208,3 +208,13 @@ export const notificationsAPI = {
   markAllRead:()  => api.patch('/notifications/read-all'),
   delete:    (id) => api.delete(`/notifications/${id}`),
 };
+
+// ─────────────────────────────────────────────────────────────
+// ── Channels
+// ─────────────────────────────────────────────────────────────
+export const channelsAPI = {
+  getAll: () => api.get('/channels'),
+  create: (body) => api.post('/channels', body),
+  update: (id, body) => api.put(`/channels/${id}`, body),
+  delete: (id) => api.delete(`/channels/${id}`),
+};

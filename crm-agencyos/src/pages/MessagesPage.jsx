@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
 import {
   Hash, MessageCircle, Send, Trash2, Search, Paperclip,
-  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus,
+  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -149,7 +150,7 @@ function TypingDots({ names }) {
 }
 
 export default function MessagesPage() {
-  const { authUser, messages, activeThread, setActiveThread, sendMessage, deleteMessage, loadThread, leaveThread, emitTypingStart, emitTypingStop } = useAppStore(useShallow((s) => ({
+  const { authUser, messages, activeThread, setActiveThread, sendMessage, deleteMessage, loadThread, leaveThread, emitTypingStart, emitTypingStop, addChannel, updateChannel, deleteChannel } = useAppStore(useShallow((s) => ({
     authUser:       s.authUser,
     messages:       s.messages,
     activeThread:   s.activeThread,
@@ -160,6 +161,9 @@ export default function MessagesPage() {
     leaveThread:    s.leaveThread,
     emitTypingStart:s.emitTypingStart,
     emitTypingStop: s.emitTypingStop,
+    addChannel:     s.addChannel,
+    updateChannel:  s.updateChannel,
+    deleteChannel:  s.deleteChannel,
   })));
   const users = useAppStore((s) => s.users);
   const socketConnected = useAppStore((s) => s.socketConnected);
@@ -174,6 +178,17 @@ export default function MessagesPage() {
   const [showNewDM,     setShowNewDM]     = useState(false);
   const [dmSearch,      setDmSearch]      = useState('');
   const [typingNames,   setTypingNames]   = useState([]);
+
+  // Channel Creation / Management states
+  const [showChannelModal, setShowChannelModal] = useState(false);
+  const [editingChannel,   setEditingChannel]   = useState(null);
+  const [channelName,      setChannelName]      = useState('');
+  const [channelDesc,      setChannelDesc]      = useState('');
+  const [confirmDelChan,   setConfirmDelChan]   = useState(null);
+  const [savingChannel,    setSavingChannel]    = useState(false);
+  const [isPrivate,        setIsPrivate]        = useState(false);
+  const [selectedMembers,  setSelectedMembers]  = useState([]);
+  const [memberSearch,     setMemberSearch]     = useState('');
 
   const localMsgs = messages.threads[activeThread] || [];
 
@@ -277,6 +292,49 @@ export default function MessagesPage() {
     } catch {}
   };
 
+  // ── Channels Handling (Admin only) ─────────────────────────
+  const handleSaveChannel = async () => {
+    if (!channelName.trim() || savingChannel) return;
+    setSavingChannel(true);
+    try {
+      const payload = {
+        name: channelName.trim(),
+        description: channelDesc.trim(),
+        isPrivate,
+        members: isPrivate ? selectedMembers : [],
+      };
+      
+      if (editingChannel) {
+        await updateChannel(editingChannel.id, payload);
+        toast.success(`Channel #${channelName} updated successfully!`);
+      } else {
+        await addChannel(payload);
+        toast.success(`Channel #${channelName} created successfully!`);
+      }
+      setShowChannelModal(false);
+      setEditingChannel(null);
+      setChannelName('');
+      setChannelDesc('');
+      setIsPrivate(false);
+      setSelectedMembers([]);
+      setMemberSearch('');
+    } catch {
+      // toast notification handled by store
+    } finally {
+      setSavingChannel(false);
+    }
+  };
+
+  const handleDeleteChannel = async () => {
+    if (!confirmDelChan) return;
+    const name = confirmDelChan.name;
+    try {
+      await deleteChannel(confirmDelChan.id);
+      toast.success(`Channel #${name} and all its messages deleted successfully.`);
+      setConfirmDelChan(null);
+    } catch {}
+  };
+
   // ── Render ────────────────────────────────────────────────
   return (
     <Page className="!p-0">
@@ -293,19 +351,73 @@ export default function MessagesPage() {
           <div className="flex-1 overflow-y-auto py-2 px-2 space-y-4">
             {/* Channels */}
             <div>
-              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Channels</div>
+              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1 flex items-center justify-between">
+                <span>Channels</span>
+                {authUser?.role === 'admin' && (
+                  <button
+                    onClick={() => {
+                      setEditingChannel(null);
+                      setChannelName('');
+                      setChannelDesc('');
+                      setShowChannelModal(true);
+                    }}
+                    className="w-4.5 h-4.5 flex items-center justify-center rounded hover:bg-slate-800 text-slate-500 hover:text-slate-350 transition-colors"
+                    title="Create New Channel"
+                  >
+                    <Plus size={12}/>
+                  </button>
+                )}
+              </div>
               {messages.channels.filter((c)=>!search||c.name.includes(search)).map((ch)=>(
-                <button key={ch.id} onClick={()=>setActiveThread(ch.id)} className={cn('flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group',activeThread===ch.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
-                  <div className="relative flex-shrink-0">
-                    <Hash size={13} className="flex-shrink-0"/>
+                <button key={ch.id} onClick={()=>setActiveThread(ch.id)} className={cn('flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group/chan',activeThread===ch.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
+                  <div className="relative flex-shrink-0 flex items-center justify-center w-4 h-4">
+                    {ch.isPrivate ? (
+                      <Lock size={11} className="flex-shrink-0 text-amber-500/80" />
+                    ) : (
+                      <Hash size={13} className="flex-shrink-0" />
+                    )}
                     {ch.unread > 0 && (
                       <span className="absolute -top-1 -right-1 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse border border-slate-900" />
                     )}
                   </div>
                   <span className="flex-1 truncate">{ch.name}</span>
-                  <div className="relative flex items-center justify-center min-w-[20px] h-5">
+                  
+                  {/* Admin inline edit/delete */}
+                  {authUser?.role === 'admin' && (
+                    <div className="hidden group-hover/chan:flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingChannel(ch);
+                          setChannelName(ch.name);
+                          setChannelDesc(ch.description || '');
+                          setIsPrivate(!!ch.isPrivate);
+                          setSelectedMembers((ch.members || []).map(m => getId(m)));
+                          setShowChannelModal(true);
+                        }}
+                        className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-700 transition-colors"
+                        title="Edit Channel Settings"
+                      >
+                        <span className="text-[11px] block leading-none">✏️</span>
+                      </button>
+                      {ch.name !== 'general' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDelChan(ch);
+                          }}
+                          className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-700 transition-colors"
+                          title="Delete Channel"
+                        >
+                          <span className="text-[11px] block leading-none">🗑️</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="relative flex items-center justify-center min-w-[20px] h-5 flex-shrink-0">
                     {ch.unread > 0 && (
-                      <span className="group-hover:hidden bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                      <span className="group-hover/chan:hidden bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
                         {ch.unread}
                       </span>
                     )}
@@ -314,7 +426,7 @@ export default function MessagesPage() {
                         e.stopPropagation();
                         useAppStore.getState().markThreadRead(ch.id);
                       }}
-                      className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                      className="hidden group-hover/chan:flex items-center justify-center w-5 h-5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
                       title="Mark as Read"
                     >
                       ✓
@@ -390,7 +502,25 @@ export default function MessagesPage() {
                 : <div className="relative"><Avatar user={dmUser} size="sm"/><span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900" style={{background:statusColors[dmUser?.status]||'#94a3b8'}}/></div>
               }
               <div>
-                <p className="text-[14px] font-semibold text-slate-900 dark:text-white">{threadTitle}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[14px] font-semibold text-slate-900 dark:text-white">{threadTitle}</p>
+                  {isChannel && authUser?.role === 'admin' && (
+                    <button
+                      onClick={() => {
+                        setEditingChannel(activeChannel);
+                        setChannelName(activeChannel.name);
+                        setChannelDesc(activeChannel.description || '');
+                        setIsPrivate(!!activeChannel.isPrivate);
+                        setSelectedMembers((activeChannel.members || []).map(m => getId(m)));
+                        setShowChannelModal(true);
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-indigo-500 transition-colors flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Edit Channel Settings"
+                    >
+                      <span className="text-[11.5px] block leading-none">⚙️</span>
+                    </button>
+                  )}
+                </div>
                 <p className="text-[11.5px] text-slate-500">{threadDesc}</p>
               </div>
             </div>
@@ -788,6 +918,245 @@ export default function MessagesPage() {
                 <p className="text-[11.5px] text-slate-400 text-center">
                   {users.filter(u => getId(u) !== getId(authUser)).length} teammate{users.length !== 2 ? 's' : ''} available
                 </p>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Channel CRUD Modal ──────────────────────────────── */}
+      <AnimatePresence>
+        {showChannelModal && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="channel-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              onClick={() => setShowChannelModal(false)}
+            />
+
+            {/* Modal */}
+            <motion.div
+              key="channel-modal"
+              initial={{ opacity: 0, scale: 0.92, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: -10 }}
+              transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+              className="fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden"
+            >
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+                    {isPrivate ? (
+                      <Lock size={13} className="text-amber-500"/>
+                    ) : (
+                      <Hash size={14} className="text-indigo-600 dark:text-indigo-400"/>
+                    )}
+                  </div>
+                  <p className="text-[15px] font-bold text-slate-800 dark:text-white">
+                    {editingChannel ? `Edit ${isPrivate ? 'Group' : 'Channel'} #${editingChannel.name}` : isPrivate ? 'Create Private Group Chat' : 'Create New Channel'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowChannelModal(false)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <X size={14}/>
+                </button>
+              </div>
+
+              {/* Form body */}
+              <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+                <div>
+                  <label className="block text-[12px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
+                    {isPrivate ? 'Group' : 'Channel'} Name
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-[14px]">
+                      {isPrivate ? '🔒' : '#'}
+                    </span>
+                    <input
+                      autoFocus
+                      type="text"
+                      disabled={editingChannel && editingChannel.name === 'general'}
+                      placeholder="e.g. engineering-team"
+                      value={channelName}
+                      onChange={(e) => setChannelName(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+                      className="w-full bg-slate-50 dark:bg-slate-700/40 disabled:opacity-60 disabled:cursor-not-allowed text-slate-850 dark:text-slate-150 text-[13px] rounded-xl pl-8 pr-4 py-2.5 outline-none border border-slate-200 dark:border-slate-700 focus:border-indigo-500/60 transition-all font-medium"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                    Lowercase, no spaces. Use hyphens for separation (e.g. `tech-updates`).
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[12px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
+                    Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Describe what this conversation is for..."
+                    value={channelDesc}
+                    onChange={(e) => setChannelDesc(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-700/40 text-slate-850 dark:text-slate-150 text-[13px] rounded-xl px-4 py-2.5 outline-none border border-slate-200 dark:border-slate-700 focus:border-indigo-500/60 transition-all font-medium resize-none"
+                  />
+                </div>
+
+                {/* Private switch */}
+                {(!editingChannel || editingChannel.name !== 'general') && (
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-800/20">
+                    <div>
+                      <p className="text-[12.5px] font-bold text-slate-800 dark:text-white">Private Group Chat</p>
+                      <p className="text-[10.5px] text-slate-400">Only selected members will be able to see and join</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={isPrivate}
+                        onChange={(e) => {
+                          setIsPrivate(e.target.checked);
+                          if (e.target.checked && selectedMembers.length === 0) {
+                            setSelectedMembers([getId(authUser)]);
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
+                  </div>
+                )}
+
+                {/* Members multi-select checklist */}
+                {isPrivate && (
+                  <div className="space-y-2">
+                    <label className="block text-[11.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                      Select Group Members ({selectedMembers.filter(id => id !== getId(authUser)).length} teammates added)
+                    </label>
+                    <div className="relative">
+                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                      <input
+                        type="text"
+                        placeholder="Search team members…"
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-700/40 text-slate-800 dark:text-slate-200 placeholder-slate-400 text-[12px] rounded-lg pl-7 pr-3 py-1.5 outline-none border border-slate-200 dark:border-slate-700"
+                      />
+                    </div>
+                    <div className="max-h-[140px] overflow-y-auto border border-slate-100 dark:border-slate-700/60 rounded-xl p-2 space-y-1.5 bg-slate-50/20 dark:bg-slate-900/10">
+                      {users
+                        .filter((u) => getId(u) !== getId(authUser))
+                        .filter((u) => {
+                          if (!memberSearch.trim()) return true;
+                          const q = memberSearch.toLowerCase();
+                          return u.name.toLowerCase().includes(q) || (u.position || '').toLowerCase().includes(q);
+                        })
+                        .map((u) => {
+                          const uid = getId(u);
+                          const isChecked = selectedMembers.includes(uid);
+                          return (
+                            <label key={uid} className="flex items-center gap-2.5 px-2.5 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-lg cursor-pointer text-[12px] font-medium text-slate-700 dark:text-slate-350">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  if (isChecked) {
+                                    setSelectedMembers((prev) => prev.filter((id) => id !== uid));
+                                  } else {
+                                    setSelectedMembers((prev) => [...prev, uid]);
+                                  }
+                                }}
+                                className="rounded border-slate-300 dark:border-slate-600 text-primary-500 focus:ring-primary-500 w-3.5 h-3.5"
+                              />
+                              <Avatar user={u} size="xs"/>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-slate-800 dark:text-slate-200 leading-none mb-0.5">{u.name}</p>
+                                <p className="text-[10px] text-slate-450 truncate leading-none">{u.position || 'Teammate'}</p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal footer */}
+              <div className="px-5 py-3.5 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowChannelModal(false)}
+                  className="px-4 py-2 rounded-xl text-[13px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-650 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveChannel}
+                  disabled={!channelName.trim() || savingChannel}
+                  className={cn(
+                    "px-4 py-2 rounded-xl text-[13px] font-semibold text-white flex items-center gap-1.5 transition-all shadow-md",
+                    channelName.trim() && !savingChannel
+                      ? "bg-primary-500 hover:bg-primary-600 active:scale-95"
+                      : "bg-slate-300 dark:bg-slate-700 text-slate-450 dark:text-slate-500 cursor-not-allowed shadow-none"
+                  )}
+                >
+                  {savingChannel ? <Loader2 size={13} className="animate-spin"/> : null}
+                  {editingChannel ? 'Save Changes' : isPrivate ? 'Create Group' : 'Create Channel'}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Channel Delete Confirmation Modal ─────────────────── */}
+      <AnimatePresence>
+        {confirmDelChan && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="delete-chan-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60]"
+              onClick={() => setConfirmDelChan(null)}
+            />
+
+            {/* Modal */}
+            <motion.div
+              key="delete-chan-modal"
+              initial={{ opacity: 0, scale: 0.94, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 10 }}
+              className="fixed top-[30%] left-1/2 -translate-x-1/2 w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-[70] p-5 overflow-hidden text-center"
+            >
+              <div className="w-12 h-12 bg-red-100 dark:bg-red-950/40 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Trash2 size={20}/>
+              </div>
+              <h3 className="text-[15.5px] font-bold text-slate-900 dark:text-white mb-1.5">
+                Delete Channel #{confirmDelChan.name}?
+              </h3>
+              <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mb-4 px-2 leading-relaxed">
+                This action is permanent. Deleting this channel will immediately destroy all messages and shared attachments within it.
+              </p>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmDelChan(null)}
+                  className="flex-1 px-4 py-2 rounded-xl text-[12.5px] font-bold bg-slate-50 dark:bg-slate-750 border border-slate-200 dark:border-slate-700 text-slate-650 dark:text-slate-350 hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteChannel}
+                  className="flex-1 px-4 py-2 rounded-xl text-[12.5px] font-bold bg-red-500 hover:bg-red-600 text-white shadow-md hover:shadow-red-500/20 active:scale-95 transition-all"
+                >
+                  Delete Channel
+                </button>
               </div>
             </motion.div>
           </>

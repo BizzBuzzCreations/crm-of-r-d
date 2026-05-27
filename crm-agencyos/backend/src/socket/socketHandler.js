@@ -1,6 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
-const { WorkLog } = require('../models/index');
+const { WorkLog, Channel } = require('../models/index');
 
 module.exports = (io) => {
   // Auth middleware for sockets
@@ -28,10 +28,32 @@ module.exports = (io) => {
 
     // ── Join personal user room (for cross-session timer sync) ──
     socket.join(`user:${userId}`);
-
+    if (socket.user.role === 'admin') {
+      socket.join('admin');
+    }
+ 
     // ── Auto-join channels and DM rooms ───────────────────
-    const defaultChannels = ['general', 'design', 'dev', 'marketing', 'client-updates'];
-    defaultChannels.forEach((chId) => socket.join(chId));
+    try {
+      let filter = { isDeleted: { $ne: true } };
+      if (socket.user.role !== 'admin') {
+        filter = {
+          isDeleted: { $ne: true },
+          $or: [
+            { isPrivate: false },
+            { isPrivate: true, members: userId }
+          ]
+        };
+      }
+      const dbChannels = await Channel.find(filter, '_id').exec();
+      dbChannels.forEach((ch) => {
+        socket.join(String(ch._id));
+      });
+      // Also join legacy / old hardcoded string channels just in case some clients are in transition
+      const legacyChannels = ['general', 'design', 'dev', 'marketing', 'client-updates'];
+      legacyChannels.forEach((chId) => socket.join(chId));
+    } catch (err) {
+      console.error('Error auto-joining database channels:', err);
+    }
 
     try {
       const allUsers = await User.find({}, '_id').exec();

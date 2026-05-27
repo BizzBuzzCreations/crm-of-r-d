@@ -1,5 +1,5 @@
 const path    = require('path');
-const { Message, Task, Todo, WorkLog } = require('../models/index');
+const { Message, Task, Todo, WorkLog, Channel } = require('../models/index');
 const notifService = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
@@ -234,3 +234,187 @@ exports.toggleReaction = async (req, res, next) => {
     res.json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
+
+// ═══════════════════════════════════════════════════
+// CHANNELS
+// ═══════════════════════════════════════════════════
+exports.getChannels = async (req, res, next) => {
+  try {
+    let filter = { isDeleted: { $ne: true } };
+    if (req.user.role !== 'admin') {
+      filter = {
+        isDeleted: { $ne: true },
+        $or: [
+          { isPrivate: false },
+          { isPrivate: true, members: req.user._id }
+        ]
+      };
+    }
+    const channels = await Channel.find(filter)
+      .populate('members', 'name color initials position status role')
+      .sort({ name: 1 });
+    res.json({ success: true, data: channels });
+  } catch (err) { next(err); }
+};
+
+exports.createChannel = async (req, res, next) => {
+  try {
+    const { name, description, isPrivate, members } = req.body;
+    if (!name?.trim()) {
+      return res.status(400).json({ success: false, message: 'Channel name is required' });
+    }
+    const cleanName = name.trim().toLowerCase().replace(/\s+/g, '-');
+    
+    // Process members if private
+    let groupMembers = [];
+    if (isPrivate) {
+      const parsedMembers = Array.isArray(members) ? members : [];
+      // Ensure creator is always in the private group
+      const creatorIdStr = String(req.user._id);
+      if (!parsedMembers.includes(creatorIdStr)) {
+        parsedMembers.push(creatorIdStr);
+      }
+      groupMembers = parsedMembers;
+    }
+
+    const channel = await Channel.create({
+      name: cleanName,
+      description: description?.trim() || '',
+      isPrivate: !!isPrivate,
+      members: groupMembers,
+      createdBy: req.user._id,
+    });
+
+    const populated = await channel.populate('members', 'name color initials position status role');
+
+    const io = req.app.get('io');
+    if (populated.isPrivate) {
+      // Emit socket event to members of the private group only
+      populated.members.forEach((m) => {
+        io?.to(`user:${String(m._id || m)}`).emit('channel:created', populated);
+      });
+      // Also emit to active Admins who are not explicitly listed in members
+      // (Admins have access to see and join everything)
+      io?.to('admin').emit('channel:created', populated);
+    } else {
+      io?.emit('channel:created', populated);
+    }
+
+    res.status(201).json({ success: true, data: populated });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Channel name already exists' });
+    }
+    next(err);
+  }
+};
+
+exports.updateChannel = async (req, res, next) => {
+  try {
+    const { name, description, isPrivate, members } = req.body;
+    if (!name?.trim()) {
+      return res.status(400).json({ success: false, message: 'Channel name is required' });
+    }
+    const cleanName = name.trim().toLowerCase().replace(/\s+/g, '-');
+    
+    // Get existing channel to know prior member list
+    const existing = await Channel.findById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Channel not found' });
+    }
+
+    // Process members if private
+    let groupMembers = [];
+    if (isPrivate) {
+      const parsedMembers = Array.isArray(members) ? members : [];
+      const creatorIdStr = String(existing.createdBy || req.user._id);
+      if (!parsedMembers.includes(creatorIdStr)) {
+        parsedMembers.push(creatorIdStr);
+      }
+      groupMembers = parsedMembers;
+    }
+
+    const channel = await Channel.findByIdAndUpdate(
+      req.params.id,
+      { 
+        name: cleanName, 
+        description: description?.trim() || '',
+        isPrivate: !!isPrivate,
+        members: groupMembers,
+      },
+      { new: true, runValidators: true }
+    ).populate('members', 'name color initials position status role');
+
+    const io = req.app.get('io');
+    
+    // Clean up visibility sync on update:
+    // Some users might have been removed, some added.
+    // For simplicity and complete reactive reliability, we can broadcast:
+    // - channel:deleted to the old member list (to cleanly wipe it from their client view if removed)
+    // - channel:created or channel:updated to the new list
+    const oldMembers = (existing.members || []).map(m => String(m));
+    const newMembers = (channel.members || []).map(m => String(m._id || m));
+
+    const allInvolved = Array.from(new Set([...oldMembers, ...newMembers]));
+
+    allInvolved.forEach((userId) => {
+      const hadAccess = !existing.isPrivate || oldMembers.includes(userId);
+      const hasAccess = !channel.isPrivate || newMembers.includes(userId);
+
+      if (hadAccess && !hasAccess) {
+        // User was removed
+        io?.to(`user:${userId}`).emit('channel:deleted', channel._id);
+      } else if (!hadAccess && hasAccess) {
+        // User was added
+        io?.to(`user:${userId}`).emit('channel:created', channel);
+      } else if (hasAccess) {
+        // User kept access
+        io?.to(`user:${userId}`).emit('channel:updated', channel);
+      }
+    });
+
+    // Also notify active admins who are not in group
+    io?.to('admin').emit('channel:updated', channel);
+
+    res.json({ success: true, data: channel });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Channel name already exists' });
+    }
+    next(err);
+  }
+};
+
+exports.deleteChannel = async (req, res, next) => {
+  try {
+    const channel = await Channel.findById(req.params.id);
+    if (!channel) {
+      return res.status(404).json({ success: false, message: 'Channel not found' });
+    }
+
+    if (channel.name === 'general') {
+      return res.status(400).json({ success: false, message: 'Cannot delete the general channel' });
+    }
+
+    // Dynamic Production-grade Soft delete backup
+    channel.isDeleted = true;
+    await channel.save();
+    
+    // Soft delete all messages inside this channel's thread ID
+    await Message.updateMany({ threadId: req.params.id }, { isDeleted: true });
+
+    const io = req.app.get('io');
+    if (channel.isPrivate) {
+      const members = (channel.members || []).map(m => String(m));
+      members.forEach((mId) => {
+        io?.to(`user:${mId}`).emit('channel:deleted', req.params.id);
+      });
+      io?.to('admin').emit('channel:deleted', req.params.id);
+    } else {
+      io?.emit('channel:deleted', req.params.id);
+    }
+
+    res.json({ success: true, message: 'Channel deleted successfully' });
+  } catch (err) { next(err); }
+};
+
