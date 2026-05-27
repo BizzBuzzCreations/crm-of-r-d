@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock } from 'lucide-react';
+import { Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock, Layers, Plus, Trash2, X, Edit2, Zap, Palette, Smartphone, Globe, BarChart3, PenTool, Clapperboard, Camera, Wrench, Lightbulb, Shield, Rocket } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Avatar, Toggle, Button } from '../components/ui';
@@ -40,6 +40,7 @@ const TABS = [
   { id: 'profile',       label: 'Profile',        icon: User     },
   { id: 'security',      label: 'Security',       icon: Lock     },
   { id: 'notifications', label: 'Notifications',  icon: Bell     },
+  { id: 'services',      label: 'Services',       icon: Layers   },
   { id: 'data',          label: 'Data & Export',  icon: Database },
   { id: 'worklog',       label: 'Work Hours Log', icon: Clock    },
 ];
@@ -530,6 +531,284 @@ function WorkLogSection({ authUser, users }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Services section
+// ─────────────────────────────────────────────────────────────
+const COLOR_SWATCHES = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+  '#f97316', '#eab308', '#22c55e', '#14b8a6',
+  '#0ea5e9', '#3b82f6', '#64748b', '#1e293b',
+];
+
+const PRESET_ICONS = ['⚡', '🎨', '📱', '🌐', '📊', '✍️', '🎬', '📸', '🔧', '💡', '🛡️', '🚀'];
+
+const SERVICE_ICON_MAP = {
+  '⚡': Zap,
+  '🎨': Palette,
+  '📱': Smartphone,
+  '🌐': Globe,
+  '📊': BarChart3,
+  '✍️': PenTool,
+  '🎬': Clapperboard,
+  '📸': Camera,
+  '🔧': Wrench,
+  '💡': Lightbulb,
+  '🛡️': Shield,
+  '🚀': Rocket
+};
+
+function AddServiceModal({ onClose, onSave }) {
+  const [name, setName]       = useState('');
+  const [desc, setDesc]       = useState('');
+  const [category, setCategory] = useState('');
+  const [color, setColor]     = useState('#6366f1');
+  const [icon, setIcon]       = useState('⚡');
+  const [saving, setSaving]   = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) { toast.error('Service name is required'); return; }
+    setSaving(true);
+    try {
+      await onSave({ name: name.trim(), description: desc.trim(), category: category.trim() || 'General', color, icon });
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create service');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 dark:border-slate-700">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200 dark:border-slate-700">
+          <h3 className="text-[16px] font-bold text-slate-900 dark:text-white">Add New Service</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          {/* Preview card */}
+          <div className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: color + '22' }}>
+              {(() => {
+                const IconComponent = SERVICE_ICON_MAP[icon] || Zap;
+                return <IconComponent size={20} style={{ color }} />;
+              })()}
+            </div>
+            <div>
+              <p className="text-[14px] font-semibold text-slate-900 dark:text-white">{name || 'Service Name'}</p>
+              <p className="text-[12px] text-slate-400">{category || 'General'}</p>
+            </div>
+          </div>
+
+          {/* Name */}
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Name *</label>
+            <input
+              className="form-input text-[14px] py-2"
+              placeholder="e.g. Social Media Management"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Description</label>
+            <textarea
+              className="form-input text-[14px] py-2 resize-none"
+              rows={2}
+              placeholder="Brief description of this service…"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Category</label>
+            <input
+              className="form-input text-[14px] py-2"
+              placeholder="e.g. Marketing, Design, Development"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            />
+          </div>
+
+          {/* Icon picker */}
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Icon</label>
+            <div className="flex flex-wrap gap-2">
+              {PRESET_ICONS.map((ic) => {
+                const IconComponent = SERVICE_ICON_MAP[ic] || Zap;
+                const isSelected = icon === ic;
+                return (
+                  <button
+                    key={ic}
+                    type="button"
+                    onClick={() => setIcon(ic)}
+                    className={cn(
+                      'w-9 h-9 rounded-lg flex items-center justify-center border-2 transition-all',
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+                        : 'border-transparent hover:border-slate-300 bg-slate-100 dark:bg-slate-700'
+                    )}
+                  >
+                    <IconComponent size={16} className={isSelected ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-550 dark:text-slate-300'} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Color picker */}
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Color</label>
+            <div className="flex flex-wrap gap-2">
+              {COLOR_SWATCHES.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setColor(c)}
+                  className={cn(
+                    'w-7 h-7 rounded-full border-2 transition-all',
+                    color === c ? 'border-slate-800 dark:border-white scale-110' : 'border-transparent hover:scale-105'
+                  )}
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-700">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : <><Plus size={14} /> Add Service</>}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ServicesSection() {
+  const { services, addService, deleteService, authUser } = useAppStore(
+    useShallow((s) => ({ services: s.services, addService: s.addService, deleteService: s.deleteService, authUser: s.authUser }))
+  );
+  const isAdmin = authUser?.role === 'admin';
+  const [showModal, setShowModal] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const handleDelete = async (id) => {
+    setDeletingId(id);
+    try {
+      await deleteService(id);
+      toast.success('Service removed');
+    } catch {
+      toast.error('Failed to delete service');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const grouped = services.reduce((acc, sv) => {
+    const cat = sv.category || 'General';
+    (acc[cat] = acc[cat] || []).push(sv);
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700 mb-6">
+        <div>
+          <h2 className="text-[18px] font-bold text-slate-900 dark:text-white">Services</h2>
+          
+        </div>
+        {isAdmin && (
+          <Button variant="primary" onClick={() => setShowModal(true)}>
+            <Plus size={14} /> Add Service
+          </Button>
+        )}
+      </div>
+
+      {services.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mb-4">
+            <Layers size={24} className="text-indigo-400" />
+          </div>
+          <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300">No services yet</p>
+          {isAdmin && (
+            <p className="text-[13px] text-slate-400 mt-1">Add your first service to get started</p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {Object.entries(grouped).map(([cat, items]) => (
+            <div key={cat}>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">{cat}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {items.map((sv) => (
+                  <div
+                    key={sv._id}
+                    className="group relative flex items-start gap-3.5 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 hover:border-indigo-200 dark:hover:border-indigo-700 transition-all"
+                  >
+                    {/* Color accent bar */}
+                    <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full" style={{ background: sv.color }} />
+
+                    {/* Icon */}
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: sv.color + '22' }}
+                    >
+                      {(() => {
+                        const IconComponent = SERVICE_ICON_MAP[sv.icon] || Zap;
+                        return <IconComponent size={20} style={{ color: sv.color }} />;
+                      })()}
+                    </div>
+
+                    {/* Text */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-semibold text-slate-900 dark:text-white truncate">{sv.name}</p>
+                      {sv.description && (
+                        <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{sv.description}</p>
+                      )}
+                    </div>
+
+                    {/* Delete — admin only, visible on hover */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDelete(sv._id)}
+                        disabled={deletingId === sv._id}
+                        className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                      >
+                        {deletingId === sv._id
+                          ? <RefreshCw size={13} className="animate-spin" />
+                          : <Trash2 size={13} />
+                        }
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && (
+        <AddServiceModal
+          onClose={() => setShowModal(false)}
+          onSave={async (body) => { await addService(body); toast.success('Service added!'); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main Settings Page
 // ─────────────────────────────────────────────────────────────
 export default function SettingsPage() {
@@ -582,6 +861,7 @@ export default function SettingsPage() {
           {activeTab === 'profile'       && <ProfileSection       user={authUser} />}
           {activeTab === 'security'      && <SecuritySection />}
           {activeTab === 'notifications' && <NotificationsSection />}
+          {activeTab === 'services'      && <ServicesSection />}
           {activeTab === 'data'          && <DataSection />}
           {activeTab === 'worklog'       && <WorkLogSection authUser={authUser} users={users} />}
         </div>

@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Users, CheckSquare, ListTodo, Video, TrendingUp, ArrowUpRight, AlertCircle,
+  Users, CheckSquare, ListTodo, Video, TrendingUp, ArrowUpRight, AlertCircle, Sparkles,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -17,9 +17,9 @@ import { MEETING_TYPE_CONFIG, canManage, cn } from '../utils/helpers';
 // ── Greeting ─────────────────────────────────────────────────
 function getGreeting() {
   const h = new Date().getHours();
-  if (h < 12) return { text: 'Good morning',   emoji: '🌅' };
-  if (h < 17) return { text: 'Good afternoon', emoji: '☀️' };
-  return            { text: 'Good evening',    emoji: '🌙' };
+  if (h < 12) return { text: 'Good morning' };
+  if (h < 17) return { text: 'Good afternoon' };
+  return            { text: 'Good evening' };
 }
 
 // ── Heatmap config ────────────────────────────────────────────
@@ -359,7 +359,7 @@ export default function DashboardPage() {
   const upcoming         = meetings.filter((m) => m.status === 'upcoming').slice(0, 4);
   const pendingApprovals = tasks.filter((t) => t.status === 'sent-for-approval');
   const currentYear      = new Date().getFullYear();
-  const { text: greetText, emoji: greetEmoji } = getGreeting();
+  const { text: greetText } = getGreeting();
 
   const dateLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -530,7 +530,7 @@ export default function DashboardPage() {
       {/* Greeting */}
       <div className="mb-6">
         <h1 className="page-title">
-          {greetText}, {authUser?.name?.split(' ')[0]} {greetEmoji}
+          {greetText}, {authUser?.name?.split(' ')[0]}
         </h1>
         <p className="page-sub">{dateLabel}</p>
       </div>
@@ -680,7 +680,9 @@ export default function DashboardPage() {
           </div>
           {pendingApprovals.length === 0 ? (
             <div className="text-center py-6">
-              <div className="text-3xl mb-2">🎉</div>
+              <div className="flex justify-center mb-2">
+                <Sparkles size={24} className="text-purple-500 animate-pulse" />
+              </div>
               <p className="text-[13px] text-slate-500">All caught up!</p>
             </div>
           ) : (

@@ -11,6 +11,7 @@ const ctrl = require('../controllers/mainControllers');
 const xtra = require('../controllers/extraControllers');
 const revenue = require('../controllers/revenueController');
 const meetingScheduler = require('../controllers/meetingSchedulerController');
+const serviceCtr = require('../controllers/serviceController');
 
 // ── Auth routes ───────────────────────────────────────────────
 const authRouter = express.Router();
@@ -104,3 +105,12 @@ revenueRouter.use(protect);
 revenueRouter.get('/summary', authorizeRoles('admin', 'manager'), revenue.getRevenueSummary);
 revenueRouter.post('/record', authorizeRoles('admin'), revenue.recordRevenue);
 module.exports.revenue = revenueRouter;
+
+// ── Services routes ───────────────────────────────────────────
+const servicesRouter = express.Router();
+servicesRouter.use(protect);
+servicesRouter.get('/',     serviceCtr.getServices);
+servicesRouter.post('/',    authorize('admin'), serviceCtr.createService);
+servicesRouter.put('/:id',  authorize('admin'), serviceCtr.updateService);
+servicesRouter.delete('/:id', authorize('admin'), serviceCtr.deleteService);
+module.exports.services = servicesRouter;

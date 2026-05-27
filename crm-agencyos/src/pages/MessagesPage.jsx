@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   Hash, MessageCircle, Send, Trash2, Search, Paperclip,
-  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock,
+  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock, Pencil, Settings, Ban,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -398,7 +398,7 @@ export default function MessagesPage() {
                         className="p-1 text-slate-500 hover:text-white rounded hover:bg-slate-700 transition-colors"
                         title="Edit Channel Settings"
                       >
-                        <span className="text-[11px] block leading-none">✏️</span>
+                        <Pencil size={11} className="block leading-none" />
                       </button>
                       {ch.name !== 'general' && (
                         <button
@@ -409,7 +409,7 @@ export default function MessagesPage() {
                           className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-slate-700 transition-colors"
                           title="Delete Channel"
                         >
-                          <span className="text-[11px] block leading-none">🗑️</span>
+                          <Trash2 size={11} className="block leading-none" />
                         </button>
                       )}
                     </div>
@@ -517,7 +517,7 @@ export default function MessagesPage() {
                       className="p-0.5 text-slate-400 hover:text-indigo-500 transition-colors flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800"
                       title="Edit Channel Settings"
                     >
-                      <span className="text-[11.5px] block leading-none">⚙️</span>
+                      <Settings size={12} className="block leading-none" />
                     </button>
                   )}
                 </div>
@@ -609,7 +609,7 @@ export default function MessagesPage() {
                         )}
                         {msg.isDeleted ? (
                           <div className="text-slate-400 dark:text-slate-500 italic text-[12.5px] bg-slate-50 dark:bg-slate-800/25 px-3.5 py-2 rounded-xl border border-slate-100 dark:border-slate-800/80 flex items-center gap-1.5 shadow-sm max-w-[280px]">
-                            <span className="text-slate-300 dark:text-slate-600 text-[11px]">🚫</span> This message was deleted
+                            <Ban size={12} className="text-slate-450 dark:text-slate-550 flex-shrink-0" /> This message was deleted
                           </div>
                         ) : (
                           <>

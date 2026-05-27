@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import {
   Plus, Search, Grid, List, ArrowLeft, Building2, Mail, Phone,
   Globe, Calendar, Users, FileText, ChevronLeft, ChevronRight,
-  CheckSquare, ListTodo, Clock, TrendingUp,
+  CheckSquare, ListTodo, Clock, TrendingUp, Briefcase,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -47,6 +47,15 @@ function buildMonthGrid(year, month) {
 
 function ds(date) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+
+function fmtContractDuration(durationStr) {
+  if (!durationStr) return '—';
+  const isDate = /^\d{4}-\d{2}-\d{2}$/.test(durationStr);
+  if (isDate) {
+    return `Contract Ends: ${new Date(durationStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  }
+  return `Contract: ${durationStr}`;
 }
 
 // ── Client Calendar Component ─────────────────────────────────
@@ -377,35 +386,74 @@ function ClientCalendar({ client, tasks, todos, users }) {
 
 
 // ── Add Client Modal ──────────────────────────────────────────
-function AddClientModal({ open, onClose, users, onSave }) {
+function AddClientModal({ open, onClose, users, services = [], onSave }) {
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
-    defaultValues: { status: 'active', paymentStatus: 'pending', contractDuration: '12 months' },
+    defaultValues: { status: 'active', paymentStatus: 'pending', contractDuration: '' },
   });
 
   const memberUsers = users.filter((u) => u.role === 'member');
+  const [selectedServices, setSelectedServices] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState([]);
+  const [createInitialProject, setCreateInitialProject] = useState(false);
+
+  const handleToggleService = (name) => {
+    setSelectedServices((prev) =>
+      prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+    );
+  };
+
+  const handleToggleTeam = (id) => {
+    setSelectedTeam((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const onSubmit = (data) => {
+    if (selectedServices.length === 0) {
+      toast.error('Please select at least one service');
+      return;
+    }
+    if (createInitialProject) {
+      if (!data.projectName?.trim()) {
+        toast.error('Project Name is required');
+        return;
+      }
+      if (!data.projectEndDate) {
+        toast.error('Project End Date is required');
+        return;
+      }
+    }
     const newClient = {
       ...data,
       assignedTeam:  data.assignedTeam ? [data.assignedTeam] : [],
-      services:      data.services ? data.services.split(',').map((s) => s.trim()).filter(Boolean) : [],
+      services:      selectedServices,
       onboardingDate: data.onboardingDate || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      projectCount:  0,
+      projectCount:  createInitialProject ? 1 : 0,
       notes:         [],
+      // Project fields:
+      createInitialProject,
+      projectName: createInitialProject ? data.projectName : undefined,
+      projectDesc: createInitialProject ? data.projectDesc : undefined,
+      projectBudget: createInitialProject ? data.projectBudget : undefined,
+      projectEndDate: createInitialProject ? data.projectEndDate : undefined,
+      projectAssignedTeam: createInitialProject ? selectedTeam : [],
     };
     onSave(newClient);
+    setSelectedServices([]);
+    setSelectedTeam([]);
+    setCreateInitialProject(false);
     reset();
   };
 
   return (
     <Modal
       open={open}
-      onClose={() => { reset(); onClose(); }}
+      onClose={() => { setSelectedServices([]); setSelectedTeam([]); setCreateInitialProject(false); reset(); onClose(); }}
       title="Add New Client"
       size="lg"
       footer={
         <>
-          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
+          <Button variant="outline" onClick={() => { setSelectedServices([]); setSelectedTeam([]); setCreateInitialProject(false); reset(); onClose(); }}>Cancel</Button>
           <Button variant="primary" onClick={handleSubmit(onSubmit)}>
             <Plus size={14} /> Add Client
           </Button>
@@ -445,18 +493,49 @@ function AddClientModal({ open, onClose, users, onSave }) {
 
         <div className="grid grid-cols-2 gap-4">
           <Input label="Budget" placeholder="e.g. $10,000" {...register('budget')} />
-          <Select label="Contract Duration" {...register('contractDuration')}>
-            {['1 month','3 months','6 months','12 months','24 months','Ongoing'].map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </Select>
+          <Input
+            label="Contract End Date *"
+            type="date"
+            error={errors.contractDuration?.message}
+            {...register('contractDuration', { required: 'Contract end date is required' })}
+          />
         </div>
 
-        <Input
-          label="Services (comma-separated)"
-          placeholder="e.g. Web Development, SEO, Social Media"
-          {...register('services')}
-        />
+        <div>
+          <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            Select Services *
+          </label>
+          {services.length === 0 ? (
+            <p className="text-[12px] text-slate-450 dark:text-slate-500 italic">
+              No services found in database. Please go to Settings &gt; Services to add services.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/20 max-h-[135px] overflow-y-auto">
+              {services.map((sv) => {
+                const isChecked = selectedServices.includes(sv.name);
+                return (
+                  <label
+                    key={sv._id}
+                    className={cn(
+                      "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[12px] font-medium cursor-pointer transition-all select-none",
+                      isChecked
+                        ? "border-primary-500/30 bg-primary-50/50 dark:bg-primary-950/20 text-primary-700 dark:text-primary-300"
+                        : "border-transparent bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-650 dark:text-slate-400"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => handleToggleService(sv.name)}
+                      className="rounded text-primary-600 focus:ring-primary-500 w-3.5 h-3.5"
+                    />
+                    <span className="truncate">{sv.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <Input label="Office Address" placeholder="123 Main St, City, State" {...register('address')} />
 
@@ -479,6 +558,191 @@ function AddClientModal({ open, onClose, users, onSave }) {
             <option key={getId(u)} value={getId(u)}>{u.name} — {u.position}</option>
           ))}
         </Select>
+
+        {/* ── Create Initial Project Section ── */}
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-2">
+          <label className="flex items-center gap-2 px-1 py-0.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={createInitialProject}
+              onChange={(e) => setCreateInitialProject(e.target.checked)}
+              className="rounded text-primary-600 focus:ring-primary-500 w-4 h-4"
+            />
+            <span className="text-[13.5px] font-bold text-slate-800 dark:text-slate-200">
+              Create Initial Project for this Client
+            </span>
+          </label>
+          
+          {createInitialProject && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-4 space-y-4 border border-indigo-100 dark:border-indigo-950 bg-indigo-50/20 dark:bg-indigo-950/10 rounded-xl p-4"
+            >
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Project Name *"
+                  placeholder="e.g. Website Redesign"
+                  {...register('projectName')}
+                />
+                <Input
+                  label="Project Budget"
+                  placeholder="e.g. $5,000"
+                  {...register('projectBudget')}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Project End Date *"
+                  type="date"
+                  {...register('projectEndDate')}
+                />
+              </div>
+
+              <Textarea
+                label="Project Description"
+                placeholder="Describe the initial project deliverables..."
+                rows={3}
+                {...register('projectDesc')}
+              />
+
+              <div>
+                <label className="block text-[12.5px] font-semibold text-slate-750 dark:text-slate-350 mb-2">
+                  Assign Project Team Members
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 max-h-[120px] overflow-y-auto">
+                  {memberUsers.map((u) => {
+                    const isChecked = selectedTeam.includes(u._id);
+                    return (
+                      <label
+                        key={u._id}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[12px] font-medium cursor-pointer transition-all select-none",
+                          isChecked
+                            ? "border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300"
+                            : "border-transparent bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-650 dark:text-slate-400"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleTeam(u._id)}
+                          className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                        />
+                        <span className="truncate">{u.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Add Project Modal ──────────────────────────────────────────
+function AddProjectModal({ open, onClose, users, onSave, clientId }) {
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
+    defaultValues: { status: 'in-progress' },
+  });
+
+  const memberUsers = users.filter((u) => u.role === 'member');
+  const [selectedTeam, setSelectedTeam] = useState([]);
+
+  const handleToggleTeam = (id) => {
+    setSelectedTeam((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const onSubmit = (data) => {
+    onSave({
+      ...data,
+      clientId,
+      assignedTeam: selectedTeam,
+    });
+    setSelectedTeam([]);
+    reset();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => { setSelectedTeam([]); reset(); onClose(); }}
+      title="Add New Project"
+      size="md"
+      footer={
+        <>
+          <Button variant="outline" onClick={() => { setSelectedTeam([]); reset(); onClose(); }}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit(onSubmit)}>
+            <Plus size={14} /> Add Project
+          </Button>
+        </>
+      }
+    >
+      <div className="px-6 py-5 space-y-4">
+        <Input
+          label="Project Name *"
+          placeholder="e.g. Brand Refresh"
+          error={errors.name?.message}
+          {...register('name', { required: 'Project name is required' })}
+        />
+        
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Budget"
+            placeholder="e.g. $7,500"
+            {...register('budget')}
+          />
+          <Input
+            label="End Date *"
+            type="date"
+            error={errors.endDate?.message}
+            {...register('endDate', { required: 'End date is required' })}
+          />
+        </div>
+
+        <Textarea
+          label="Description"
+          placeholder="Enter project details and scope..."
+          rows={4}
+          {...register('description')}
+        />
+
+        <div>
+          <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-350 mb-1.5">
+            Assign Team Members
+          </label>
+          <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/20 max-h-[120px] overflow-y-auto">
+            {memberUsers.map((u) => {
+              const isChecked = selectedTeam.includes(u._id);
+              return (
+                <label
+                  key={u._id}
+                  className={cn(
+                    "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[12px] font-medium cursor-pointer transition-all select-none",
+                    isChecked
+                      ? "border-primary-500/30 bg-primary-50/50 dark:bg-primary-950/20 text-primary-700 dark:text-primary-300"
+                      : "border-transparent bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-650 dark:text-slate-400"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleToggleTeam(u._id)}
+                    className="rounded text-primary-600 focus:ring-primary-500 w-3.5 h-3.5"
+                  />
+                  <span className="truncate">{u.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </Modal>
   );
@@ -486,21 +750,26 @@ function AddClientModal({ open, onClose, users, onSave }) {
 
 // ── Main ClientsPage ──────────────────────────────────────────
 export default function ClientsPage() {
-  const { authUser, clients, tasks, todos, addClientNote, addClient } = useAppStore(useShallow((s) => ({
+  const { authUser, clients, tasks, todos, addClientNote, addClient, projects, addProject, deleteProject } = useAppStore(useShallow((s) => ({
     authUser:       s.authUser,
     clients:        s.clients,
     tasks:          s.tasks,
     todos:          s.todos,
     addClientNote:  s.addClientNote,
     addClient:      s.addClient,
+    projects:       s.projects,
+    addProject:     s.addProject,
+    deleteProject:  s.deleteProject,
   })));
   const users = useAppStore((s) => s.users);
+  const services = useAppStore((s) => s.services);
 
   const [view,     setView]     = useState('grid');
   const [search,   setSearch]   = useState('');
   const [selected, setSelected] = useState(null);
   const [showNote,      setShowNote]      = useState(false);
   const [showAddClient, setShowAddClient] = useState(false);
+  const [showAddProject, setShowAddProject] = useState(false);
   const [noteText, setNoteText] = useState('');
   const role = authUser?.role;
 
@@ -517,6 +786,8 @@ export default function ClientsPage() {
     const cTasks  = tasks.filter((t) => sameId(t.clientId, client));
     // Todos from team members assigned to this client
     const cTodos  = todos.filter((t) => client.assignedTeam?.some((tm) => sameId(tm, t.userId)));
+    // Projects for this client
+    const cProjects = projects.filter((p) => sameId(p.clientId, client));
 
     return (
       <Page>
@@ -542,7 +813,7 @@ export default function ClientsPage() {
             <div className="text-right">
               <div className="text-3xl font-bold text-indigo-300">{client.budget}</div>
               <div className="text-slate-400 text-[12px] mt-0.5">Contract Value</div>
-              <div className="text-slate-500 text-[12px] mt-1">{client.contractDuration}</div>
+              <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{fmtContractDuration(client.contractDuration)}</div>
             </div>
           </div>
 
@@ -575,7 +846,7 @@ export default function ClientsPage() {
                   [Globe,     'Website',    client.website],
                   [Building2, 'Industry',   client.industry],
                   [Calendar,  'Onboarding', client.onboardingDate],
-                  [FileText,  'Contract',   client.contractDuration],
+                  [FileText,  'Contract',   fmtContractDuration(client.contractDuration)],
                 ].map(([Icon, label, val]) => (
                   <div key={label} className="flex items-center gap-3 py-2 border-b border-slate-100 dark:border-slate-700/50 last:border-0">
                     <Icon size={14} className="text-slate-400 flex-shrink-0" />
@@ -620,6 +891,88 @@ export default function ClientsPage() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Projects Card */}
+            <div className="card p-5 mb-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+                    <Briefcase size={15} className="text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-[14px] font-bold text-slate-800 dark:text-slate-200">Projects ({cProjects.length})</h3>
+                    <p className="text-[11.5px] text-slate-500 dark:text-slate-400">Manage client deliverables &amp; assignments</p>
+                  </div>
+                </div>
+                {canManage(role) && (
+                  <Button variant="primary" size="sm" onClick={() => setShowAddProject(true)}>
+                    <Plus size={13} /> New Project
+                  </Button>
+                )}
+              </div>
+
+              {cProjects.length === 0 ? (
+                <div className="flex flex-col items-center py-8 text-slate-400 text-center">
+                  <Briefcase size={28} className="mb-2 opacity-30" />
+                  <p className="text-[13px] font-medium">No projects found</p>
+                  <p className="text-[11.5px] mt-0.5 opacity-70">Add a project to get started</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {cProjects.map((p) => {
+                    const projTeam = users.filter((u) => p.assignedTeam?.some((tm) => sameId(tm, u)));
+                    const formattedEndDate = p.endDate ? new Date(p.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+                    return (
+                      <div key={p._id} className="relative rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20 p-4 hover:border-indigo-500/20 transition-all flex flex-col justify-between group">
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <h4 className="text-[13.5px] font-bold text-slate-800 dark:text-slate-100 leading-snug">{p.name}</h4>
+                            <Badge variant={p.status === 'completed' ? 'success' : p.status === 'in-progress' ? 'warning' : 'neutral'}>
+                              {p.status}
+                            </Badge>
+                          </div>
+                          {p.description && (
+                            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">{p.description}</p>
+                          )}
+                        </div>
+                        
+                        <div className="pt-3 border-t border-slate-100 dark:border-slate-850 flex items-center justify-between flex-wrap gap-2">
+                          <div className="space-y-1">
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Budget &amp; Deadline</span>
+                            <div className="flex items-center gap-2 text-[11.5px] font-medium text-slate-700 dark:text-slate-350">
+                              <span className="text-primary-600 font-bold">{p.budget || '—'}</span>
+                              <span className="text-slate-300 dark:text-slate-700">|</span>
+                              <span className="flex items-center gap-0.5"><Calendar size={11} className="text-slate-400" /> {formattedEndDate}</span>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1 text-right">Team</span>
+                            <AvatarGroup users={projTeam} max={3} size="xs" />
+                          </div>
+                        </div>
+                        
+                        {canManage(role) && (
+                          <button 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              if (confirm('Are you sure you want to delete this project?')) {
+                                deleteProject(p._id)
+                                  .then(() => toast.success('Project deleted!'))
+                                  .catch(() => toast.error('Failed to delete project'));
+                              }
+                            }}
+                            className="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 text-[16px] font-bold"
+                          >
+                            &times;
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Notes */}
@@ -683,6 +1036,24 @@ export default function ClientsPage() {
             <Textarea label="Note" placeholder="Write your note here..." value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={4} />
           </div>
         </Modal>
+
+        {/* Add Project Modal */}
+        <AddProjectModal
+          open={showAddProject}
+          onClose={() => setShowAddProject(false)}
+          users={users}
+          clientId={getId(client)}
+          onSave={(data) => {
+            addProject(data)
+              .then(() => {
+                setShowAddProject(false);
+                toast.success('Project added successfully!');
+              })
+              .catch((err) => {
+                toast.error(err.response?.data?.message || 'Failed to add project');
+              });
+          }}
+        />
       </Page>
     );
   }
@@ -795,6 +1166,7 @@ export default function ClientsPage() {
         open={showAddClient}
         onClose={() => setShowAddClient(false)}
         users={users}
+        services={services}
         onSave={(data) => { addClient(data).then(()=>setShowAddClient(false)); toast.success('Client added!'); }}
       />
     </Page>

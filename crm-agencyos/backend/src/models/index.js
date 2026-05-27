@@ -147,6 +147,18 @@ const ChannelSchema = new mongoose.Schema({
   isDeleted:   { type: Boolean, default: false }, // Soft deletion support
 }, { timestamps: true });
 
+const ProjectSchema = new mongoose.Schema({
+  name:         { type: String, required: [true, 'Project name is required'], trim: true },
+  description:  { type: String, default: '' },
+  clientId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
+  assignedTeam: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  status:       { type: String, enum: ['pending', 'in-progress', 'completed', 'on-hold'], default: 'pending' },
+  startDate:    { type: String, default: '' },
+  endDate:      { type: String, default: '' },
+  budget:       { type: String, default: '' },
+  createdBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+}, { timestamps: true });
+
 module.exports = {
   Client:            mongoose.model('Client',            ClientSchema),
   Task:              mongoose.model('Task',              TaskSchema),
@@ -157,5 +169,6 @@ module.exports = {
   Message:           mongoose.model('Message',           MessageSchema),
   WorkLog:           mongoose.model('WorkLog',           WorkLogSchema),
   Channel:           mongoose.model('Channel',           ChannelSchema),
+  Project:           mongoose.model('Project',           ProjectSchema),
 };
 

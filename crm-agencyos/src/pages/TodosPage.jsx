@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Plus, Trash2, Check, MoreHorizontal, Search, Calendar, X } from 'lucide-react';
+import { Plus, Trash2, Check, MoreHorizontal, Search, Calendar, X, ClipboardList } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -228,7 +228,10 @@ export default function TodosPage() {
           <p className="page-sub">
             {filtered.filter((t) => t.status === 'completed').length} of {filtered.length} completed
             {filters.date
-              ? <span className="ml-2 text-primary-500 font-medium">· {isViewingPast ? '📅 History:' : '📋'} {new Date(filters.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              ? <span className="ml-2 text-primary-500 font-medium inline-flex items-center gap-1">
+                  · {isViewingPast ? <><Calendar size={13} className="text-primary-500" /> History:</> : <ClipboardList size={13} className="text-primary-500" />}
+                  {new Date(filters.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
               : <span className="ml-2 text-slate-400">· All history</span>
             }
           </p>
@@ -303,8 +306,8 @@ export default function TodosPage() {
         )}>
           <Calendar size={14} />
           {isViewingPast
-            ? <span>📅 Viewing history for <strong>{fmtDate(filters.date)}</strong></span>
-            : <span>📋 Viewing todos for <strong>{fmtDate(filters.date)}</strong></span>
+            ? <span>Viewing history for <strong>{fmtDate(filters.date)}</strong></span>
+            : <span>Viewing todos for <strong>{fmtDate(filters.date)}</strong></span>
           }
           <span className="text-slate-400 mx-1">·</span>
           <span className="text-slate-500">{filtered.length} todo{filtered.length !== 1 ? 's' : ''}</span>

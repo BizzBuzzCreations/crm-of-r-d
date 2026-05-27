@@ -3,7 +3,7 @@ import { io }       from 'socket.io-client';
 import toast        from 'react-hot-toast';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
-  todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI,
+  todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -309,6 +309,8 @@ const useAppStore = create((set, get, store) => ({
   revenueSummary: null,
   messages:   { channels: DEFAULT_CHANNELS, dms: [], threads: {} },
   notifications: [],
+  services:   [],
+  projects:   [],
   timer:      initialTimer(),
   activeThread:'general',
   sidebarOpen:true,
@@ -328,6 +330,53 @@ const useAppStore = create((set, get, store) => ({
     set((s) => ({ notifications: s.notifications.filter((n) => n._id !== id) }));
     try { await notificationsAPI.delete(id); } catch {}
   },
+
+  // ── Services ───────────────────────────────────────────────
+  addService: async (body) => {
+    const { data } = await servicesAPI.create(body);
+    set((s) => ({ services: [...s.services, data.data] }));
+    return data.data;
+  },
+  updateService: async (id, body) => {
+    const { data } = await servicesAPI.update(id, body);
+    set((s) => ({ services: s.services.map((sv) => sv._id === id ? data.data : sv) }));
+  },
+  deleteService: async (id) => {
+    await servicesAPI.delete(id);
+    set((s) => ({ services: s.services.filter((sv) => sv._id !== id) }));
+  },
+
+  // ── Projects ───────────────────────────────────────────────
+  addProject: async (body) => {
+    const { data } = await projectsAPI.create(body);
+    set((s) => ({ projects: [...s.projects, data.data] }));
+    // Increment projectCount on Client in store
+    set((s) => ({
+      clients: s.clients.map((c) =>
+        sameId(c, body.clientId) ? { ...c, projectCount: c.projectCount + 1 } : c
+      )
+    }));
+    return data.data;
+  },
+  updateProject: async (id, body) => {
+    const { data } = await projectsAPI.update(id, body);
+    set((s) => ({ projects: s.projects.map((p) => p._id === id ? data.data : p) }));
+    return data.data;
+  },
+  deleteProject: async (id) => {
+    const project = useAppStore.getState().projects.find((p) => p._id === id);
+    await projectsAPI.delete(id);
+    set((s) => ({ projects: s.projects.filter((p) => p._id !== id) }));
+    if (project) {
+      // Decrement projectCount on Client in store
+      set((s) => ({
+        clients: s.clients.map((c) =>
+          sameId(c, project.clientId) ? { ...c, projectCount: c.projectCount - 1 } : c
+        )
+      }));
+    }
+  },
+
   setActiveThread: (threadId) => {
     set({ activeThread: threadId });
     get().markThreadRead(threadId);
@@ -454,7 +503,7 @@ const useAppStore = create((set, get, store) => ({
     // NOW clear the token and state
     localStorage.removeItem('crm_access_token');
     disconnectSocket();
-    set({ _loggingOut: false, socketConnected: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: [] });
+    set({ _loggingOut: false, socketConnected: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: [], services: [], projects: [] });
   },
 
   changePassword: async (currentPassword, newPassword) => {
@@ -533,9 +582,9 @@ const useAppStore = create((set, get, store) => ({
   loadAllData: async () => {
     set({ loading:true });
     try {
-      const [uR, cR, tR, dR, mR, nR, chR] = await Promise.all([
+      const [uR, cR, tR, dR, mR, nR, chR, svR, pR] = await Promise.all([
         usersAPI.getAll(), clientsAPI.getAll(), tasksAPI.getAll(), todosAPI.getAll(), meetingsAPI.getAll(),
-        notificationsAPI.getAll(), channelsAPI.getAll(),
+        notificationsAPI.getAll(), channelsAPI.getAll(), servicesAPI.getAll(), projectsAPI.getAll(),
       ]);
       const users = uR.data.data;
       const me    = get().authUser;
@@ -558,6 +607,8 @@ const useAppStore = create((set, get, store) => ({
         todos:         dR.data.data,
         meetings:      mR.data.data,
         notifications: nR.data.data,
+        services:      svR.data.data,
+        projects:      pR.data.data || [],
         messages:      { ...get().messages, dms, channels },
         loading:       false,
       });
@@ -630,6 +681,13 @@ const useAppStore = create((set, get, store) => ({
     try {
       const { data } = await clientsAPI.create(body);
       set((s) => ({ clients: [data.data, ...s.clients] }));
+      // Fetch updated projects if initial project details were provided
+      try {
+        const { data: pData } = await projectsAPI.getAll();
+        set({ projects: pData.data || [] });
+      } catch (err) {
+        console.error('Failed to sync projects after client creation:', err);
+      }
       return data.data;
     } catch (err) { toast.error(err.response?.data?.message || 'Failed to add client'); throw err; }
   },

@@ -210,6 +210,16 @@ export const notificationsAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── Services  (Section 12)
+// ─────────────────────────────────────────────────────────────
+export const servicesAPI = {
+  getAll:  ()          => api.get('/services'),
+  create:  (body)      => api.post('/services', body),
+  update:  (id, body)  => api.put(`/services/${id}`, body),
+  delete:  (id)        => api.delete(`/services/${id}`),
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Channels
 // ─────────────────────────────────────────────────────────────
 export const channelsAPI = {
@@ -217,4 +227,14 @@ export const channelsAPI = {
   create: (body) => api.post('/channels', body),
   update: (id, body) => api.put(`/channels/${id}`, body),
   delete: (id) => api.delete(`/channels/${id}`),
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Projects
+// ─────────────────────────────────────────────────────────────
+export const projectsAPI = {
+  getAll:  ()          => api.get('/projects'),
+  create:  (body)      => api.post('/projects', body),
+  update:  (id, body)  => api.put(`/projects/${id}`, body),
+  delete:  (id)        => api.delete(`/projects/${id}`),
 };

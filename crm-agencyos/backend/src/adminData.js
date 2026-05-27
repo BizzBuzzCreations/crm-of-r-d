@@ -6,6 +6,7 @@ const {
   Client, Task, Todo, Meeting, MeetingInvitation, Revenue, WorkLog, Message
 } = require('./models/index');
 const Notification = require('./models/Notification');
+const Service      = require('./models/Service');
 
 // ── Admin accounts to create ──────────────────────────────────
 // Edit these before running on the server
@@ -55,6 +56,7 @@ async function createAdmins() {
       WorkLog.deleteMany({}),
       Message.deleteMany({}),
       Notification.deleteMany({}),
+      Service.deleteMany({}),
     ]);
     console.log('🗑️  Cleared all existing data\n');
 

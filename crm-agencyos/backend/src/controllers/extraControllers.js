@@ -1,5 +1,5 @@
 const path    = require('path');
-const { Message, Task, Todo, WorkLog, Channel } = require('../models/index');
+const { Message, Task, Todo, WorkLog, Channel, Project, Client } = require('../models/index');
 const notifService = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
@@ -415,6 +415,54 @@ exports.deleteChannel = async (req, res, next) => {
     }
 
     res.json({ success: true, message: 'Channel deleted successfully' });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════
+// PROJECTS
+// ═══════════════════════════════════════════════════
+exports.getProjects = async (req, res, next) => {
+  try {
+    const projects = await Project.find()
+      .populate('clientId', 'name')
+      .populate('assignedTeam', 'name email color initials status position');
+    res.json({ success: true, data: projects });
+  } catch (err) { next(err); }
+};
+
+exports.createProject = async (req, res, next) => {
+  try {
+    const project = await Project.create({ ...req.body, createdBy: req.user._id });
+    
+    // Increment project count for Client
+    await Client.findByIdAndUpdate(project.clientId, { $inc: { projectCount: 1 } });
+
+    const populated = await project
+      .populate('clientId', 'name')
+      .populate('assignedTeam', 'name email color initials status position');
+    res.status(201).json({ success: true, data: populated });
+  } catch (err) { next(err); }
+};
+
+exports.updateProject = async (req, res, next) => {
+  try {
+    const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+      .populate('clientId', 'name')
+      .populate('assignedTeam', 'name email color initials status position');
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+    res.json({ success: true, data: project });
+  } catch (err) { next(err); }
+};
+
+exports.deleteProject = async (req, res, next) => {
+  try {
+    const project = await Project.findByIdAndDelete(req.params.id);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+    
+    // Decrement project count for Client
+    await Client.findByIdAndUpdate(project.clientId, { $inc: { projectCount: -1 } });
+
+    res.json({ success: true, message: 'Project deleted' });
   } catch (err) { next(err); }
 };
 

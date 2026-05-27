@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, Search, Bell, Sun, Moon, Settings, LogOut, User, ChevronDown, CheckCheck, X } from 'lucide-react';
+import { Menu, Search, Bell, Sun, Moon, Settings, LogOut, User, ChevronDown, CheckCheck, X, Check, Eye, MessageSquare, Building2, ClipboardList, Zap, Info, Calendar, Sparkles, PartyPopper } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { notificationsAPI } from '../services/api';
 import { Avatar, Badge } from '../components/ui';
@@ -71,14 +71,15 @@ export default function Navbar() {
   }, [search, tasks, clients, meetings]);
 
   const notifIconMap = {
-    task_assigned:       { bg: 'bg-indigo-100 dark:bg-indigo-900/40', color: 'text-indigo-600 dark:text-indigo-400', icon: '✓' },
-    task_approved:       { bg: 'bg-emerald-100 dark:bg-emerald-900/40', color: 'text-emerald-600 dark:text-emerald-400', icon: '🎉' },
-    task_ready_approval: { bg: 'bg-amber-100 dark:bg-amber-900/40',   color: 'text-amber-600 dark:text-amber-400',   icon: '👀' },
-    meeting_scheduled:   { bg: 'bg-violet-100 dark:bg-violet-900/40', color: 'text-violet-600 dark:text-violet-400', icon: '📅' },
-    message_dm:          { bg: 'bg-sky-100 dark:bg-sky-900/40',       color: 'text-sky-600 dark:text-sky-400',       icon: '💬' },
-    client_update:       { bg: 'bg-teal-100 dark:bg-teal-900/40',     color: 'text-teal-600 dark:text-teal-400',     icon: '🏢' },
-    todo_submitted:      { bg: 'bg-orange-100 dark:bg-orange-900/40', color: 'text-orange-600 dark:text-orange-400', icon: '📋' },
-    default:             { bg: 'bg-slate-100 dark:bg-slate-700',      color: 'text-slate-600 dark:text-slate-400',   icon: 'ℹ' },
+    task_assigned:       { bg: 'bg-indigo-100 dark:bg-indigo-900/40', color: 'text-indigo-600 dark:text-indigo-400', icon: Check },
+    task_approved:       { bg: 'bg-emerald-100 dark:bg-emerald-900/40', color: 'text-emerald-600 dark:text-emerald-400', icon: PartyPopper },
+    task_ready_approval: { bg: 'bg-amber-100 dark:bg-amber-900/40',   color: 'text-amber-600 dark:text-amber-400',   icon: Eye },
+    meeting_scheduled:   { bg: 'bg-violet-100 dark:bg-violet-900/40', color: 'text-violet-600 dark:text-violet-400', icon: Calendar },
+    message_dm:          { bg: 'bg-sky-100 dark:bg-sky-900/40',       color: 'text-sky-600 dark:text-sky-400',       icon: MessageSquare },
+    client_update:       { bg: 'bg-teal-100 dark:bg-teal-900/40',     color: 'text-teal-600 dark:text-teal-400',     icon: Building2 },
+    todo_submitted:      { bg: 'bg-orange-100 dark:bg-orange-900/40', color: 'text-orange-600 dark:text-orange-400', icon: ClipboardList },
+    service_added:       { bg: 'bg-indigo-100 dark:bg-indigo-900/40', color: 'text-indigo-600 dark:text-indigo-400', icon: Zap },
+    default:             { bg: 'bg-slate-100 dark:bg-slate-700',      color: 'text-slate-600 dark:text-slate-400',   icon: Info },
   };
 
   const fmtTime = (iso) => {
@@ -261,7 +262,10 @@ export default function Navbar() {
                 </div>
                 <div className="max-h-[340px] overflow-y-auto">
                   {notifications.length === 0 ? (
-                    <div className="py-8 text-center text-slate-400 text-[13px]">All caught up! 🎉</div>
+                    <div className="py-8 text-center text-slate-400 text-[13px] flex flex-col items-center gap-1.5 justify-center">
+                      <Sparkles size={18} className="text-amber-500 animate-pulse" />
+                      All caught up!
+                    </div>
                   ) : notifications.map((n) => {
                     const cfg = notifIconMap[n.type] || notifIconMap.default;
                     return (
@@ -283,7 +287,9 @@ export default function Navbar() {
                           !n.read ? 'bg-primary-50/40 dark:bg-primary-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'
                         )}
                       >
-                        <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-[14px] flex-shrink-0', cfg.bg)}>{cfg.icon}</div>
+                        <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', cfg.bg)}>
+                          <cfg.icon size={14} className={cfg.color} />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 truncate">{n.title}</p>
                           <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{n.message}</p>

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
-  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer,
+  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -22,9 +22,9 @@ const fmtMS  = (s) => `${p2(s/60)}:${p2(s%60)}`;
 
 // ── Break definitions ─────────────────────────────────────────
 const BREAK_DEFS = [
-  { type: 'lunch',  label: 'Lunch',   secs: LUNCH_S, icon: '🍽️', color: '#f59e0b', time: '40:00' },
-  { type: 'tea',    label: 'Tea',     secs: TEA_S,   icon: '☕',  color: '#10b981', time: '20:00' },
-  { type: 'custom', label: 'Custom',  secs: 0,       icon: '⏸️',  color: '#6366f1', time: null   },
+  { type: 'lunch',  label: 'Lunch',   secs: LUNCH_S, icon: Utensils, color: '#f59e0b', time: '40:00' },
+  { type: 'tea',    label: 'Tea',     secs: TEA_S,   icon: Coffee,   color: '#10b981', time: '20:00' },
+  { type: 'custom', label: 'Custom',  secs: 0,       icon: Pause,    color: '#6366f1', time: null   },
 ];
 
 // ── Member-only Timer Widget ──────────────────────────────────
@@ -108,9 +108,12 @@ function MemberTimer({ open }) {
             <div className="m-2.5 rounded-xl px-3 py-2.5"
               style={{ background: (breakDef?.color || '#6366f1') + '18', border: `1px solid ${breakDef?.color || '#6366f1'}35` }}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[12px] font-bold" style={{ color: breakDef?.color || '#6366f1' }}>
-                  {breakDef?.icon} {breakDef?.label || 'Break'} Break
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {breakDef?.icon && <breakDef.icon size={13} style={{ color: breakDef?.color || '#6366f1' }} />}
+                  <span className="text-[12px] font-bold" style={{ color: breakDef?.color || '#6366f1' }}>
+                    {breakDef?.label || 'Break'} Break
+                  </span>
+                </div>
                 <span className="font-mono text-[15px] font-bold" style={{ color: breakDef?.color || '#6366f1' }}>
                   {fmtMS(breakRemain)}
                 </span>
@@ -170,14 +173,14 @@ function MemberTimer({ open }) {
                 {workDone ? (
                   <div className="text-[11px] font-bold text-emerald-400 mt-0.5 flex items-center justify-end gap-1">
                     ✓ Goal met!
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[9px] text-slate-400">✏️</span>
+                    <Pencil size={9} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400" />
                   </div>
                 ) : (
                   <>
                     <div className="text-[12px] font-bold text-white transition-colors group-hover:text-indigo-300">{leftHrs}h left</div>
-                    <div className="text-[9.5px] text-slate-500 mt-0.5 flex items-center justify-end gap-0.5 transition-colors group-hover:text-indigo-400">
+                    <div className="text-[9.5px] text-slate-500 mt-0.5 flex items-center justify-end gap-1 transition-colors group-hover:text-indigo-400 font-medium">
                       of {Math.round(targetSecs / 3600)}h target
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[8px]">✏️</span>
+                      <Pencil size={8} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400" />
                     </div>
                   </>
                 )}
@@ -272,8 +275,8 @@ function MemberTimer({ open }) {
                 onClick={() => handleBreakStart('lunch', LUNCH_S)}
                 className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-white/[0.07] transition-colors text-left group"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px]">🍽️</span>
+                <div className="flex items-center gap-2.5">
+                  <Utensils size={14} className="text-amber-400 flex-shrink-0" />
                   <div>
                     <p className="text-[12px] font-semibold text-slate-200 group-hover:text-amber-300">Lunch</p>
                     <p className="text-[9.5px] text-slate-500">40 min · auto-resumes</p>
@@ -287,8 +290,8 @@ function MemberTimer({ open }) {
                 onClick={() => handleBreakStart('tea', TEA_S)}
                 className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-white/[0.07] transition-colors text-left group"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px]">☕</span>
+                <div className="flex items-center gap-2.5">
+                  <Coffee size={14} className="text-emerald-400 flex-shrink-0" />
                   <div>
                     <p className="text-[12px] font-semibold text-slate-200 group-hover:text-emerald-300">Tea</p>
                     <p className="text-[9.5px] text-slate-500">20 min · auto-resumes</p>
@@ -302,8 +305,8 @@ function MemberTimer({ open }) {
                 onClick={() => setShowCustom((v) => !v)}
                 className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-white/[0.07] transition-colors text-left group"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px]">⏸️</span>
+                <div className="flex items-center gap-2.5">
+                  <Pause size={14} className="text-indigo-400 flex-shrink-0" />
                   <div>
                     <p className="text-[12px] font-semibold text-slate-200 group-hover:text-indigo-300">Custom</p>
                     <p className="text-[9.5px] text-slate-500">Set your own time</p>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar } from 'lucide-react';
+import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -112,7 +112,7 @@ function AddMemberModal({ open, onClose, onSave }) {
 
         {/* Info note */}
         <div className="flex items-start gap-2 px-3 py-2.5 bg-blue-50 dark:bg-blue-900/15 border border-blue-200 dark:border-blue-800 rounded-xl text-[12.5px] text-blue-700 dark:text-blue-300">
-          <span className="text-base">ℹ️</span>
+          <Info size={14} className="text-blue-550 flex-shrink-0 mt-0.5" />
           <span>The new member can log in using their email and password immediately after being added.</span>
         </div>
       </div>
@@ -420,8 +420,9 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
                           return (
                             <div key={log._id} className="p-4 rounded-xl border border-slate-100 dark:border-slate-700/60 bg-slate-50/30 dark:bg-white/[0.005]">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100 dark:border-slate-700/30">
-                                <span className="text-[14px] font-bold text-slate-800 dark:text-slate-200">
-                                  📅 {log.date}
+                                <span className="text-[14px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                  <Calendar size={14} className="text-slate-400 dark:text-slate-500" />
+                                  {log.date}
                                 </span>
                                 <div className="flex items-center gap-3">
                                   <span className="text-[13px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 px-2.5 py-0.5 rounded-lg border border-indigo-100 dark:border-indigo-900/30">
@@ -437,7 +438,8 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
 
                               <div className="mt-2 pl-2">
                                 <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                                  <span>☕ Breaks History</span>
+                                  <Coffee size={12} className="text-slate-400 dark:text-slate-500" />
+                                  <span>Breaks History</span>
                                   <span className="text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-full font-bold">
                                     {logBreaks.length} {logBreaks.length === 1 ? 'break' : 'breaks'}
                                   </span>
@@ -449,7 +451,9 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
                                     {logBreaks.map((b, idx) => (
                                       <div key={idx} className="text-[11.5px] p-2 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 rounded-lg flex items-start gap-2">
-                                        <span className="text-base">{b.type === 'lunch' ? '🍽️' : '☕'}</span>
+                                        <div className="flex-shrink-0 mt-0.5">
+                                          {b.type === 'lunch' ? <Utensils size={13} className="text-amber-500" /> : <Coffee size={13} className="text-emerald-500" />}
+                                        </div>
                                         <div className="flex-1 min-w-0">
                                           <div className="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300">
                                             <span className="capitalize">{b.type} Break</span>

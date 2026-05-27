@@ -1,5 +1,5 @@
 const User            = require('../models/User');
-const { Client, Task, Todo, Meeting } = require('../models/index');
+const { Client, Task, Todo, Meeting, Project } = require('../models/index');
 const notifService    = require('../services/notificationService');
 
 // ═══════════════════════════════════════════════════
@@ -60,7 +60,35 @@ exports.getClient = async (req, res, next) => {
 
 exports.createClient = async (req, res, next) => {
   try {
-    const client = await Client.create({ ...req.body, createdBy: req.user._id });
+    const {
+      projectName,
+      projectDesc,
+      projectAssignedTeam,
+      projectEndDate,
+      projectBudget,
+      ...clientData
+    } = req.body;
+
+    const client = await Client.create({ ...clientData, createdBy: req.user._id });
+
+    // Create associated project if name is provided
+    if (projectName) {
+      await Project.create({
+        name: projectName,
+        description: projectDesc || '',
+        clientId: client._id,
+        assignedTeam: projectAssignedTeam || [],
+        endDate: projectEndDate || '',
+        budget: projectBudget || client.budget || '',
+        status: 'pending',
+        createdBy: req.user._id,
+      });
+
+      // Update client projectCount
+      client.projectCount = 1;
+      await client.save();
+    }
+
     const populated = await client.populate('assignedTeam', 'name email color initials status position');
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
