@@ -123,6 +123,9 @@ function AddMemberModal({ open, onClose, onSave }) {
 function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete, onDelete }) {
   const roleCfg = ROLE_CONFIG[user.role] || {};
 
+  const isWorking = user.status === 'online' && user.timerActive && !user.timerBreakActive;
+  const isOnBreak = user.status === 'online' && user.timerBreakActive;
+
   return (
     <motion.div
       layout
@@ -177,16 +180,16 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
             </span>
             <span className={cn(
               "text-[9.5px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1",
-              user.timerBreakActive 
+              isOnBreak 
                 ? "bg-amber-500/10 text-amber-500 border border-amber-500/20"
-                : user.timerActive 
+                : isWorking 
                   ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 animate-pulse"
                   : "bg-slate-500/10 text-slate-400 border border-slate-500/10"
             )}>
               <span className={cn("w-1.5 h-1.5 rounded-full", 
-                user.timerBreakActive ? "bg-amber-500" : user.timerActive ? "bg-emerald-500 animate-ping" : "bg-slate-400"
+                isOnBreak ? "bg-amber-500" : isWorking ? "bg-emerald-500 animate-ping" : "bg-slate-400"
               )} />
-              {user.timerBreakActive ? "On Break" : user.timerActive ? "Working" : "Paused"}
+              {isOnBreak ? "On Break" : isWorking ? "Working" : "Paused"}
             </span>
           </div>
 
@@ -211,9 +214,9 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
                   <div 
                     className={cn(
                       "h-full rounded-full transition-all duration-300",
-                      user.timerBreakActive 
+                      isOnBreak 
                         ? "bg-amber-500" 
-                        : user.timerActive 
+                        : isWorking 
                           ? "bg-gradient-to-r from-emerald-500 to-indigo-500"
                           : "bg-slate-400"
                     )}
@@ -468,13 +471,13 @@ export default function TeamPage() {
                               <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-[12.5px] flex items-center gap-1.5">
                                 <span className={cn(
                                   "w-1.5 h-1.5 rounded-full",
-                                  u.timerBreakActive ? "bg-amber-500" : u.timerActive ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                                  u.status === 'online' && u.timerBreakActive ? "bg-amber-500" : u.status === 'online' && u.timerActive ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
                                 )} />
                                 {fmtHMS(u.timerWorkSeconds)}
                               </span>
                               {u.timerSessionStart && (
                                 <span className="text-[10px] text-slate-400">
-                                  {u.timerBreakActive ? "on break" : u.timerActive ? "working" : "paused"} · since {u.timerSessionStart}
+                                  {u.status === 'online' && u.timerBreakActive ? "on break" : u.status === 'online' && u.timerActive ? "working" : "paused"} · since {u.timerSessionStart}
                                 </span>
                               )}
                             </div>

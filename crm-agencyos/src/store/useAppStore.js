@@ -332,11 +332,23 @@ const useAppStore = create((set, get, store) => ({
       }
 
       const saved = loadTimerLS(getId(user));
-      const timerState = dbTimer
-        ? dbTimer
-        : (saved && saved.sessionDate === today
-          ? { ...saved, breakActive:false, currentBreak:null }
-          : { ...initialTimer(), active:true, sessionDate:today, sessionStart:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) });
+      let timerState = initialTimer();
+
+      if (dbTimer && saved && saved.sessionDate === today) {
+        timerState = {
+          ...saved,
+          workSeconds:  Math.max(dbTimer.workSeconds || 0, saved.workSeconds || 0),
+          active:       dbTimer.active,
+          breakActive:  dbTimer.breakActive,
+          breaks:       saved.breaks?.length > dbTimer.breaks?.length ? saved.breaks : dbTimer.breaks,
+        };
+      } else if (dbTimer) {
+        timerState = dbTimer;
+      } else if (saved && saved.sessionDate === today) {
+        timerState = { ...saved, breakActive: false, currentBreak: null };
+      } else if (user.role === 'member') {
+        timerState = { ...initialTimer(), active: true, sessionDate: today, sessionStart: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+      }
 
       set({ authUser:user, timer:timerState, loading:false });
       saveTimerLS(getId(user), timerState);
@@ -349,6 +361,7 @@ const useAppStore = create((set, get, store) => ({
           sessionStart: timerState.sessionStart,
           breaks: timerState.breaks,
           active: timerState.active,
+          breakActive: timerState.breakActive,
           targetSeconds: timerState.targetSeconds,
         }).catch(()=>{});
       }
@@ -430,11 +443,22 @@ const useAppStore = create((set, get, store) => ({
       }
 
       const saved = loadTimerLS(getId(user));
-      const timerState = dbTimer
-        ? dbTimer
-        : (saved && saved.sessionDate === today
-          ? { ...saved, breakActive:false, currentBreak:null }
-          : initialTimer());
+      let timerState = initialTimer();
+
+      if (dbTimer && saved && saved.sessionDate === today) {
+        timerState = {
+          ...saved,
+          workSeconds:  Math.max(dbTimer.workSeconds || 0, saved.workSeconds || 0),
+          active:       dbTimer.active,
+          breakActive:  dbTimer.breakActive,
+          breaks:       saved.breaks?.length > dbTimer.breaks?.length ? saved.breaks : dbTimer.breaks,
+        };
+      } else if (dbTimer) {
+        timerState = dbTimer;
+      } else if (saved && saved.sessionDate === today) {
+        timerState = { ...saved, breakActive: false, currentBreak: null };
+      }
+
       set({ authUser:user, timer:timerState });
       await get().loadAllData();
       // Re-read from localStorage: the 401 interceptor may have silently refreshed
@@ -809,10 +833,8 @@ const useAppStore = create((set, get, store) => ({
     const uid = getId(s.authUser);
     if (workSeconds % 15 === 0) {
       saveTimerLS(uid, upd);
-      // Sync to backend every 60s
-      if (workSeconds % 60 === 0) {
-        worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
-      }
+      // Sync to backend every 15s for high database accuracy
+      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
     }
     // Broadcast to other sessions every 10s to stay in sync
     if (workSeconds % 10 === 0) {
