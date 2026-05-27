@@ -132,7 +132,7 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
       {/* Delete button — admin/manager only, can't delete self */}
       {canDelete && !isCurrentUser && (
         <button
-          onClick={() => onDelete(user.id)}
+          onClick={() => onDelete(getId(user))}
           className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
           title="Remove member"
         >
@@ -313,8 +313,8 @@ export default function TeamPage() {
                 <MemberCard
                   key={getId(u)}
                   user={u}
-                  taskCount={getTaskCount(u.id)}
-                  completedCount={getCompletedCount(u.id)}
+                  taskCount={getTaskCount(getId(u))}
+                  completedCount={getCompletedCount(getId(u))}
                   isCurrentUser={sameId(u, authUser)}
                   canDelete={isManager}
                   onDelete={(id) => setConfirmDel(id)}
@@ -382,8 +382,8 @@ export default function TeamPage() {
                         <td className="text-slate-500 text-[12px]">{u.email}</td>
                         <td className="text-slate-500 text-[12px]">{u.phone || '—'}</td>
                         <td>
-                          <Badge variant={getTaskCount(u.id) > 0 ? 'warning' : 'success'}>
-                            {getTaskCount(u.id)}
+                          <Badge variant={getTaskCount(getId(u)) > 0 ? 'warning' : 'success'}>
+                            {getTaskCount(getId(u))}
                           </Badge>
                         </td>
                         <td className="text-slate-500 text-[12px]">{u.joinDate || '—'}</td>

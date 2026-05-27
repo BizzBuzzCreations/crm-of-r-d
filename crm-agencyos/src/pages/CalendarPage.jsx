@@ -135,8 +135,8 @@ export default function CalendarPage() {
                   ))}
                 </optgroup>
                 <optgroup label="── All Users ──">
-                  {users.filter((u) => u.id !== authUser?.id).map((u) => (
-                    <option key={`all-${u.id}`} value={u.id}>{u.name}</option>
+                  {users.filter((u) => !sameId(u, authUser)).map((u) => (
+                    <option key={`all-${getId(u)}`} value={getId(u)}>{u.name}</option>
                   ))}
                 </optgroup>
               </select>

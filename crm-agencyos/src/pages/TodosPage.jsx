@@ -57,7 +57,7 @@ function TodoFormModal({ open, onClose, currentUser }) {
   const priorityVal = watch('priority');
 
   const onSubmit = (data) => {
-    addTodo({ ...data, userId: currentUser.id, status: 'pending' });
+    addTodo({ ...data, userId: getId(currentUser), status: 'pending' });
     toast.success('Todo added!');
     reset();
     onClose();

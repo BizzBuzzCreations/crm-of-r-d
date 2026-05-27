@@ -60,13 +60,13 @@ function ClientCalendar({ client, tasks, todos, users }) {
 
   // Tasks for THIS client only, by dueDate
   const clientTasks = useMemo(
-    () => tasks.filter((t) => t.clientId === client.id && t.dueDate),
-    [tasks, client.id]
+    () => tasks.filter((t) => sameId(t.clientId, client) && t.dueDate),
+    [tasks, client]
   );
 
   // Todos from team members assigned to this client, by createdAt
   const clientTodos = useMemo(
-    () => todos.filter((t) => client.assignedTeam.includes(t.userId) && t.createdAt),
+    () => todos.filter((t) => client.assignedTeam?.some((tm) => sameId(tm, t.userId)) && t.createdAt),
     [todos, client]
   );
 
@@ -293,9 +293,9 @@ function ClientCalendar({ client, tasks, todos, users }) {
                           </div>
                           <div className="space-y-2">
                             {selData.tasks.map((t) => {
-                              const assignee = users.find((u) => u.id === t.assignedTo);
+                              const assignee = users.find((u) => sameId(u, t.assignedTo));
                               return (
-                                <div key={t.id} className="rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50/60 dark:bg-indigo-900/10 p-3">
+                                <div key={getId(t)} className="rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50/60 dark:bg-indigo-900/10 p-3">
                                   <div className="flex items-start justify-between gap-2 mb-1.5">
                                     <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 leading-snug">{t.title}</p>
                                     <StatusBadge status={t.status} />
@@ -337,9 +337,9 @@ function ClientCalendar({ client, tasks, todos, users }) {
                           </div>
                           <div className="space-y-2">
                             {selData.todos.map((t) => {
-                              const member = users.find((u) => u.id === t.userId);
+                              const member = users.find((u) => sameId(u, t.userId));
                               return (
-                                <div key={t.id} className="rounded-xl border border-emerald-100 dark:border-emerald-800/40 bg-emerald-50/60 dark:bg-emerald-900/10 p-3">
+                                <div key={getId(t)} className="rounded-xl border border-emerald-100 dark:border-emerald-800/40 bg-emerald-50/60 dark:bg-emerald-900/10 p-3">
                                   <div className="flex items-start justify-between gap-2 mb-1.5">
                                     <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 leading-snug">{t.title}</p>
                                     <StatusBadge status={t.status} />
@@ -387,9 +387,7 @@ function AddClientModal({ open, onClose, users, onSave }) {
   const onSubmit = (data) => {
     const newClient = {
       ...data,
-      assignedTeam:  data.assignedTeam
-        ? (Array.isArray(data.assignedTeam) ? data.assignedTeam.map(Number) : [Number(data.assignedTeam)])
-        : [],
+      assignedTeam:  data.assignedTeam ? [data.assignedTeam] : [],
       services:      data.services ? data.services.split(',').map((s) => s.trim()).filter(Boolean) : [],
       onboardingDate: data.onboardingDate || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       projectCount:  0,
@@ -478,7 +476,7 @@ function AddClientModal({ open, onClose, users, onSave }) {
         <Select label="Assign Team Member" {...register('assignedTeam')}>
           <option value="">None (assign later)</option>
           {memberUsers.map((u) => (
-            <option key={u.id} value={u.id}>{u.name} — {u.position}</option>
+            <option key={getId(u)} value={getId(u)}>{u.name} — {u.position}</option>
           ))}
         </Select>
       </div>
@@ -514,11 +512,11 @@ export default function ClientsPage() {
 
   // ── Client Detail View ────────────────────────────────────────
   if (selected) {
-    const client  = clients.find((c) => c.id === selected.id) || selected;
+    const client  = clients.find((c) => sameId(c, selected)) || selected;
     const team    = users.filter((u) => client.assignedTeam?.some((tm) => sameId(tm, u)));
-    const cTasks  = tasks.filter((t) => t.clientId === client.id);
+    const cTasks  = tasks.filter((t) => sameId(t.clientId, client));
     // Todos from team members assigned to this client
-    const cTodos  = todos.filter((t) => client.assignedTeam.includes(t.userId));
+    const cTodos  = todos.filter((t) => client.assignedTeam?.some((tm) => sameId(tm, t.userId)));
 
     return (
       <Page>
@@ -599,7 +597,7 @@ export default function ClientsPage() {
                   <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-3">Assigned Team ({team.length})</h3>
                   <div className="space-y-2.5">
                     {team.map((u) => (
-                      <div key={u.id} className="flex items-center gap-3">
+                      <div key={getId(u)} className="flex items-center gap-3">
                         <Avatar user={u} size="md" showStatus />
                         <div>
                           <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200">{u.name}</p>
@@ -712,12 +710,12 @@ export default function ClientsPage() {
       {view === 'grid' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((c) => {
-            const team   = users.filter((u) => c.assignedTeam.includes(u.id));
-            const cTasks = tasks.filter((t) => t.clientId === c.id);
+            const team   = users.filter((u) => c.assignedTeam?.some((tm) => sameId(tm, u)));
+            const cTasks = tasks.filter((t) => sameId(t.clientId, c));
             const done   = cTasks.filter((t) => t.status === 'completed').length;
             const prog   = cTasks.length ? Math.round((done / cTasks.length) * 100) : 0;
             return (
-              <motion.div key={c.id} whileHover={{ y: -3, boxShadow: '0 8px 24px rgba(0,0,0,.1)' }} transition={{ duration: 0.15 }}
+              <motion.div key={getId(c)} whileHover={{ y: -3, boxShadow: '0 8px 24px rgba(0,0,0,.1)' }} transition={{ duration: 0.15 }}
                 className="card p-5 cursor-pointer" onClick={() => setSelected(c)}
               >
                 <div className="flex items-start justify-between mb-3">
@@ -762,12 +760,12 @@ export default function ClientsPage() {
             <thead><tr>{['Client','Contact','Industry','Services','Status','Payment','Budget','Progress','Team'].map((h) => <th key={h}>{h}</th>)}</tr></thead>
             <tbody>
               {filtered.map((c) => {
-                const team   = users.filter((u) => c.assignedTeam.includes(u.id));
-                const cTasks = tasks.filter((t) => t.clientId === c.id);
+                const team   = users.filter((u) => c.assignedTeam?.some((tm) => sameId(tm, u)));
+                const cTasks = tasks.filter((t) => sameId(t.clientId, c));
                 const done   = cTasks.filter((t) => t.status === 'completed').length;
                 const prog   = cTasks.length ? Math.round((done / cTasks.length) * 100) : 0;
                 return (
-                  <tr key={c.id} className="cursor-pointer" onClick={() => setSelected(c)}>
+                  <tr key={getId(c)} className="cursor-pointer" onClick={() => setSelected(c)}>
                     <td className="font-semibold">{c.name}</td>
                     <td className="text-slate-500 text-[12px]">{c.contact}</td>
                     <td><Badge variant="neutral">{c.industry}</Badge></td>

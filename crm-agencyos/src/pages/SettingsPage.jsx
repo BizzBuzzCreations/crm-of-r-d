@@ -391,7 +391,7 @@ function WorkLogSection({ authUser, users }) {
 
   const filtered = useMemo(() => {
     if (!isManager || filterUser === 'all') return allRows;
-    return allRows.filter((r) => String(r.user.id) === filterUser);
+    return allRows.filter((r) => getId(r.user) === filterUser);
   }, [allRows, filterUser, isManager]);
 
   return (
@@ -410,7 +410,7 @@ function WorkLogSection({ authUser, users }) {
             >
               <option value="all">All Members</option>
               {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.name}</option>
+                <option key={getId(u)} value={getId(u)}>{u.name}</option>
               ))}
             </select>
           </div>
