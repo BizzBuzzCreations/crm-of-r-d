@@ -717,14 +717,14 @@ export default function DashboardPage() {
               <BarChart data={dynamicRevenueData} margin={{ top: 0, right: 0, left: -30, bottom: 0 }}>
                 <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
-                <Tooltip content={<ChartTooltip />} formatter={(v) => [`$${v.toLocaleString()}`, 'Revenue']} />
+                <Tooltip content={<ChartTooltip />} formatter={(v) => [`₹${v.toLocaleString()}`, 'Revenue']} />
                 <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
             <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
               <div>
                 <p className="text-[11.5px] text-slate-500">This month</p>
-                <p className="text-[18px] font-bold text-slate-900 dark:text-white">${currentMonthRev.toLocaleString()}</p>
+                <p className="text-[18px] font-bold text-slate-900 dark:text-white">₹{currentMonthRev.toLocaleString()}</p>
               </div>
               <div className={`flex items-center gap-1 text-[12px] font-semibold ${revenueGrowth >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                 <TrendingUp size={13} className={revenueGrowth >= 0 ? '' : 'rotate-180'} /> {revenueGrowth >= 0 ? '+' : ''}{revenueGrowth}%

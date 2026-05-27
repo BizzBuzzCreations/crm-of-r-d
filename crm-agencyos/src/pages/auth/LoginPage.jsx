@@ -101,7 +101,7 @@ export default function LoginPage() {
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm">AO</div>
-            <div className="font-bold text-slate-900 dark:text-white text-lg">AgencyOS</div>
+            <div className="font-bold text-slate-900 dark:text-white text-lg">BBC CRM</div>
           </div>
 
           <h2 className="text-[26px] font-bold text-slate-900 dark:text-white mb-1.5">Sign in</h2>
