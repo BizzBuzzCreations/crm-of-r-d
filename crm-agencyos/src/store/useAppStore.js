@@ -43,38 +43,12 @@ let sock = null;
 let _beforeUnloadFn = null;  // reference so we can remove it on disconnect
 
 const getSocketUrl = () => {
-  const envUrl = import.meta.env.VITE_SOCKET_URL;
-  if (envUrl && envUrl.startsWith('http')) {
-    const isLocalEnv = envUrl.includes('localhost') || envUrl.includes('127.0.0.1');
-    const isLocalBrowser = typeof window !== 'undefined' && 
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '5173');
-    
-    if (!isLocalEnv || isLocalBrowser) {
-      return envUrl;
-    }
-  }
-
-  const apiUrl = import.meta.env.VITE_API_URL;
-  if (apiUrl && apiUrl.startsWith('http')) {
-    const isLocalEnv = apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1');
-    const isLocalBrowser = typeof window !== 'undefined' && 
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '5173');
-    
-    if (!isLocalEnv || isLocalBrowser) {
-      // Sockets connect to the root of the API server (without '/api' suffix)
-      return apiUrl.replace(/\/api\/?$/, '');
-    }
-  }
-  
-  if (typeof window !== 'undefined') {
-    // If in development (Vite dev server), fallback to backend port 5000
-    if (window.location.port === '5173') {
-      return 'http://localhost:5000';
-    }
-    // In production, dynamically use the current browser origin!
-    return window.location.origin;
-  }
-  return 'http://localhost:5000';
+  if (typeof window === 'undefined') return 'http://localhost:5000';
+  const { protocol, hostname, port } = window.location;
+  // Vite dev server runs on 5173; backend is always on 5000 in that case
+  if (port === '5173') return 'http://localhost:5000';
+  // Production: frontend and socket are served from the same origin
+  return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
 };
 
 // Flush the timer to the DB using sendBeacon (fires even when tab closes)
@@ -101,20 +75,34 @@ function flushTimerToDb(store) {
 }
 
 function connectSocket(token, store) {
+  // Already connected — nothing to do
   if (sock?.connected) return;
+  // Stale socket exists (e.g. failed after reconnectionAttempts) — clean it up first
+  if (sock) { sock.removeAllListeners(); sock.disconnect(); sock = null; }
+
   sock = io(getSocketUrl(), {
     auth: { token },
-    reconnectionAttempts: 5,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+    timeout: 10000,
   });
 
   sock.on('connect', () => {
-    console.log('🔌 Socket connected');
+    console.log('🔌 Socket connected:', getSocketUrl());
+    store.setState({ socketConnected: true });
     // Register beforeunload flush (remove any previous listener first)
     if (_beforeUnloadFn) window.removeEventListener('beforeunload', _beforeUnloadFn);
     _beforeUnloadFn = () => flushTimerToDb(store);
     window.addEventListener('beforeunload', _beforeUnloadFn);
   });
-  sock.on('disconnect', () => console.log('🔌 Socket disconnected'));
+  sock.on('disconnect', (reason) => {
+    console.warn('🔌 Socket disconnected:', reason);
+    store.setState({ socketConnected: false });
+  });
+  sock.on('connect_error', (err) => {
+    console.error('🔌 Socket connection error:', err.message);
+    store.setState({ socketConnected: false });
+  });
 
   // Tasks (Section 11)
   sock.on('task:created', (t) => store.setState((s) => ({ tasks: [t, ...s.tasks] })));
@@ -249,6 +237,7 @@ const useAppStore = create((set, get, store) => ({
   sidebarOpen:true,
   darkMode:   false,
   loading:    false,
+  socketConnected: false,
   _loggingOut:false,
 
   // ── UI ─────────────────────────────────────────────────────
@@ -373,7 +362,7 @@ const useAppStore = create((set, get, store) => ({
     // NOW clear the token and state
     localStorage.removeItem('crm_access_token');
     disconnectSocket();
-    set({ _loggingOut: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: MOCK_NOTIFICATIONS });
+    set({ _loggingOut: false, socketConnected: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: MOCK_NOTIFICATIONS });
   },
 
   changePassword: async (currentPassword, newPassword) => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Hash, MessageCircle, Send, Trash2, Search, Paperclip,
@@ -6,8 +6,7 @@ import {
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
-import { Page, Avatar, Modal, Badge } from '../components/ui';
-import { messagesAPI } from '../services/api';
+import { Page, Avatar } from '../components/ui';
 import { cn, getId, sameId } from '../utils/helpers';
 
 // ── File helpers ──────────────────────────────────────────────
@@ -163,6 +162,7 @@ export default function MessagesPage() {
     emitTypingStop: s.emitTypingStop,
   })));
   const users = useAppStore((s) => s.users);
+  const socketConnected = useAppStore((s) => s.socketConnected);
 
   const [loadingMsgs,   setLoadingMsgs]   = useState(false);
   const [input,         setInput]         = useState('');
@@ -173,8 +173,7 @@ export default function MessagesPage() {
   const [sending,       setSending]       = useState(false);
   const [showNewDM,     setShowNewDM]     = useState(false);
   const [dmSearch,      setDmSearch]      = useState('');
-  const [typingNames,   setTypingNames]   = useState([]);  // users typing in current thread
-  const [onlineIds,     setOnlineIds]     = useState(new Set());
+  const [typingNames,   setTypingNames]   = useState([]);
 
   const localMsgs = messages.threads[activeThread] || [];
 
@@ -240,7 +239,6 @@ export default function MessagesPage() {
   const threadTitle  = isChannel ? `#${activeChannel?.name}` : dmUser?.name || 'Direct Message';
   const threadDesc   = isChannel ? activeChannel?.description : dmUser?.position;
   const statusColors = { online:'#10b981', away:'#f59e0b', offline:'#94a3b8' };
-  const totalUnread  = [...messages.channels, ...messages.dms].reduce((a,c)=>a+(c.unread||0),0);
 
   // ── File input ────────────────────────────────────────────
   const handleFileChange = (e) => {
@@ -341,7 +339,6 @@ export default function MessagesPage() {
                 const u = users.find((u)=>getId(u)===String(dm.userId));
                 if (!u) return null;
                 if (search&&!u.name.toLowerCase().includes(search.toLowerCase())) return null;
-                const isOnline = u.status==='online';
                 return (
                   <button key={dm.id} onClick={()=>setActiveThread(dm.id)} className={cn('flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group',activeThread===dm.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
                     <div className="relative flex-shrink-0">
@@ -377,8 +374,8 @@ export default function MessagesPage() {
           {/* Socket status */}
           <div className="px-3 py-2 border-t border-slate-800">
             <div className="flex items-center gap-1.5 text-[10.5px] text-slate-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
-              <span>Live · Socket.io connected</span>
+              <span className={cn('w-1.5 h-1.5 rounded-full', socketConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500')}/>
+              <span>{socketConnected ? 'Live · Connected' : 'Disconnected — reconnecting…'}</span>
             </div>
           </div>
         </div>
