@@ -203,11 +203,11 @@ function connectSocket(token, store) {
         getId(u) === payload.userId
           ? {
               ...u,
-              timerActive:       payload.active,
-              timerBreakActive:  payload.breakActive,
-              timerWorkSeconds:  payload.workSeconds,
-              timerSessionStart: payload.sessionStart,
-              timerTargetSeconds:payload.targetSeconds,
+              timerActive:       payload.active       ?? u.timerActive,
+              timerBreakActive:  payload.breakActive  ?? u.timerBreakActive,
+              timerWorkSeconds:  payload.workSeconds  ?? u.timerWorkSeconds,
+              timerSessionStart: payload.sessionStart || u.timerSessionStart,
+              timerTargetSeconds:payload.targetSeconds|| u.timerTargetSeconds,
               timerLastUpdated:  Date.now(),
             }
           : u

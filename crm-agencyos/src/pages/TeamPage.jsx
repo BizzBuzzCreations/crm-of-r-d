@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2 } from 'lucide-react';
+import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
   Page, Avatar, Badge, ViewToggle, EmptyState,
   Modal, Input, Select, Button, ConfirmDialog,
+  PriorityBadge, StatusBadge, ProgressBar, Tabs,
 } from '../components/ui';
 import { cn, getId, sameId, ROLE_CONFIG, canManage } from '../utils/helpers';
 
@@ -120,7 +121,7 @@ function AddMemberModal({ open, onClose, onSave }) {
 }
 
 // ── Member Card (grid) ────────────────────────────────────────
-function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete, onDelete }) {
+function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete, onDelete, onSelect }) {
   const roleCfg = ROLE_CONFIG[user.role] || {};
 
   const isWorking = user.status === 'online' && user.timerActive && !user.timerBreakActive;
@@ -135,12 +136,13 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ y: -3, boxShadow: '0 8px 24px rgba(0,0,0,.1)' }}
-      className="card p-5 text-center relative group"
+      onClick={() => onSelect(user)}
+      className="card p-5 text-center relative group cursor-pointer"
     >
       {/* Delete button — admin/manager only, can't delete self */}
       {canDelete && !isCurrentUser && (
         <button
-          onClick={() => onDelete(getId(user))}
+          onClick={(e) => { e.stopPropagation(); onDelete(getId(user)); }}
           className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
           title="Remove member"
         >
@@ -250,12 +252,276 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
   );
 }
 
+// ── Member Detail Modal ───────────────────────────────────────
+function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, activeTab, onTabChange }) {
+  if (!user) return null;
+
+  const userTasks = tasks.filter((t) => getId(t.assignedTo) === getId(user));
+  const userTodos = todos.filter((t) => getId(t.userId) === getId(user));
+
+  const activeTasks = userTasks.filter((t) => t.status !== 'completed');
+  const completedTasks = userTasks.filter((t) => t.status === 'completed');
+  const totalTasksCount = userTasks.length;
+  
+  const avgProgress = totalTasksCount > 0 
+    ? Math.round(userTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / totalTasksCount)
+    : 0;
+
+  const totalDays = logs.length;
+  const totalSeconds = logs.reduce((acc, l) => acc + (l.workSeconds || 0), 0);
+  const avgSeconds = totalDays > 0 ? Math.round(totalSeconds / totalDays) : 0;
+
+  const roleCfg = ROLE_CONFIG[user.role] || {};
+
+  const tabs = [
+    { value: 'tasks', label: 'Overview & Tasks', count: userTasks.length },
+    { value: 'logs',  label: 'Work History & Breaks', count: logs.length },
+    { value: 'todos', label: 'Daily Todos', count: userTodos.length },
+  ];
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${user.name} - Detailed Analytics`}
+      size="xl"
+    >
+      <div className="px-6 py-6 flex flex-col h-full max-h-[80vh] overflow-y-auto">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-white/[0.02] mb-6">
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <div
+                className="w-20 h-20 rounded-full flex items-center justify-center text-white text-[28px] font-bold"
+                style={{ background: user.color || '#6366f1' }}
+              >
+                {user.initials || user.name?.[0]}
+              </div>
+              <span
+                className="absolute bottom-1 right-1 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800"
+                style={{ background: statusColors[user.status] || '#94a3b8' }}
+              />
+            </div>
+            <div>
+              <h3 className="text-[17px] font-bold text-slate-900 dark:text-white mb-0.5">{user.name}</h3>
+              <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mb-2">{user.position || 'Team Member'}</p>
+              <div className="flex gap-2">
+                <span className={cn('badge text-[10.5px]', roleCfg.tw)}>{roleCfg.label || user.role}</span>
+                <span className="badge badge-neutral text-[10.5px] capitalize">Department: {user.department || 'General'}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex flex-col gap-1.5 text-[12px] text-slate-500 dark:text-slate-400 border-t sm:border-t-0 sm:border-l border-slate-200 dark:border-slate-700/60 pt-3 sm:pt-0 sm:pl-5 min-w-[200px]">
+            <div className="flex items-center gap-2"><Mail size={13} className="text-slate-400" /> <span>{user.email}</span></div>
+            <div className="flex items-center gap-2"><Phone size={13} className="text-slate-400" /> <span>{user.phone || 'No phone number'}</span></div>
+            <div className="flex items-center gap-2"><Calendar size={13} className="text-slate-400" /> <span>Joined {user.joinDate || '—'}</span></div>
+          </div>
+        </div>
+
+        <div className="flex border-b border-slate-100 dark:border-slate-700/80 mb-5 pb-3">
+          <Tabs tabs={tabs} active={activeTab} onChange={onTabChange} />
+        </div>
+
+        <div className="flex-1 min-h-[300px]">
+          {activeTab === 'tasks' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="bg-slate-50/50 dark:bg-white/[0.015] border border-slate-100 dark:border-slate-700/60 p-4 rounded-xl text-center">
+                  <div className="text-[20px] font-bold text-slate-900 dark:text-white">{totalTasksCount}</div>
+                  <div className="text-[11px] text-slate-400 uppercase font-semibold mt-0.5">Total Tasks</div>
+                </div>
+                <div className="bg-slate-50/50 dark:bg-white/[0.015] border border-slate-100 dark:border-slate-700/60 p-4 rounded-xl text-center">
+                  <div className="text-[20px] font-bold text-slate-900 dark:text-white">{activeTasks.length}</div>
+                  <div className="text-[11px] text-slate-400 uppercase font-semibold mt-0.5">Active Tasks</div>
+                </div>
+                <div className="bg-slate-50/50 dark:bg-white/[0.015] border border-slate-100 dark:border-slate-700/60 p-4 rounded-xl text-center">
+                  <div className="text-[20px] font-bold text-slate-900 dark:text-white">{completedTasks.length}</div>
+                  <div className="text-[11px] text-slate-400 uppercase font-semibold mt-0.5">Completed</div>
+                </div>
+                <div className="bg-slate-50/50 dark:bg-white/[0.015] border border-slate-100 dark:border-slate-700/60 p-4 rounded-xl text-center">
+                  <div className="text-[20px] font-bold text-slate-900 dark:text-white">{avgProgress}%</div>
+                  <div className="text-[11px] text-slate-400 uppercase font-semibold mt-0.5">Avg Progress</div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-[13.5px] font-bold text-slate-900 dark:text-white mb-3">Assigned Tasks</h4>
+                {userTasks.length === 0 ? (
+                  <p className="text-[12.5px] text-slate-400 italic py-6 text-center">No tasks assigned to this user.</p>
+                ) : (
+                  <div className="border border-slate-100 dark:border-slate-700/60 rounded-xl overflow-hidden">
+                    <table className="crm-table text-[12.5px]">
+                      <thead>
+                        <tr className="bg-slate-50/50 dark:bg-white/[0.015]">
+                          <th className="py-2.5">Task Title</th>
+                          <th className="py-2.5">Priority</th>
+                          <th className="py-2.5">Status</th>
+                          <th className="py-2.5">Due Date</th>
+                          <th className="py-2.5">Progress</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userTasks.map((t) => (
+                          <tr key={getId(t)} className="border-t border-slate-100 dark:border-slate-700/40">
+                            <td className="font-medium py-2.5">{t.title}</td>
+                            <td className="py-2.5"><PriorityBadge priority={t.priority} /></td>
+                            <td className="py-2.5"><StatusBadge status={t.status} /></td>
+                            <td className="text-slate-500 py-2.5">{t.dueDate || '—'}</td>
+                            <td className="py-2.5 min-w-[120px]">
+                              <div className="flex items-center gap-2">
+                                <ProgressBar value={t.progress} className="flex-1" />
+                                <span className="text-[11px] font-mono">{t.progress}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div className="space-y-6">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <svg className="animate-spin w-8 h-8 text-primary-500 mb-2" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="32" strokeLinecap="round" />
+                  </svg>
+                  <p className="text-[12.5px] text-slate-400">Loading work logs history...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-slate-50/50 dark:bg-white/[0.015] border border-slate-100 dark:border-slate-700/60 p-4 rounded-xl text-center">
+                      <div className="text-[20px] font-bold text-slate-900 dark:text-white">{totalDays}</div>
+                      <div className="text-[11px] text-slate-400 uppercase font-semibold mt-0.5">Days Worked</div>
+                    </div>
+                    <div className="bg-slate-50/50 dark:bg-white/[0.015] border border-slate-100 dark:border-slate-700/60 p-4 rounded-xl text-center">
+                      <div className="text-[20px] font-bold text-slate-900 dark:text-white">{fmtHMS(totalSeconds)}</div>
+                      <div className="text-[11px] text-slate-400 uppercase font-semibold mt-0.5">Total Time Logged</div>
+                    </div>
+                    <div className="bg-slate-50/50 dark:bg-white/[0.015] border border-slate-100 dark:border-slate-700/60 p-4 rounded-xl text-center">
+                      <div className="text-[20px] font-bold text-slate-900 dark:text-white">{fmtHMS(avgSeconds)}</div>
+                      <div className="text-[11px] text-slate-400 uppercase font-semibold mt-0.5">Avg Time / Day</div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-[13.5px] font-bold text-slate-900 dark:text-white mb-3">Daily Time Logs & Breaks</h4>
+                    {logs.length === 0 ? (
+                      <p className="text-[12.5px] text-slate-400 italic py-6 text-center">No time logs recorded in MongoDB yet.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {logs.map((log) => {
+                          const logBreaks = log.breaks || [];
+                          return (
+                            <div key={log._id} className="p-4 rounded-xl border border-slate-100 dark:border-slate-700/60 bg-slate-50/30 dark:bg-white/[0.005]">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100 dark:border-slate-700/30">
+                                <span className="text-[14px] font-bold text-slate-800 dark:text-slate-200">
+                                  📅 {log.date}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[13px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 px-2.5 py-0.5 rounded-lg border border-indigo-100 dark:border-indigo-900/30">
+                                    Worked: {fmtHMS(log.workSeconds)}
+                                  </span>
+                                  {log.sessionStart && (
+                                    <span className="text-[11.5px] text-slate-500 dark:text-slate-400">
+                                      Started: {log.sessionStart}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="mt-2 pl-2">
+                                <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                  <span>☕ Breaks History</span>
+                                  <span className="text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-full font-bold">
+                                    {logBreaks.length} {logBreaks.length === 1 ? 'break' : 'breaks'}
+                                  </span>
+                                </div>
+
+                                {logBreaks.length === 0 ? (
+                                  <p className="text-[11.5px] text-slate-400 italic pl-1">No breaks taken today.</p>
+                                ) : (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
+                                    {logBreaks.map((b, idx) => (
+                                      <div key={idx} className="text-[11.5px] p-2 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 rounded-lg flex items-start gap-2">
+                                        <span className="text-base">{b.type === 'lunch' ? '🍽️' : '☕'}</span>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-300">
+                                            <span className="capitalize">{b.type} Break</span>
+                                            <span className="text-amber-500">{Math.round(b.actual / 60)} mins</span>
+                                          </div>
+                                          {b.reason && <p className="text-[10.5px] text-slate-400 mt-0.5 italic truncate">"{b.reason}"</p>}
+                                          <p className="text-[9.5px] text-slate-400 mt-1">
+                                            Planned: {Math.round(b.planned / 60)}m · Ended at {b.endedAt || '—'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'todos' && (
+            <div className="space-y-4">
+              <h4 className="text-[13.5px] font-bold text-slate-900 dark:text-white mb-3">Daily Todos Checklist</h4>
+              {userTodos.length === 0 ? (
+                <p className="text-[12.5px] text-slate-400 italic py-6 text-center">No todos registered for this user.</p>
+              ) : (
+                <div className="border border-slate-100 dark:border-slate-700/60 rounded-xl overflow-hidden">
+                  <table className="crm-table text-[12.5px]">
+                    <thead>
+                      <tr className="bg-slate-50/50 dark:bg-white/[0.015]">
+                        <th className="py-2.5">Todo Title</th>
+                        <th className="py-2.5">Priority</th>
+                        <th className="py-2.5">Status</th>
+                        <th className="py-2.5">ETA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userTodos.map((td) => (
+                        <tr key={getId(td)} className="border-t border-slate-100 dark:border-slate-700/40">
+                          <td className={cn("font-medium py-2.5", td.status === 'completed' && "line-through text-slate-400")}>
+                            {td.title}
+                          </td>
+                          <td className="py-2.5"><PriorityBadge priority={td.priority} /></td>
+                          <td className="py-2.5"><StatusBadge status={td.status} /></td>
+                          <td className="text-slate-500 py-2.5">{td.eta || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Main TeamPage ─────────────────────────────────────────────
 export default function TeamPage() {
-  const { authUser, users, tasks, addUser, deleteUser } = useAppStore(useShallow((s) => ({
+  const { authUser, users, tasks, todos, addUser, deleteUser } = useAppStore(useShallow((s) => ({
     authUser:   s.authUser,
     users:      s.users,
     tasks:      s.tasks,
+    todos:      s.todos,
     addUser:    s.addUser,
     deleteUser: s.deleteUser,
   })));
@@ -265,6 +531,27 @@ export default function TeamPage() {
   const [filter,    setFilter]    = useState('all');
   const [showAdd,   setShowAdd]   = useState(false);
   const [confirmDel,setConfirmDel]= useState(null); // user id to delete
+
+  // Detailed Modal states
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [userLogs, setUserLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [modalTab, setModalTab] = useState('tasks');
+
+  const handleSelectUser = async (user) => {
+    setSelectedUser(user);
+    setModalTab('tasks');
+    setUserLogs([]);
+    setLogsLoading(true);
+    try {
+      const logs = await useAppStore.getState().fetchWorkLog({ userId: getId(user) });
+      setUserLogs(logs || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
 
   const role      = authUser?.role;
   const isManager = canManage(role);
@@ -411,6 +698,7 @@ export default function TeamPage() {
                   isCurrentUser={sameId(u, authUser)}
                   canDelete={isManager}
                   onDelete={(id) => setConfirmDel(id)}
+                  onSelect={handleSelectUser}
                 />
               ))}
             </AnimatePresence>
@@ -447,6 +735,8 @@ export default function TeamPage() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
+                        onClick={() => handleSelectUser(u)}
+                        className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
                       >
                         <td>
                           <div className="flex items-center gap-3">
@@ -507,7 +797,7 @@ export default function TeamPage() {
                         <td>
                           {isManager && !isSelf && (
                             <button
-                              onClick={() => setConfirmDel(getId(u))}
+                              onClick={(e) => { e.stopPropagation(); setConfirmDel(getId(u)); }}
                               className="btn-icon text-slate-400 hover:text-red-500 p-1.5"
                               title="Remove member"
                             >
@@ -531,6 +821,18 @@ export default function TeamPage() {
         open={showAdd}
         onClose={() => setShowAdd(false)}
         onSave={handleAddMember}
+      />
+
+      <MemberDetailModal
+        open={!!selectedUser}
+        onClose={() => setSelectedUser(null)}
+        user={selectedUser}
+        logs={userLogs}
+        loading={logsLoading}
+        tasks={tasks}
+        todos={todos}
+        activeTab={modalTab}
+        onTabChange={setModalTab}
       />
 
       <ConfirmDialog
