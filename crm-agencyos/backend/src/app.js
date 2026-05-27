@@ -8,21 +8,27 @@ const errorHandler= require('./middleware/errorHandler');
 const app = express();
 
 // ── CORS — allow dev (localhost:5173), configured CLIENT_URL, and any LAN IP ──
+const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/$/, '') : null;
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:5000',
-  process.env.CLIENT_URL,
+  clientUrl,
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (curl, Postman, same-origin production requests)
     if (!origin) return callback(null, true);
+    
+    // Normalize trailing slashes for resilient comparison
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    
     // Allow any configured origin exactly
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(normalizedOrigin)) return callback(null, true);
     // Allow any LAN IP (192.168.x.x or 10.x.x.x) on any port
-    if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) return callback(null, true);
+    if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(normalizedOrigin)) return callback(null, true);
+    
     callback(new Error(`CORS blocked: ${origin}`));
   },
   credentials: true,

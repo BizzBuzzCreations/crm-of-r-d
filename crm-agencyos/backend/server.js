@@ -14,15 +14,27 @@ connectDB();
 const server = http.createServer(app);
 
 // Attach Socket.io
+const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/$/, '') : null;
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5000',
+  'http://127.0.0.1',
+  clientUrl,
+].filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    // 1. UPDATED CORS: Allow dev environment, Nginx frontend root, and any local network IP connection
-    origin: [
-      process.env.CLIENT_URL,
-      'http://localhost:5173',
-      'http://127.0.0.1',
-      /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/
-    ],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (curl, mobile apps, same-origin)
+      if (!origin) return callback(null, true);
+      
+      const normalizedOrigin = origin.replace(/\/$/, '');
+      if (ALLOWED_ORIGINS.includes(normalizedOrigin)) return callback(null, true);
+      if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(normalizedOrigin)) return callback(null, true);
+      
+      callback(new Error(`CORS blocked by Socket: ${origin}`));
+    },
     methods: ['GET', 'POST'],
     credentials: true,
   },

@@ -45,6 +45,12 @@ let _beforeUnloadFn = null;  // reference so we can remove it on disconnect
 const getSocketUrl = () => {
   const envUrl = import.meta.env.VITE_SOCKET_URL;
   if (envUrl && envUrl.startsWith('http')) return envUrl;
+
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (apiUrl && apiUrl.startsWith('http')) {
+    // Sockets connect to the root of the API server (without '/api' suffix)
+    return apiUrl.replace(/\/api\/?$/, '');
+  }
   
   if (typeof window !== 'undefined') {
     // If in development (Vite dev server), fallback to backend port 5000
