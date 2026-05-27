@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
@@ -6,6 +6,7 @@ import {
   Plus, Search, Grid, List, ArrowLeft, Building2, Mail, Phone,
   Globe, Calendar, Users, FileText, ChevronLeft, ChevronRight,
   CheckSquare, ListTodo, Clock, TrendingUp, Briefcase,
+  Edit2, X, Save, Trash2,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -385,6 +386,442 @@ function ClientCalendar({ client, tasks, todos, users }) {
 }
 
 
+// ── Edit Project Modal ────────────────────────────────────────
+function EditProjectModal({ open, onClose, project, users, onSave }) {
+  const memberUsers = users.filter((u) => u.role === 'member');
+  const [form, setForm]           = useState({});
+  const [selectedTeam, setSelectedTeam] = useState([]);
+  const [saving, setSaving]       = useState(false);
+
+  useEffect(() => {
+    if (project && open) {
+      setForm({
+        name:        project.name        || '',
+        budget:      project.budget      || '',
+        endDate:     project.endDate     || '',
+        description: project.description || '',
+        status:      project.status      || 'in-progress',
+      });
+      setSelectedTeam(
+        (project.assignedTeam || []).map((u) => (typeof u === 'object' ? u._id : u))
+      );
+    }
+  }, [project, open]);
+
+  const handleToggleTeam = (id) => setSelectedTeam((prev) =>
+    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+  );
+
+  const handleSave = async () => {
+    if (!form.name?.trim()) { toast.error('Project name is required'); return; }
+    setSaving(true);
+    try {
+      await onSave({ ...form, assignedTeam: selectedTeam });
+      onClose();
+      toast.success('Project updated!');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update project');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Edit Project" size="md"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : <><Save size={14} /> Save Changes</>}
+          </Button>
+        </>
+      }
+    >
+      <div className="px-6 py-5 space-y-4">
+        <div>
+          <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Project Name *</label>
+          <input
+            className="form-input text-[14px] py-2"
+            value={form.name || ''}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          />
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Status</label>
+            <select
+              className="form-input text-[14px] py-2"
+              value={form.status || 'in-progress'}
+              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+            >
+              <option value="in-progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="on-hold">On Hold</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Budget</label>
+            <input
+              className="form-input text-[14px] py-2"
+              placeholder="e.g. $7,500"
+              value={form.budget || ''}
+              onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">End Date</label>
+            <input
+              type="date"
+              className="form-input text-[14px] py-2"
+              value={form.endDate || ''}
+              onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Description</label>
+          <textarea
+            className="form-input text-[14px] py-2 resize-none"
+            rows={3}
+            placeholder="Project scope and deliverables…"
+            value={form.description || ''}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Assigned Team</label>
+          <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/20 max-h-[120px] overflow-y-auto">
+            {memberUsers.map((u) => {
+              const isChecked = selectedTeam.includes(u._id);
+              return (
+                <label key={u._id} className={cn(
+                  'flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[12px] font-medium cursor-pointer transition-all select-none',
+                  isChecked
+                    ? 'border-primary-500/30 bg-primary-50/50 dark:bg-primary-950/20 text-primary-700 dark:text-primary-300'
+                    : 'border-transparent bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-650 dark:text-slate-400'
+                )}>
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleToggleTeam(u._id)}
+                    className="rounded text-primary-600 focus:ring-primary-500 w-3.5 h-3.5"
+                  />
+                  <span className="truncate">{u.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Edit Client Modal ─────────────────────────────────────────
+function EditClientModal({ open, onClose, client, users, services = [], onSave }) {
+  const memberUsers = users.filter((u) => u.role === 'member');
+  const [form, setForm]                   = useState({});
+  const [selectedServices, setSelectedServices] = useState([]);
+  const [saving, setSaving]               = useState(false);
+
+  useEffect(() => {
+    if (client && open) {
+      setForm({
+        name:             client.name             || '',
+        contact:          client.contact          || '',
+        email:            client.email            || '',
+        phone:            client.phone            || '',
+        website:          client.website          || '',
+        industry:         client.industry         || '',
+        budget:           client.budget           || '',
+        contractDuration: client.contractDuration || '',
+        address:          client.address          || '',
+        status:           client.status           || 'active',
+        paymentStatus:    client.paymentStatus    || 'pending',
+      });
+      setSelectedServices(client.services || []);
+    }
+  }, [client, open]);
+
+  const field = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  const handleToggleService = (name) => setSelectedServices((prev) =>
+    prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+  );
+
+  const handleSave = async () => {
+    if (!form.name?.trim())    { toast.error('Company name is required'); return; }
+    if (!form.contact?.trim()) { toast.error('Contact person is required'); return; }
+    if (selectedServices.length === 0) { toast.error('Select at least one service'); return; }
+    setSaving(true);
+    try {
+      await onSave({ ...form, services: selectedServices });
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update client');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputCls = 'form-input text-[14px] py-2';
+  const labelCls = 'block text-[13px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5';
+
+  return (
+    <Modal open={open} onClose={onClose} title="Edit Client" size="lg"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : <><Save size={14} /> Save Changes</>}
+          </Button>
+        </>
+      }
+    >
+      <div className="px-6 py-5 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Company Name *</label>
+            <input className={inputCls} value={form.name || ''} onChange={(e) => field('name', e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Contact Person *</label>
+            <input className={inputCls} value={form.contact || ''} onChange={(e) => field('contact', e.target.value)} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Email</label>
+            <input type="email" className={inputCls} value={form.email || ''} onChange={(e) => field('email', e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Phone</label>
+            <input className={inputCls} value={form.phone || ''} onChange={(e) => field('phone', e.target.value)} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Website</label>
+            <input className={inputCls} value={form.website || ''} onChange={(e) => field('website', e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Industry</label>
+            <select className={inputCls} value={form.industry || ''} onChange={(e) => field('industry', e.target.value)}>
+              <option value="">Select industry…</option>
+              {['Technology','Retail','Marketing','Finance','Healthcare','Education','Real Estate','Other'].map((i) => (
+                <option key={i} value={i}>{i}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Budget / Contract Value</label>
+            <input className={inputCls} placeholder="e.g. $10,000" value={form.budget || ''} onChange={(e) => field('budget', e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Contract End Date</label>
+            <input type="date" className={inputCls} value={form.contractDuration || ''} onChange={(e) => field('contractDuration', e.target.value)} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Status</label>
+            <select className={inputCls} value={form.status || 'active'} onChange={(e) => field('status', e.target.value)}>
+              <option value="active">Active</option>
+              <option value="on-hold">On Hold</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Payment Status</label>
+            <select className={inputCls} value={form.paymentStatus || 'pending'} onChange={(e) => field('paymentStatus', e.target.value)}>
+              <option value="paid">Paid</option>
+              <option value="pending">Pending</option>
+              <option value="overdue">Overdue</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>Office Address</label>
+          <input className={inputCls} placeholder="123 Main St, City, State" value={form.address || ''} onChange={(e) => field('address', e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Services *</label>
+          {services.length === 0 ? (
+            <p className="text-[12px] text-slate-450 dark:text-slate-500 italic">No services in database. Add them via Settings → Services.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/20 max-h-[130px] overflow-y-auto">
+              {services.map((sv) => {
+                const isChecked = selectedServices.includes(sv.name);
+                return (
+                  <label key={sv._id} className={cn(
+                    'flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[12px] font-medium cursor-pointer transition-all select-none',
+                    isChecked
+                      ? 'border-primary-500/30 bg-primary-50/50 dark:bg-primary-950/20 text-primary-700 dark:text-primary-300'
+                      : 'border-transparent bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-650 dark:text-slate-400'
+                  )}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => handleToggleService(sv.name)}
+                      className="rounded text-primary-600 focus:ring-primary-500 w-3.5 h-3.5"
+                    />
+                    <span className="truncate">{sv.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Project Detail Drawer ─────────────────────────────────────
+const PROJECT_STATUS = {
+  'in-progress': { label: 'In Progress', bg: 'bg-amber-100 dark:bg-amber-900/30',   text: 'text-amber-700 dark:text-amber-400',   dot: 'bg-amber-400' },
+  'completed':   { label: 'Completed',   bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500' },
+  'on-hold':     { label: 'On Hold',     bg: 'bg-slate-100 dark:bg-slate-700',       text: 'text-slate-600 dark:text-slate-400',    dot: 'bg-slate-400' },
+};
+
+function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdit }) {
+  const projTeam = users.filter((u) =>
+    project.assignedTeam?.some((tm) => sameId(tm, u))
+  );
+
+  const sc = PROJECT_STATUS[project.status] || PROJECT_STATUS['in-progress'];
+
+  const fmtDate = (d) => d
+    ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : '—';
+
+  const fmtCreated = (d) => d
+    ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '—';
+
+  return (
+    <AnimatePresence>
+      <div key="backdrop" className="fixed inset-0 bg-black/25 backdrop-blur-[2px] z-40" onClick={onClose} />
+      <motion.div
+        key="drawer"
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+        className="fixed right-0 top-0 bottom-0 w-[460px] max-w-[95vw] bg-white dark:bg-slate-800 shadow-2xl z-50 flex flex-col border-l border-slate-200 dark:border-slate-700"
+      >
+        {/* ── Header ── */}
+        <div className="flex items-start justify-between px-6 py-5 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex-1 min-w-0 pr-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
+                <Briefcase size={13} className="text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <span className="text-[10.5px] font-bold uppercase tracking-widest text-indigo-500">Project</span>
+            </div>
+            <h2 className="text-[19px] font-bold text-slate-900 dark:text-white leading-tight">{project.name}</h2>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {canEdit && (
+              <button
+                onClick={onEdit}
+                className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
+                title="Edit project"
+              >
+                <Edit2 size={15} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Status + Budget strip ── */}
+        <div className="flex items-center gap-2.5 px-6 py-3.5 border-b border-slate-100 dark:border-slate-700/50 flex-wrap">
+          <span className={cn('inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold', sc.bg, sc.text)}>
+            <span className={cn('w-2 h-2 rounded-full', sc.dot)} />
+            {sc.label}
+          </span>
+          {project.budget && (
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[12px] font-bold text-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 dark:text-indigo-300">
+              {project.budget}
+            </span>
+          )}
+        </div>
+
+        {/* ── Body ── */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-6 py-5 space-y-6">
+
+            {/* Description */}
+            {project.description && (
+              <div>
+                <p className="text-[10.5px] font-bold uppercase tracking-widest text-slate-400 mb-2">Description</p>
+                <p className="text-[14px] text-slate-700 dark:text-slate-300 leading-relaxed">{project.description}</p>
+              </div>
+            )}
+
+            {/* Key details */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50 dark:bg-slate-900/40 rounded-xl p-4">
+                <p className="text-[10.5px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Deadline</p>
+                <div className="flex items-center gap-1.5 text-[14px] font-semibold text-slate-800 dark:text-slate-200">
+                  <Calendar size={13} className="text-indigo-400 flex-shrink-0" />
+                  {fmtDate(project.endDate)}
+                </div>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-900/40 rounded-xl p-4">
+                <p className="text-[10.5px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Created</p>
+                <p className="text-[14px] font-semibold text-slate-800 dark:text-slate-200">{fmtCreated(project.createdAt)}</p>
+              </div>
+            </div>
+
+            {/* Team */}
+            <div>
+              <p className="text-[10.5px] font-bold uppercase tracking-widest text-slate-400 mb-3">
+                Assigned Team · {projTeam.length} {projTeam.length === 1 ? 'member' : 'members'}
+              </p>
+              {projTeam.length === 0 ? (
+                <p className="text-[13px] text-slate-400 italic">No team members assigned yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {projTeam.map((u) => (
+                    <div key={getId(u)} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-700/50">
+                      <Avatar user={u} size="sm" showStatus />
+                      <div>
+                        <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200">{u.name}</p>
+                        <p className="text-[12px] text-slate-400">{u.position}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Footer: delete ── */}
+        {canEdit && (
+          <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-700">
+            <button
+              onClick={onDelete}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-200 dark:border-red-900/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 text-[13px] font-semibold transition-all"
+            >
+              <Trash2 size={14} /> Delete Project
+            </button>
+          </div>
+        )}
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 // ── Add Client Modal ──────────────────────────────────────────
 function AddClientModal({ open, onClose, users, services = [], onSave }) {
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
@@ -750,7 +1187,7 @@ function AddProjectModal({ open, onClose, users, onSave, clientId }) {
 
 // ── Main ClientsPage ──────────────────────────────────────────
 export default function ClientsPage() {
-  const { authUser, clients, tasks, todos, addClientNote, addClient, projects, addProject, deleteProject } = useAppStore(useShallow((s) => ({
+  const { authUser, clients, tasks, todos, addClientNote, addClient, projects, addProject, deleteProject, updateProject, updateClient } = useAppStore(useShallow((s) => ({
     authUser:       s.authUser,
     clients:        s.clients,
     tasks:          s.tasks,
@@ -760,6 +1197,8 @@ export default function ClientsPage() {
     projects:       s.projects,
     addProject:     s.addProject,
     deleteProject:  s.deleteProject,
+    updateProject:  s.updateProject,
+    updateClient:   s.updateClient,
   })));
   const users = useAppStore((s) => s.users);
   const services = useAppStore((s) => s.services);
@@ -771,6 +1210,10 @@ export default function ClientsPage() {
   const [showAddClient, setShowAddClient] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [showEditProject, setShowEditProject] = useState(null);
+  const [showEditClient, setShowEditClient] = useState(false);
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState(null);
   const role = authUser?.role;
 
   const filtered = clients.filter((c) =>
@@ -810,10 +1253,20 @@ export default function ClientsPage() {
                 <span className={cn('badge text-[11px]', `badge-${payVariant(client.paymentStatus)}`)}>{client.paymentStatus}</span>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-3xl font-bold text-indigo-300">{client.budget}</div>
-              <div className="text-slate-400 text-[12px] mt-0.5">Contract Value</div>
-              <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{fmtContractDuration(client.contractDuration)}</div>
+            <div className="flex flex-col items-end gap-2">
+              <div className="text-right">
+                <div className="text-3xl font-bold text-indigo-300">{client.budget}</div>
+                <div className="text-slate-400 text-[12px] mt-0.5">Contract Value</div>
+                <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{fmtContractDuration(client.contractDuration)}</div>
+              </div>
+              {canManage(role) && (
+                <button
+                  onClick={() => setShowEditClient(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-[12px] font-medium transition-all backdrop-blur-sm border border-white/10"
+                >
+                  <Edit2 size={12} /> Edit Client
+                </button>
+              )}
             </div>
           </div>
 
@@ -924,7 +1377,11 @@ export default function ClientsPage() {
                     const projTeam = users.filter((u) => p.assignedTeam?.some((tm) => sameId(tm, u)));
                     const formattedEndDate = p.endDate ? new Date(p.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
                     return (
-                      <div key={p._id} className="relative rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20 p-4 hover:border-indigo-500/20 transition-all flex flex-col justify-between group">
+                      <div
+                        key={p._id}
+                        onClick={() => setSelectedProject(p)}
+                        className="relative rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20 p-4 hover:border-indigo-500/30 hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer"
+                      >
                         <div>
                           <div className="flex items-start justify-between gap-2 mb-2">
                             <h4 className="text-[13.5px] font-bold text-slate-800 dark:text-slate-100 leading-snug">{p.name}</h4>
@@ -933,7 +1390,7 @@ export default function ClientsPage() {
                             </Badge>
                           </div>
                           {p.description && (
-                            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">{p.description}</p>
+                            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed line-clamp-2">{p.description}</p>
                           )}
                         </div>
                         
@@ -952,22 +1409,6 @@ export default function ClientsPage() {
                             <AvatarGroup users={projTeam} max={3} size="xs" />
                           </div>
                         </div>
-                        
-                        {canManage(role) && (
-                          <button 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              if (confirm('Are you sure you want to delete this project?')) {
-                                deleteProject(p._id)
-                                  .then(() => toast.success('Project deleted!'))
-                                  .catch(() => toast.error('Failed to delete project'));
-                              }
-                            }}
-                            className="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 text-[16px] font-bold"
-                          >
-                            &times;
-                          </button>
-                        )}
                       </div>
                     );
                   })}
@@ -1053,6 +1494,62 @@ export default function ClientsPage() {
                 toast.error(err.response?.data?.message || 'Failed to add project');
               });
           }}
+        />
+
+        {/* Project Detail Drawer */}
+        {selectedProject && (
+          <ProjectDetailDrawer
+            project={selectedProject}
+            users={users}
+            canEdit={canManage(role)}
+            onClose={() => setSelectedProject(null)}
+            onEdit={() => {
+              setShowEditProject(selectedProject);
+              setSelectedProject(null);
+            }}
+            onDelete={() => {
+              setConfirmDeleteProject(selectedProject);
+              setSelectedProject(null);
+            }}
+          />
+        )}
+
+        {/* Edit Project Modal */}
+        <EditProjectModal
+          open={!!showEditProject}
+          onClose={() => setShowEditProject(null)}
+          project={showEditProject}
+          users={users}
+          onSave={(data) => updateProject(showEditProject._id, data)}
+        />
+
+        {/* Edit Client Modal */}
+        <EditClientModal
+          open={showEditClient}
+          onClose={() => setShowEditClient(false)}
+          client={client}
+          users={users}
+          services={services}
+          onSave={async (data) => {
+            await updateClient(getId(client), data);
+            toast.success('Client updated!');
+          }}
+        />
+
+        {/* Confirm Delete Project Dialog */}
+        <ConfirmDialog
+          open={!!confirmDeleteProject}
+          title="Delete Project"
+          message={`Are you sure you want to delete "${confirmDeleteProject?.name || ''}"? This action cannot be undone.`}
+          confirmLabel="Delete Project"
+          variant="danger"
+          onConfirm={() => {
+            deleteProject(confirmDeleteProject._id)
+              .then(() => toast.success('Project deleted!'))
+              .catch(() => toast.error('Failed to delete project'));
+            setConfirmDeleteProject(null);
+          }}
+          onClose={() => setConfirmDeleteProject(null)}
         />
       </Page>
     );

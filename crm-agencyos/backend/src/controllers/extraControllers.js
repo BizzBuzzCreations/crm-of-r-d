@@ -437,7 +437,7 @@ exports.createProject = async (req, res, next) => {
     // Increment project count for Client
     await Client.findByIdAndUpdate(project.clientId, { $inc: { projectCount: 1 } });
 
-    const populated = await project
+    const populated = await Project.findById(project._id)
       .populate('clientId', 'name')
       .populate('assignedTeam', 'name email color initials status position');
     res.status(201).json({ success: true, data: populated });
