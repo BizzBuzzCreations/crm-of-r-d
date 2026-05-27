@@ -208,6 +208,7 @@ function connectSocket(token, store) {
               timerWorkSeconds:  payload.workSeconds,
               timerSessionStart: payload.sessionStart,
               timerTargetSeconds:payload.targetSeconds,
+              timerLastUpdated:  Date.now(),
             }
           : u
       ),
@@ -923,6 +924,7 @@ const useAppStore = create((set, get, store) => ({
               timerWorkSeconds:  log.workSeconds || 0,
               timerSessionStart: log.sessionStart,
               timerTargetSeconds:log.targetSeconds || 9 * 3600,
+              timerLastUpdated:  Date.now(),
             };
           }
           return u;

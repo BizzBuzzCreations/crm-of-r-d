@@ -124,6 +124,8 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
   const roleCfg = ROLE_CONFIG[user.role] || {};
 
   const isWorking = user.status === 'online' && user.timerActive && !user.timerBreakActive;
+  // Heartbeat timeout: if online but haven't received socket sync in last 25s, treat as paused (background sleeping Chrome tab)
+  const isTickingActive = isWorking && (!user.timerLastUpdated || (Date.now() - user.timerLastUpdated) < 25000);
   const isOnBreak = user.status === 'online' && user.timerBreakActive;
 
   return (
@@ -182,14 +184,14 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
               "text-[9.5px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1",
               isOnBreak 
                 ? "bg-amber-500/10 text-amber-500 border border-amber-500/20"
-                : isWorking 
+                : isTickingActive 
                   ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 animate-pulse"
                   : "bg-slate-500/10 text-slate-400 border border-slate-500/10"
             )}>
               <span className={cn("w-1.5 h-1.5 rounded-full", 
-                isOnBreak ? "bg-amber-500" : isWorking ? "bg-emerald-500 animate-ping" : "bg-slate-400"
+                isOnBreak ? "bg-amber-500" : isTickingActive ? "bg-emerald-500 animate-ping" : "bg-slate-400"
               )} />
-              {isOnBreak ? "On Break" : isWorking ? "Working" : "Paused"}
+              {isOnBreak ? "On Break" : isTickingActive ? "Working" : "Paused"}
             </span>
           </div>
 
@@ -216,7 +218,7 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
                       "h-full rounded-full transition-all duration-300",
                       isOnBreak 
                         ? "bg-amber-500" 
-                        : isWorking 
+                        : isTickingActive 
                           ? "bg-gradient-to-r from-emerald-500 to-indigo-500"
                           : "bg-slate-400"
                     )}
@@ -272,9 +274,14 @@ export default function TeamPage() {
     useAppStore.getState().fetchTeamTimerStates?.();
 
     const intervalId = setInterval(() => {
+      const now = Date.now();
       useAppStore.setState((s) => ({
         users: s.users.map((u) => {
-          if (u.timerActive && !u.timerBreakActive && u.status === 'online') {
+          const isWorking = u.status === 'online' && u.timerActive && !u.timerBreakActive;
+          // Check if we received a heartbeat socket sync within 25 seconds (since sync is every 10s)
+          const isTickingActive = isWorking && (!u.timerLastUpdated || (now - u.timerLastUpdated) < 25000);
+
+          if (isTickingActive) {
             return { ...u, timerWorkSeconds: (u.timerWorkSeconds || 0) + 1 };
           }
           return u;
@@ -430,6 +437,10 @@ export default function TeamPage() {
                   {filtered.map((u) => {
                     const roleCfg = ROLE_CONFIG[u.role] || {};
                     const isSelf  = sameId(u, authUser);
+                    const isWorking = u.status === 'online' && u.timerActive && !u.timerBreakActive;
+                    const isTicking = isWorking && (!u.timerLastUpdated || (Date.now() - u.timerLastUpdated) < 25000);
+                    const isBrk    = u.status === 'online' && u.timerBreakActive;
+
                     return (
                       <motion.tr
                         key={getId(u)}
@@ -471,13 +482,13 @@ export default function TeamPage() {
                               <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-[12.5px] flex items-center gap-1.5">
                                 <span className={cn(
                                   "w-1.5 h-1.5 rounded-full",
-                                  u.status === 'online' && u.timerBreakActive ? "bg-amber-500" : u.status === 'online' && u.timerActive ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                                  isBrk ? "bg-amber-500" : isTicking ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
                                 )} />
                                 {fmtHMS(u.timerWorkSeconds)}
                               </span>
                               {u.timerSessionStart && (
                                 <span className="text-[10px] text-slate-400">
-                                  {u.status === 'online' && u.timerBreakActive ? "on break" : u.status === 'online' && u.timerActive ? "working" : "paused"} · since {u.timerSessionStart}
+                                  {isBrk ? "on break" : isTicking ? "working" : "paused"} · since {u.timerSessionStart}
                                 </span>
                               )}
                             </div>
