@@ -271,7 +271,7 @@ export default function TeamPage() {
     const intervalId = setInterval(() => {
       useAppStore.setState((s) => ({
         users: s.users.map((u) => {
-          if (u.timerActive && !u.timerBreakActive) {
+          if (u.timerActive && !u.timerBreakActive && u.status === 'online') {
             return { ...u, timerWorkSeconds: (u.timerWorkSeconds || 0) + 1 };
           }
           return u;

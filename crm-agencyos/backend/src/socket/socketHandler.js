@@ -1,5 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
+const { WorkLog } = require('../models/index');
 
 module.exports = (io) => {
   // Auth middleware for sockets
@@ -102,9 +103,24 @@ module.exports = (io) => {
     socket.on('disconnect', async () => {
       console.log(`🔌 Disconnected: ${socket.user.name}`);
       try {
-        await User.findByIdAndUpdate(userId, { status: 'offline' });
-        io.emit('user:offline', { userId });
-      } catch {}
+        const userRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
+        const hasActiveConnections = userRoom && userRoom.size > 0;
+
+        if (!hasActiveConnections) {
+          await User.findByIdAndUpdate(userId, { status: 'offline' });
+          io.emit('user:offline', { userId });
+
+          const today = new Date().toISOString().split('T')[0];
+          await WorkLog.findOneAndUpdate(
+            { userId, date: today },
+            { active: false, breakActive: false }
+          );
+
+          io.emit('member:timer:update', { userId, active: false, breakActive: false });
+        }
+      } catch (err) {
+        console.error('Error on socket disconnect cleanup:', err);
+      }
     });
   });
 };

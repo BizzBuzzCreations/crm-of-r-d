@@ -194,7 +194,7 @@ function connectSocket(token, store) {
 
   // User presence
   sock.on('user:online',  ({ userId })         => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'online'  } : u) })));
-  sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline' } : u) })));
+  sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline', timerActive: false, timerBreakActive: false } : u) })));
   sock.on('user:status',  ({ userId, status }) => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status } : u) })));
 
   sock.on('member:timer:update', (payload) => {
