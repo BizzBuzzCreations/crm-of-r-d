@@ -197,6 +197,23 @@ function connectSocket(token, store) {
   sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline' } : u) })));
   sock.on('user:status',  ({ userId, status }) => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status } : u) })));
 
+  sock.on('member:timer:update', (payload) => {
+    store.setState((s) => ({
+      users: s.users.map((u) =>
+        getId(u) === payload.userId
+          ? {
+              ...u,
+              timerActive:       payload.active,
+              timerBreakActive:  payload.breakActive,
+              timerWorkSeconds:  payload.workSeconds,
+              timerSessionStart: payload.sessionStart,
+              timerTargetSeconds:payload.targetSeconds,
+            }
+          : u
+      ),
+    }));
+  });
+
   // Cross-session timer sync — adopt the authoritative value from another browser tab
   sock.on('timer:sync', (payload) => {
     store.setState((s) => {
@@ -767,7 +784,7 @@ const useAppStore = create((set, get, store) => ({
     const uid = getId(s.authUser);
     const upd = { ...s.timer, active:true, breakActive:false, sessionDate:s.timer.sessionDate||todayStr(), sessionStart:s.timer.sessionStart||new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
     saveTimerLS(uid, upd);
-    worklogAPI.upsert({ date:upd.sessionDate, workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate, workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
     worklogAPI.setActive(true).catch(()=>{});
     // Notify other sessions immediately
     sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
@@ -776,7 +793,7 @@ const useAppStore = create((set, get, store) => ({
   pauseTimer: () => set((s) => {
     const upd = { ...s.timer, active:false };
     saveTimerLS(getId(s.authUser), upd);
-    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
     // Notify other sessions immediately so they pause too
     sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:false, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
@@ -794,7 +811,7 @@ const useAppStore = create((set, get, store) => ({
       saveTimerLS(uid, upd);
       // Sync to backend every 60s
       if (workSeconds % 60 === 0) {
-        worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+        worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
       }
     }
     // Broadcast to other sessions every 10s to stay in sync
@@ -806,7 +823,7 @@ const useAppStore = create((set, get, store) => ({
   startBreak: (type, totalSeconds, reason='') => set((s) => {
     const upd = { ...s.timer, active:false, breakActive:true, currentBreak:{ type, reason, totalSeconds, elapsedSeconds:0 } };
     saveTimerLS(getId(s.authUser), upd);
-    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
     // Notify other sessions — they should also show break state
     sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:false, breakActive:true, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
@@ -819,10 +836,15 @@ const useAppStore = create((set, get, store) => ({
       const done = { type:s.timer.currentBreak.type, reason:s.timer.currentBreak.reason, planned:totalSeconds, actual:elapsed, endedAt:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
       const upd  = { ...s.timer, active:true, breakActive:false, currentBreak:null, breaks:[...s.timer.breaks, done] };
       saveTimerLS(getId(s.authUser), upd);
+      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+      sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
       return { timer:upd };
     }
     const upd = { ...s.timer, currentBreak:{ ...s.timer.currentBreak, elapsedSeconds:elapsed } };
     if (elapsed % 15 === 0) saveTimerLS(getId(s.authUser), upd);
+    if (elapsed % 10 === 0) {
+      sock?.emit('timer:sync', { workSeconds:s.timer.workSeconds, active:false, breakActive:true, sessionDate:s.timer.sessionDate, sessionStart:s.timer.sessionStart, targetSeconds:s.timer.targetSeconds });
+    }
     return { timer:upd };
   }),
   endBreak: () => set((s) => {
@@ -830,7 +852,8 @@ const useAppStore = create((set, get, store) => ({
     const done = { type:s.timer.currentBreak.type, reason:s.timer.currentBreak.reason, planned:s.timer.currentBreak.totalSeconds, actual:s.timer.currentBreak.elapsedSeconds, endedAt:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
     const upd  = { ...s.timer, active:true, breakActive:false, currentBreak:null, breaks:[...s.timer.breaks, done] };
     saveTimerLS(getId(s.authUser), upd);
-    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
   }),
   updateTargetSeconds: async (seconds) => {
@@ -862,6 +885,30 @@ const useAppStore = create((set, get, store) => ({
       const { data } = await worklogAPI.getAll(params);
       return data.data;
     } catch { return []; }
+  },
+  fetchTeamTimerStates: async () => {
+    try {
+      const today = todayStr();
+      const logs = await get().fetchWorkLog({ date: today });
+      set((s) => ({
+        users: s.users.map((u) => {
+          const log = logs.find((l) => getId(l.userId) === getId(u));
+          if (log) {
+            return {
+              ...u,
+              timerActive:       log.active,
+              timerBreakActive:  log.breakActive,
+              timerWorkSeconds:  log.workSeconds || 0,
+              timerSessionStart: log.sessionStart,
+              timerTargetSeconds:log.targetSeconds || 9 * 3600,
+            };
+          }
+          return u;
+        })
+      }));
+    } catch (err) {
+      console.error('Failed to fetch team timer states:', err);
+    }
   },
 }));
 

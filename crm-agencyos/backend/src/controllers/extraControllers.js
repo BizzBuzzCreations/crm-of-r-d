@@ -173,6 +173,7 @@ exports.getWorkLog = async (req, res, next) => {
     let filter = {};
     if (req.user.role === 'member') filter.userId = req.user._id;
     if (req.query.userId && req.user.role !== 'member') filter.userId = req.query.userId;
+    if (req.query.date) filter.date = req.query.date;
 
     const logs = await WorkLog.find(filter)
       .populate('userId', 'name color initials status role')
@@ -184,10 +185,10 @@ exports.getWorkLog = async (req, res, next) => {
 
 exports.upsertWorkLog = async (req, res, next) => {
   try {
-    const { date, workSeconds, sessionStart, breaks, active, targetSeconds } = req.body;
+    const { date, workSeconds, sessionStart, breaks, active, breakActive, targetSeconds } = req.body;
     const log = await WorkLog.findOneAndUpdate(
       { userId: req.user._id, date },
-      { userId: req.user._id, date, workSeconds, sessionStart, breaks, active, targetSeconds },
+      { userId: req.user._id, date, workSeconds, sessionStart, breaks, active, breakActive, targetSeconds },
       { upsert: true, new: true, runValidators: true }
     ).populate('userId', 'name color initials status');
     res.json({ success: true, data: log });

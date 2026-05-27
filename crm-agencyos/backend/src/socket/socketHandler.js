@@ -94,6 +94,8 @@ module.exports = (io) => {
     socket.on('timer:sync', (payload) => {
       // Broadcast to all other sockets in this user's personal room (not back to sender)
       socket.to(`user:${userId}`).emit('timer:sync', payload);
+      // Broadcast to all connected clients (admins and managers) for team tracking
+      io.emit('member:timer:update', { userId, ...payload });
     });
 
     // ── Disconnect ────────────────────────────────────────

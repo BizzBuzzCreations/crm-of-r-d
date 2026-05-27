@@ -132,6 +132,7 @@ const WorkLogSchema = new mongoose.Schema({
   sessionStart: { type: String, default: '' },
   breaks:       [BreakEntrySchema],
   active:       { type: Boolean, default: false },
+  breakActive:  { type: Boolean, default: false },
   targetSeconds:{ type: Number, default: 9 * 3600 },
 }, { timestamps: true });
 

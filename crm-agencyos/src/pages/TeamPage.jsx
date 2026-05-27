@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
@@ -13,6 +13,9 @@ import { cn, getId, sameId, ROLE_CONFIG, canManage } from '../utils/helpers';
 
 const statusColors = { online: '#10b981', away: '#f59e0b', offline: '#94a3b8' };
 const statusLabels = { online: 'Online', away: 'Away', offline: 'Offline' };
+
+const p2 = (n) => String(Math.floor(Math.max(0, n))).padStart(2, '0');
+const fmtHMS = (s) => `${p2(s/3600)}:${p2((s%3600)/60)}:${p2(s%60)}`;
 
 const DEPARTMENTS = ['Marketing'];
 const POSITIONS   = [
@@ -157,13 +160,75 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
       <h3 className="text-[14.5px] font-bold text-slate-900 dark:text-white mb-0.5">{user.name}</h3>
       <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-2">{user.position || 'Team Member'}</p>
 
-      <div className="flex justify-center gap-2 mb-4">
+      <div className="flex justify-center gap-2 mb-3">
         <span className={cn('badge text-[10.5px]', roleCfg.tw)}>{roleCfg.label || user.role}</span>
         <span className="badge badge-neutral text-[10.5px] flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusColors[user.status] || '#94a3b8' }} />
           {statusLabels[user.status] || 'Offline'}
         </span>
       </div>
+
+      {/* Dynamic Timer Status Widget */}
+      {user.timerWorkSeconds !== undefined && user.timerWorkSeconds > 0 && (
+        <div className="mt-1 mb-4 px-3 py-2.5 rounded-xl border border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-white/[0.02] text-left">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-bold tracking-wide uppercase text-slate-400 dark:text-slate-500">
+              Worked Today
+            </span>
+            <span className={cn(
+              "text-[9.5px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1",
+              user.timerBreakActive 
+                ? "bg-amber-500/10 text-amber-500 border border-amber-500/20"
+                : user.timerActive 
+                  ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 animate-pulse"
+                  : "bg-slate-500/10 text-slate-400 border border-slate-500/10"
+            )}>
+              <span className={cn("w-1.5 h-1.5 rounded-full", 
+                user.timerBreakActive ? "bg-amber-500" : user.timerActive ? "bg-emerald-500 animate-ping" : "bg-slate-400"
+              )} />
+              {user.timerBreakActive ? "On Break" : user.timerActive ? "Working" : "Paused"}
+            </span>
+          </div>
+
+          <div className="flex items-baseline justify-between mb-2">
+            <span className="text-[16px] font-mono font-bold text-slate-800 dark:text-slate-200">
+              {fmtHMS(user.timerWorkSeconds)}
+            </span>
+            {user.timerSessionStart && (
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                Started {user.timerSessionStart}
+              </span>
+            )}
+          </div>
+
+          {/* Elegant Progress Bar toward Target Hours */}
+          {(() => {
+            const target = user.timerTargetSeconds || (9 * 3600);
+            const progressPct = Math.min(100, (user.timerWorkSeconds / target) * 100);
+            return (
+              <div className="w-full">
+                <div className="h-1 w-full bg-slate-200 dark:bg-slate-700/60 rounded-full overflow-hidden">
+                  <div 
+                    className={cn(
+                      "h-full rounded-full transition-all duration-300",
+                      user.timerBreakActive 
+                        ? "bg-amber-500" 
+                        : user.timerActive 
+                          ? "bg-gradient-to-r from-emerald-500 to-indigo-500"
+                          : "bg-slate-400"
+                    )}
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                <div className="flex justify-between mt-1 text-[9px] text-slate-400 dark:text-slate-500 font-semibold">
+                  <span>{Math.round(progressPct)}% of target</span>
+                  <span>{Math.round(target / 3600)}h target</span>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="flex justify-center gap-5 pt-3 border-t border-slate-100 dark:border-slate-700">
@@ -198,6 +263,24 @@ export default function TeamPage() {
 
   const role      = authUser?.role;
   const isManager = canManage(role);
+
+  // Dynamic ticking timer and initial hydration of today's logs
+  useEffect(() => {
+    useAppStore.getState().fetchTeamTimerStates?.();
+
+    const intervalId = setInterval(() => {
+      useAppStore.setState((s) => ({
+        users: s.users.map((u) => {
+          if (u.timerActive && !u.timerBreakActive) {
+            return { ...u, timerWorkSeconds: (u.timerWorkSeconds || 0) + 1 };
+          }
+          return u;
+        })
+      }));
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   const filtered = users.filter((u) => {
     const matchSearch = !search
@@ -334,7 +417,7 @@ export default function TeamPage() {
             <table className="crm-table">
               <thead>
                 <tr>
-                  {['Member','Role','Department','Status','Email','Phone','Active Tasks','Joined','Actions'].map((h) => (
+                  {['Member','Role','Department','Status','Worked Today','Email','Phone','Active Tasks','Joined','Actions'].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -378,6 +461,26 @@ export default function TeamPage() {
                             <span className="w-2 h-2 rounded-full" style={{ background: statusColors[u.status] || '#94a3b8' }} />
                             {statusLabels[u.status] || 'Offline'}
                           </span>
+                        </td>
+                        <td>
+                          {u.timerWorkSeconds !== undefined && u.timerWorkSeconds > 0 ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-[12.5px] flex items-center gap-1.5">
+                                <span className={cn(
+                                  "w-1.5 h-1.5 rounded-full",
+                                  u.timerBreakActive ? "bg-amber-500" : u.timerActive ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                                )} />
+                                {fmtHMS(u.timerWorkSeconds)}
+                              </span>
+                              {u.timerSessionStart && (
+                                <span className="text-[10px] text-slate-400">
+                                  {u.timerBreakActive ? "on break" : u.timerActive ? "working" : "paused"} · since {u.timerSessionStart}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[12px]">—</span>
+                          )}
                         </td>
                         <td className="text-slate-500 text-[12px]">{u.email}</td>
                         <td className="text-slate-500 text-[12px]">{u.phone || '—'}</td>
