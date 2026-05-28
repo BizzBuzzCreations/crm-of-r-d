@@ -355,7 +355,7 @@ const NAV = [
       { path: '/dashboard', label: 'Dashboard',         icon: LayoutDashboard, roles: ['admin','manager','member','client_relations'] },
       { path: '/todos',     label: 'Todos',        icon: ListTodo,        roles: ['admin','manager','member','client_relations'] },
       { path: '/tasks',     label: 'Tasks',        icon: CheckSquare,     roles: ['admin','manager','member','client_relations'] },
-      { path: '/clients',   label: 'Clients & Projects', icon: Users,           roles: ['admin','manager','member','client_relations'] },
+      { path: '/clients',   label: 'Clients & Projects', icon: Users,           roles: ['admin','manager','client_relations'] },
       { path: '/messages',  label: 'Messages',           icon: MessageSquare,   roles: ['admin','manager','member','client_relations'], badge: true },
       { path: '/meetings',  label: 'Meetings',           icon: Video,           roles: ['admin','manager','member','client_relations'] },
       { path: '/reports',   label: 'Reports',            icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },

@@ -369,7 +369,7 @@ export default function MessagesPage() {
                 )}
               </div>
               {messages.channels.filter((c)=>!search||c.name.includes(search)).map((ch)=>(
-                <button key={ch.id} onClick={()=>setActiveThread(ch.id)} className={cn('flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group/chan',activeThread===ch.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
+                <div key={ch.id} role="button" tabIndex={0} onClick={()=>setActiveThread(ch.id)} onKeyDown={(e)=>e.key==='Enter'&&setActiveThread(ch.id)} className={cn('flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group/chan cursor-pointer',activeThread===ch.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
                   <div className="relative flex-shrink-0 flex items-center justify-center w-4 h-4">
                     {ch.isPrivate ? (
                       <Lock size={11} className="flex-shrink-0 text-amber-500/80" />
@@ -432,7 +432,7 @@ export default function MessagesPage() {
                       ✓
                     </button>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
             {/* DMs */}
@@ -452,7 +452,7 @@ export default function MessagesPage() {
                 if (!u) return null;
                 if (search&&!u.name.toLowerCase().includes(search.toLowerCase())) return null;
                 return (
-                  <button key={dm.id} onClick={()=>setActiveThread(dm.id)} className={cn('flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group',activeThread===dm.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
+                  <div key={dm.id} role="button" tabIndex={0} onClick={()=>setActiveThread(dm.id)} onKeyDown={(e)=>e.key==='Enter'&&setActiveThread(dm.id)} className={cn('flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] transition-all group cursor-pointer',activeThread===dm.id?'bg-primary-500/20 text-primary-300':'text-slate-400 hover:bg-slate-800 hover:text-slate-300')}>
                     <div className="relative flex-shrink-0">
                       <Avatar user={u} size="xs"/>
                       <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-900" style={{background:statusColors[u.status]||'#94a3b8'}}/>
@@ -478,7 +478,7 @@ export default function MessagesPage() {
                         ✓
                       </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

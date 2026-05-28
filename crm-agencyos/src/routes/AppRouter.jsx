@@ -50,7 +50,14 @@ export default function AppRouter() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="tasks"     element={<TasksPage />} />
           <Route path="todos"     element={<TodosPage />} />
-          <Route path="clients"   element={<ClientsPage />} />
+          <Route
+            path="clients"
+            element={
+              <RequireRole roles={['admin', 'manager', 'client_relations']}>
+                <ClientsPage />
+              </RequireRole>
+            }
+          />
           <Route path="messages"  element={<MessagesPage />} />
           <Route path="reports"   element={<ReportsPage />} />
           <Route path="meetings"  element={<MeetingsPage />} />

@@ -76,23 +76,31 @@ function flushTimerToDb(store) {
   );
 }
 
-function connectSocket(token, store) {
+function connectSocket(store) {
   // Already connected — nothing to do
   if (sock?.connected) return;
   // Stale socket exists (e.g. failed after reconnectionAttempts) — clean it up first
   if (sock) { sock.removeAllListeners(); sock.disconnect(); sock = null; }
 
+  // Use a callback so Socket.IO reads the CURRENT token on every reconnect attempt,
+  // not the stale one captured at initial connect time (token may have been refreshed).
   sock = io(getSocketUrl(), {
-    auth: { token },
+    auth: (cb) => { cb({ token: localStorage.getItem('crm_access_token') }); },
     reconnectionDelay: 1000,
     timeout: 10000,
   });
+
+  // Helper: refresh auth token on the socket object before manual reconnects
+  const refreshSocketAuth = () => {
+    if (sock) sock.auth = { token: localStorage.getItem('crm_access_token') };
+  };
 
   // Reconnect automatically on window focus or visibility change if disconnected
   if (_focusHandler) window.removeEventListener('focus', _focusHandler);
   _focusHandler = () => {
     if (sock && !sock.connected) {
       console.log('🔌 Window focused and socket disconnected — attempting reconnect');
+      refreshSocketAuth();
       sock.connect();
     }
   };
@@ -102,6 +110,7 @@ function connectSocket(token, store) {
   _visibilityHandler = () => {
     if (document.visibilityState === 'visible' && sock && !sock.connected) {
       console.log('🔌 Tab visible and socket disconnected — attempting reconnect');
+      refreshSocketAuth();
       sock.connect();
     }
   };
@@ -609,7 +618,7 @@ const useAppStore = create((set, get, store) => ({
 
       // Load all data then connect socket
       await get().loadAllData();
-      connectSocket(data.accessToken, store);
+      connectSocket(store);
 
       return { success:true, user };
     } catch (err) {
@@ -719,7 +728,7 @@ const useAppStore = create((set, get, store) => ({
       await get().loadAllData();
       // Re-read from localStorage: the 401 interceptor may have silently refreshed
       // the token during authAPI.me(), making the `token` variable above stale.
-      connectSocket(localStorage.getItem('crm_access_token'), store);
+      connectSocket(store);
       return true;
     } catch {
       localStorage.removeItem('crm_access_token');

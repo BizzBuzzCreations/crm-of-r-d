@@ -25,7 +25,6 @@ const ClientSchema = new mongoose.Schema({
   assignedTeam:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   notes:            [NoteSchema],
   createdBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  showPaymentDetails: { type: Boolean, default: false },
 }, { timestamps: true });
 
 // ── Task ──────────────────────────────────────────────────────

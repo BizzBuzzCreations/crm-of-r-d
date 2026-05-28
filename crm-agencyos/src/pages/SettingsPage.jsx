@@ -573,9 +573,6 @@ function TeamsManagementSection({ settings, onSave, users, onInvite }) {
   const [newTeamDesc, setNewTeamDesc] = useState('');
 
   // Staffing metadata config
-  const [rolesList, setRolesList] = useState(settings?.roles || []);
-  const [newRoleName, setNewRoleName] = useState('');
-  const [newRoleLabel, setNewRoleLabel] = useState('');
 
   const [depList, setDepList] = useState(settings?.departments || []);
   const [newDep, setNewDep] = useState('');
@@ -587,7 +584,6 @@ function TeamsManagementSection({ settings, onSave, users, onInvite }) {
   useEffect(() => {
     if (settings) {
       setTeams(settings.teams || []);
-      setRolesList(settings.roles || []);
       setDepList(settings.departments || []);
       setIndList(settings.industries || []);
     }
@@ -603,25 +599,7 @@ function TeamsManagementSection({ settings, onSave, users, onInvite }) {
     setNewTeamDesc('');
   };
 
-  const handleAddRole = () => {
-    if (!newRoleName.trim() || !newRoleLabel.trim()) return;
-    const rName = newRoleName.trim().replace(/\s+/g, '_').toLowerCase();
-    if (rolesList.some((r) => r.name === rName)) {
-      toast.error('Role name already exists');
-      return;
-    }
-    setRolesList([...rolesList, { name: rName, label: newRoleLabel.trim(), permissions: ['view_tasks'] }]);
-    setNewRoleName('');
-    setNewRoleLabel('');
-  };
 
-  const handleRemoveRole = (name) => {
-    if (['admin', 'manager', 'member'].includes(name)) {
-      toast.error('Default system roles cannot be deleted');
-      return;
-    }
-    setRolesList(rolesList.filter((r) => r.name !== name));
-  };
 
   const handleAddDep = () => {
     if (!newDep.trim()) return;
@@ -660,7 +638,6 @@ function TeamsManagementSection({ settings, onSave, users, onInvite }) {
   const handleSaveAllFramework = () => {
     onSave({ 
       teams, 
-      roles: rolesList, 
       departments: depList, 
       industries: indList 
     });

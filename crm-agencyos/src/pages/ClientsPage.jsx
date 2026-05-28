@@ -543,7 +543,6 @@ function EditClientModal({ open, onClose, client, users, services = [], industri
         address:          client.address          || '',
         status:           client.status           || 'active',
         paymentStatus:    client.paymentStatus    || 'pending',
-        showPaymentDetails: client.showPaymentDetails || false,
       });
       setSelectedServices(client.services || []);
     }
@@ -650,19 +649,6 @@ function EditClientModal({ open, onClose, client, users, services = [], industri
           <label className={labelCls}>Office Address</label>
           <input className={inputCls} placeholder="123 Main St, City, State" value={form.address || ''} onChange={(e) => field('address', e.target.value)} />
         </div>
-        <div className="mt-2.5">
-          <label className="flex items-center gap-2 px-1 py-0.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={form.showPaymentDetails || false}
-              onChange={(e) => field('showPaymentDetails', e.target.checked)}
-              className="rounded text-primary-600 focus:ring-primary-500 w-4 h-4"
-            />
-            <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-350">
-              Show Payment &amp; Budget Details to Team Members
-            </span>
-          </label>
-        </div>
         <div>
           <label className={labelCls}>Services *</label>
           {services.length === 0 ? (
@@ -703,7 +689,7 @@ const PROJECT_STATUS = {
   'on-hold':     { label: 'On Hold',     bg: 'bg-slate-100 dark:bg-slate-700',       text: 'text-slate-600 dark:text-slate-400',    dot: 'bg-slate-400' },
 };
 
-function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdit, canSeePayment }) {
+function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdit }) {
   const projTeam = users.filter((u) =>
     project.assignedTeam?.some((tm) => sameId(tm, u))
   );
@@ -765,7 +751,7 @@ function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdi
             <span className={cn('w-2 h-2 rounded-full', sc.dot)} />
             {sc.label}
           </span>
-          {project.budget && canSeePayment && (
+          {project.budget && (
             <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[12px] font-bold text-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 dark:text-indigo-300">
               {project.budget}
             </span>
@@ -1011,19 +997,6 @@ function AddClientModal({ open, onClose, users, services = [], industries = DEFA
           ))}
         </Select>
 
-        <div className="flex flex-col gap-1 mt-2.5">
-          <label className="flex items-center gap-2 px-1 py-0.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              {...register('showPaymentDetails')}
-              className="rounded text-primary-600 focus:ring-primary-500 w-4 h-4"
-            />
-            <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-355">
-              Show Payment &amp; Budget Details to Team Members
-            </span>
-          </label>
-        </div>
-
         {/* ── Create Initial Project Section ── */}
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-2">
           <label className="flex items-center gap-2 px-1 py-0.5 cursor-pointer select-none">
@@ -1255,7 +1228,6 @@ export default function ClientsPage() {
   // ── Client Detail View ────────────────────────────────────────
   if (selected) {
     const client  = clients.find((c) => sameId(c, selected)) || selected;
-    const canSeePayment = role !== 'member' || client.showPaymentDetails;
     const team    = users.filter((u) => client.assignedTeam?.some((tm) => sameId(tm, u)));
     const cTasks  = tasks.filter((t) => sameId(t.clientId, client));
     // Todos for this client specifically
@@ -1281,14 +1253,14 @@ export default function ClientsPage() {
               <p className="text-slate-400 text-[14px]">{client.industry} · {client.contact}</p>
               <div className="flex gap-2 mt-3">
                 <span className="badge badge-success text-[11px]">{client.status}</span>
-                {canSeePayment && <span className={cn('badge text-[11px]', `badge-${payVariant(client.paymentStatus)}`)}>{client.paymentStatus}</span>}
+                <span className={cn('badge text-[11px]', `badge-${payVariant(client.paymentStatus)}`)}>{client.paymentStatus}</span>
               </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="text-right">
-                <div className="text-3xl font-bold text-indigo-300">{canSeePayment ? client.budget : 'Confidential'}</div>
+                <div className="text-3xl font-bold text-indigo-300">{client.budget}</div>
                 <div className="text-slate-400 text-[12px] mt-0.5">Contract Value</div>
-                <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{canSeePayment ? fmtContractDuration(client.contractDuration) : 'Confidential'}</div>
+                <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{fmtContractDuration(client.contractDuration)}</div>
               </div>
               {canManage(role) && (
                 <button
@@ -1330,7 +1302,7 @@ export default function ClientsPage() {
                   [Globe,     'Website',    client.website],
                   [Building2, 'Industry',   client.industry],
                   [Calendar,  'Onboarding', client.onboardingDate],
-                  [FileText,  'Contract',   canSeePayment ? fmtContractDuration(client.contractDuration) : 'Confidential'],
+                  [FileText,  'Contract',   fmtContractDuration(client.contractDuration)],
                 ].map(([Icon, label, val]) => (
                   <div key={label} className="flex items-center gap-3 py-2 border-b border-slate-100 dark:border-slate-700/50 last:border-0">
                     <Icon size={14} className="text-slate-400 flex-shrink-0" />
@@ -1441,7 +1413,7 @@ export default function ClientsPage() {
                           <div className="space-y-1">
                             <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Budget &amp; Deadline</span>
                             <div className="flex items-center gap-2 text-[11.5px] font-medium text-slate-700 dark:text-slate-350">
-                              <span className="text-primary-600 font-bold">{canSeePayment ? (p.budget || '—') : 'Confidential'}</span>
+                              <span className="text-primary-600 font-bold">{p.budget || '—'}</span>
                               <span className="text-slate-300 dark:text-slate-700">|</span>
                               <span className="flex items-center gap-0.5"><Calendar size={11} className="text-slate-400" /> {formattedEndDate}</span>
                             </div>
@@ -1545,7 +1517,6 @@ export default function ClientsPage() {
             project={selectedProject}
             users={users}
             canEdit={canManage(role)}
-            canSeePayment={canSeePayment}
             onClose={() => setSelectedProject(null)}
             onEdit={() => {
               setShowEditProject(selectedProject);
@@ -1652,11 +1623,11 @@ export default function ClientsPage() {
                   </div>
                 )}
                 <div className="flex items-center gap-2 mb-3">
-                  {(role !== 'member' || c.showPaymentDetails) && <Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge>}
+                  <Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge>
                   <span className="badge badge-neutral text-[10.5px]">{c.projectCount} projects</span>
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
-                  <span className="text-[15px] font-bold text-primary-600">{(role !== 'member' || c.showPaymentDetails) ? c.budget : 'Confidential'}</span>
+                  <span className="text-[15px] font-bold text-primary-600">{c.budget}</span>
                   <AvatarGroup users={team} max={3} size="xs" />
                 </div>
               </motion.div>
@@ -1684,8 +1655,8 @@ export default function ClientsPage() {
                     <td><Badge variant="neutral">{c.industry}</Badge></td>
                     <td><div className="flex gap-1">{c.services.slice(0,2).map((s) => <Badge key={s} variant="neutral" className="text-[10px]">{s}</Badge>)}</div></td>
                     <td><Badge variant={CLIENT_STATUS_CONFIG[c.status]?.tw?.replace('badge-','') || 'neutral'}>{c.status}</Badge></td>
-                    <td>{(role !== 'member' || c.showPaymentDetails) ? <Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge> : <span className="text-slate-400 text-[12.5px]">Confidential</span>}</td>
-                    <td className="font-semibold text-primary-600">{(role !== 'member' || c.showPaymentDetails) ? c.budget : 'Confidential'}</td>
+                    <td><Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge></td>
+                    <td className="font-semibold text-primary-600">{c.budget}</td>
                     <td>
                       {cTasks.length > 0 ? (
                         <div className="flex items-center gap-2 min-w-[80px]">

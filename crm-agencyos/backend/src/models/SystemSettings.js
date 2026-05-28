@@ -22,11 +22,7 @@ const CustomFieldSchema = new mongoose.Schema({
   required: { type: Boolean, default: false }
 });
 
-const SystemRoleSchema = new mongoose.Schema({
-  name:        { type: String, required: true },
-  label:       { type: String, required: true },
-  permissions: [{ type: String }]
-});
+
 
 const SystemSettingsSchema = new mongoose.Schema({
   // Company Profile & Localization
@@ -73,15 +69,7 @@ const SystemSettingsSchema = new mongoose.Schema({
     default: []
   },
 
-  // Dynamic Teams, Roles & Departments list
-  roles: {
-    type: [SystemRoleSchema],
-    default: [
-      { name: 'admin', label: 'Admin', permissions: ['all'] },
-      { name: 'manager', label: 'Manager', permissions: ['manage_teams', 'view_reports', 'edit_leads'] },
-      { name: 'member', label: 'Member', permissions: ['view_tasks', 'edit_own_tasks'] }
-    ]
-  },
+  // Dynamic Teams & Departments list
   departments: {
     type: [String],
     default: ['Management', 'Sales', 'Engineering', 'Marketing', 'Support', 'General']

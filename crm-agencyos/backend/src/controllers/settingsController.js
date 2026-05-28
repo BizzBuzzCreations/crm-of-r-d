@@ -51,7 +51,6 @@ exports.updateSystemSettings = async (req, res, next) => {
     // Manager role checks: Restrict manager from updating global/system tier fields
     if (role === 'manager') {
       const allowedManagerFields = [
-        'roles',
         'departments',
         'positions',
         'industries',
