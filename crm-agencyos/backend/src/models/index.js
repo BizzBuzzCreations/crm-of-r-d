@@ -49,7 +49,11 @@ const TodoSchema = new mongoose.Schema({
   title:       { type: String, required: [true,'Title is required'], trim: true },
   description: { type: String, default: '' },
   userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  workType:    { type: String, enum: ['in-house','client'], default: 'in-house' },
+  clientName:  { type: String, default: '' },
   eta:         { type: String, default: '' },
+  etaStart:    { type: String, default: '' }, // HH:MM (24h)
+  etaEnd:      { type: String, default: '' }, // HH:MM (24h)
   priority:    { type: String, enum: ['urgent','high','medium','low'], default: 'medium' },
   status:      { type: String, enum: ['pending','in-progress','sent-for-approval','completed'], default: 'pending' },
 }, { timestamps: true });
