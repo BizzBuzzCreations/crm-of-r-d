@@ -14,6 +14,12 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 export const getId = (ref) => ref?._id || ref?.id || String(ref || '');
 export const sameId = (a, b) => String(getId(a)) === String(getId(b));
 
+// ── Unread-count localStorage (survives page reloads) ────────
+const U_KEY  = (uid) => `crm_unread_${uid}`;
+const saveUnreadLS  = (uid, map) => { try { localStorage.setItem(U_KEY(uid), JSON.stringify(map)); } catch {} };
+const loadUnreadLS  = (uid) => { try { const r = localStorage.getItem(U_KEY(uid)); return r ? JSON.parse(r) : {}; } catch { return {}; } };
+const clearUnreadLS = (uid) => { try { localStorage.removeItem(U_KEY(uid)); } catch {} };
+
 // ── Timer localStorage (syncs to /api/worklog) ────────────────
 const T_KEY = (id) => `crm_timer_v2_${id}`;
 const saveTimerLS = (uid, t) => { try { localStorage.setItem(T_KEY(uid), JSON.stringify(t)); } catch {} };
@@ -176,6 +182,13 @@ function connectSocket(store) {
         channels = channels.map((c) => c.id === tid ? { ...c, unread: (c.unread || 0) + 1 } : c);
       } else {
         dms = dms.map((d) => d.id === tid ? { ...d, unread: (d.unread || 0) + 1 } : d);
+      }
+      // Persist so the badge survives page reloads
+      const uid = getId(s.authUser);
+      if (uid) {
+        const saved = loadUnreadLS(uid);
+        saved[tid] = (saved[tid] || 0) + 1;
+        saveUnreadLS(uid, saved);
       }
     }
 
@@ -513,28 +526,36 @@ const useAppStore = create((set, get, store) => ({
     set({ activeThread: threadId });
     get().markThreadRead(threadId);
   },
-  markThreadRead: (threadId) => set((s) => {
-    const isChannel = s.messages.channels.some((c) => c.id === threadId);
-    if (isChannel) {
-      return {
-        messages: {
-          ...s.messages,
-          channels: s.messages.channels.map((c) =>
-            c.id === threadId ? { ...c, unread: 0 } : c
-          )
-        }
-      };
-    } else {
-      return {
-        messages: {
-          ...s.messages,
-          dms: s.messages.dms.map((d) =>
-            d.id === threadId ? { ...d, unread: 0 } : d
-          )
-        }
-      };
+  markThreadRead: (threadId) => {
+    // Clear from localStorage so reload doesn't restore a stale count
+    const uid = getId(get().authUser);
+    if (uid) {
+      const saved = loadUnreadLS(uid);
+      if (saved[threadId]) { delete saved[threadId]; saveUnreadLS(uid, saved); }
     }
-  }),
+    set((s) => {
+      const isChannel = s.messages.channels.some((c) => c.id === threadId);
+      if (isChannel) {
+        return {
+          messages: {
+            ...s.messages,
+            channels: s.messages.channels.map((c) =>
+              c.id === threadId ? { ...c, unread: 0 } : c
+            )
+          }
+        };
+      } else {
+        return {
+          messages: {
+            ...s.messages,
+            dms: s.messages.dms.map((d) =>
+              d.id === threadId ? { ...d, unread: 0 } : d
+            )
+          }
+        };
+      }
+    });
+  },
 
   // ══════════════════════════════════════════════════════════
   // AUTH
@@ -647,6 +668,7 @@ const useAppStore = create((set, get, store) => ({
 
     // NOW clear the token and state
     localStorage.removeItem('crm_access_token');
+    clearUnreadLS(getId(get().authUser));
     disconnectSocket();
     set({ _loggingOut: false, socketConnected: false, authUser:null, users:[], tasks:[], todos:[], clients:[], meetings:[], timer:initialTimer(), messages:{ channels:DEFAULT_CHANNELS, dms:[], threads:{} }, notifications: [], services: [], projects: [] });
   },
@@ -749,9 +771,11 @@ const useAppStore = create((set, get, store) => ({
       ]);
       const users = uR.data.data;
       const me    = get().authUser;
+      // Restore persisted unread counts — prevents the badge vanishing on reload
+      const savedUnread = loadUnreadLS(getId(me));
       const dms   = users
         .filter((u) => getId(u) !== getId(me))
-        .map((u)   => ({ id:`dm-${getId(u)}`, userId:getId(u), unread:0 }));
+        .map((u)   => ({ id:`dm-${getId(u)}`, userId:getId(u), unread: savedUnread[`dm-${getId(u)}`] || 0 }));
       const channels = (chR.data.data || []).map((c) => ({
         id: c._id,
         name: c.name,
@@ -759,7 +783,7 @@ const useAppStore = create((set, get, store) => ({
         description: c.description || '',
         isPrivate: !!c.isPrivate,
         members: c.members || [],
-        unread: 0,
+        unread: savedUnread[String(c._id)] || 0,
       }));
       set({
         users,

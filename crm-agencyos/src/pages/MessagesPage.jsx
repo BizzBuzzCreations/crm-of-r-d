@@ -236,6 +236,9 @@ export default function MessagesPage() {
     setTypingNames([]);
     setLoadingMsgs(true);
 
+    // Clear unread for this thread the moment the user opens/switches to it
+    useAppStore.getState().markThreadRead(activeThread);
+
     // Load from database into store dynamically
     loadThread(activeThread).finally(() => {
       setLoadingMsgs(false);
