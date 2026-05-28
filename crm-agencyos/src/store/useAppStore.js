@@ -25,7 +25,7 @@ const loadWorkLogLS = (uid)  => {
 };
 
 function initialTimer() {
-  return { active:false, workSeconds:0, sessionDate:null, sessionStart:null, breaks:[], breakActive:false, currentBreak:null, targetSeconds: 9 * 3600, lastTickTime: null };
+  return { active:false, workSeconds:0, sessionDate:null, sessionStart:null, breaks:[], breakActive:false, currentBreak:null, targetSeconds: 8 * 3600, lastTickTime: null };
 }
 
 // ── Default channels ──────────────────────────────────────────
@@ -64,7 +64,7 @@ function flushTimerToDb(store) {
     sessionStart: timer.sessionStart,
     breaks: timer.breaks || [],
     active: false,   // tab is closing so mark inactive
-    targetSeconds: timer.targetSeconds || 9 * 3600,
+    targetSeconds: timer.targetSeconds || 8 * 3600,
   });
   // sendBeacon is the only API that reliably fires on tab close
   navigator.sendBeacon(
@@ -429,7 +429,7 @@ const useAppStore = create((set, get, store) => ({
             breaks: todayLog.breaks || [],
             breakActive: todayLog.breakActive || false,
             currentBreak: null,
-            targetSeconds: todayLog.targetSeconds || (9 * 3600),
+            targetSeconds: todayLog.targetSeconds || (8 * 3600),
           };
         }
       } catch (err) {
@@ -469,7 +469,7 @@ const useAppStore = create((set, get, store) => ({
           breaks: timerState.breaks,
           active: true,
           breakActive: timerState.breakActive,
-          targetSeconds: timerState.targetSeconds || (9 * 3600),
+          targetSeconds: timerState.targetSeconds || (8 * 3600),
         }).catch(()=>{});
       } else if (!dbTimer && user.role === 'member') {
         // If there was no DB log yet, create it so subsequent refreshes find it in the DB
@@ -553,7 +553,7 @@ const useAppStore = create((set, get, store) => ({
             breaks: todayLog.breaks || [],
             breakActive: todayLog.breakActive || false,
             currentBreak: null,
-            targetSeconds: todayLog.targetSeconds || (9 * 3600),
+            targetSeconds: todayLog.targetSeconds || (8 * 3600),
           };
         }
       } catch (err) {
@@ -590,7 +590,7 @@ const useAppStore = create((set, get, store) => ({
           breaks: timerState.breaks,
           active: true,
           breakActive: timerState.breakActive,
-          targetSeconds: timerState.targetSeconds || (9 * 3600),
+          targetSeconds: timerState.targetSeconds || (8 * 3600),
         }).catch(()=>{});
       }
       await get().loadAllData();
@@ -644,6 +644,9 @@ const useAppStore = create((set, get, store) => ({
       if (me?.role === 'admin' || me?.role === 'manager') {
         await get().fetchRevenueSummary();
       }
+      // Hydrate team timer states from DB now that users are loaded
+      // This ensures admin/manager sees accurate real-time work data
+      get().fetchTeamTimerStates?.();
     } catch (err) {
       console.error('loadAllData error:', err.message);
       set({ loading:false });
@@ -987,7 +990,7 @@ const useAppStore = create((set, get, store) => ({
     const uid = getId(s.authUser);
     const upd = { ...s.timer, active:true, breakActive:false, sessionDate:s.timer.sessionDate||todayStr(), sessionStart:s.timer.sessionStart||new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), lastTickTime: Date.now() };
     saveTimerLS(uid, upd);
-    worklogAPI.upsert({ date:upd.sessionDate, workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate, workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
     worklogAPI.setActive(true).catch(()=>{});
     // Notify other sessions immediately
     sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
@@ -996,7 +999,7 @@ const useAppStore = create((set, get, store) => ({
   pauseTimer: () => set((s) => {
     const upd = { ...s.timer, active:false };
     saveTimerLS(getId(s.authUser), upd);
-    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:false, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
     // Notify other sessions immediately so they pause too
     sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:false, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
@@ -1023,7 +1026,7 @@ const useAppStore = create((set, get, store) => ({
     const newBoundary = Math.floor(workSeconds / 15);
     if (newBoundary > oldBoundary || workSeconds % 15 === 0) {
       saveTimerLS(uid, upd);
-      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
     }
 
     // Broadcast to other sessions if we crossed a 10-second boundary
@@ -1037,7 +1040,7 @@ const useAppStore = create((set, get, store) => ({
   startBreak: (type, totalSeconds, reason='') => set((s) => {
     const upd = { ...s.timer, active:false, breakActive:true, currentBreak:{ type, reason, totalSeconds, elapsedSeconds:0, lastBreakTickTime: Date.now() } };
     saveTimerLS(getId(s.authUser), upd);
-    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:true, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:true, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
     // Notify other sessions — they should also show break state
     sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:false, breakActive:true, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
@@ -1055,7 +1058,7 @@ const useAppStore = create((set, get, store) => ({
       const done = { type:s.timer.currentBreak.type, reason:s.timer.currentBreak.reason, planned:totalSeconds, actual:elapsed, endedAt:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
       const upd  = { ...s.timer, active:true, breakActive:false, currentBreak:null, breaks:[...s.timer.breaks, done], lastTickTime: Date.now() };
       saveTimerLS(getId(s.authUser), upd);
-      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
       sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
       return { timer:upd };
     }
@@ -1077,7 +1080,7 @@ const useAppStore = create((set, get, store) => ({
     const done = { type:s.timer.currentBreak.type, reason:s.timer.currentBreak.reason, planned:s.timer.currentBreak.totalSeconds, actual:s.timer.currentBreak.elapsedSeconds, endedAt:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) };
     const upd  = { ...s.timer, active:true, breakActive:false, currentBreak:null, breaks:[...s.timer.breaks, done], lastTickTime: Date.now() };
     saveTimerLS(getId(s.authUser), upd);
-    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (9 * 3600) }).catch(()=>{});
+    worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:true, breakActive:false, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
     sock?.emit('timer:sync', { workSeconds:upd.workSeconds, active:true, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
     return { timer:upd };
   }),
@@ -1125,7 +1128,7 @@ const useAppStore = create((set, get, store) => ({
               timerBreakActive:  log.breakActive,
               timerWorkSeconds:  log.workSeconds || 0,
               timerSessionStart: log.sessionStart,
-              timerTargetSeconds:log.targetSeconds || 9 * 3600,
+              timerTargetSeconds:log.targetSeconds || 8 * 3600,
               timerLastUpdated:  Date.now(),
             };
           }

@@ -378,7 +378,7 @@ function WorkLogSection({ authUser, users }) {
         workSeconds:   log.workSeconds || 0,
         breaks:        log.breaks || [],
         isToday:       log.date === new Date().toISOString().split('T')[0],
-        targetSeconds: log.targetSeconds || (9 * 3600),
+        targetSeconds: log.targetSeconds || (8 * 3600),
       });
     });
 
@@ -439,7 +439,7 @@ function WorkLogSection({ authUser, users }) {
             <tbody>
               {filtered.map((row, i) => {
                 const isActive   = sameId(row.user, authUser) && row.isToday;
-                const target     = row.targetSeconds || (9 * 3600);
+                const target     = row.targetSeconds || (8 * 3600);
                 const pct        = Math.min(100, (row.workSeconds / target) * 100);
                 const lunchSecs  = breakTotal(row.breaks, 'lunch');
                 const teaSecs    = breakTotal(row.breaks, 'tea');

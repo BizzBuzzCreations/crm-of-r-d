@@ -49,7 +49,7 @@ function MemberTimer({ open }) {
 
   // ── Derived ───────────────────────────────────────────────
   const workSecs    = timer?.workSeconds || 0;
-  const targetSecs  = timer?.targetSeconds || (9 * 3600);
+  const targetSecs  = timer?.targetSeconds || (8 * 3600);
   const pct         = Math.min(100, (workSecs / targetSecs) * 100);
   const leftSecs    = Math.max(0, targetSecs - workSecs);
   const leftHrs     = (leftSecs / 3600).toFixed(1);

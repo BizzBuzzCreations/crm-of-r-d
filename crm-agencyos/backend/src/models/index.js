@@ -133,7 +133,7 @@ const WorkLogSchema = new mongoose.Schema({
   breaks:       [BreakEntrySchema],
   active:       { type: Boolean, default: false },
   breakActive:  { type: Boolean, default: false },
-  targetSeconds:{ type: Number, default: 9 * 3600 },
+  targetSeconds:{ type: Number, default: 8 * 3600 },
 }, { timestamps: true });
 
 WorkLogSchema.index({ userId: 1, date: -1 });

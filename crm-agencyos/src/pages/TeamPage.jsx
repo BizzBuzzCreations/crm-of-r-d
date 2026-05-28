@@ -210,7 +210,7 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
 
           {/* Elegant Progress Bar toward Target Hours */}
           {(() => {
-            const target = user.timerTargetSeconds || (9 * 3600);
+            const target = user.timerTargetSeconds || (8 * 3600);
             const progressPct = Math.min(100, (user.timerWorkSeconds / target) * 100);
             return (
               <div className="w-full">
@@ -562,8 +562,19 @@ export default function TeamPage() {
 
   // Dynamic ticking timer and initial hydration of today's logs
   useEffect(() => {
-    useAppStore.getState().fetchTeamTimerStates?.();
+    // Initial hydration (also called from loadAllData, but this handles late mounts)
+    if (users.length > 0) {
+      useAppStore.getState().fetchTeamTimerStates?.();
+    }
 
+    // Re-fetch team timer states from DB every 30s for accuracy
+    const refreshId = setInterval(() => {
+      if (useAppStore.getState().users.length > 0) {
+        useAppStore.getState().fetchTeamTimerStates?.();
+      }
+    }, 30000);
+
+    // Local 1s ticker for smooth real-time animation between DB syncs
     const intervalId = setInterval(() => {
       const now = Date.now();
       useAppStore.setState((s) => ({
@@ -580,8 +591,8 @@ export default function TeamPage() {
       }));
     }, 1000);
 
-    return () => clearInterval(intervalId);
-  }, []);
+    return () => { clearInterval(intervalId); clearInterval(refreshId); };
+  }, [users.length]);
 
   const filtered = users.filter((u) => {
     const matchSearch = !search
