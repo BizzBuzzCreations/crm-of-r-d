@@ -2,6 +2,8 @@ const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
 const { WorkLog, Channel } = require('../models/index');
 
+const disconnectTimeouts = new Map();
+
 module.exports = (io) => {
   // Auth middleware for sockets
   io.use(async (socket, next) => {
@@ -21,6 +23,12 @@ module.exports = (io) => {
   io.on('connection', async (socket) => {
     const userId = String(socket.user._id);
     console.log(`🔌 Socket connected: ${socket.user.name} (${userId})`);
+
+    // Cancel any pending disconnect cleanup timeout for this user
+    if (disconnectTimeouts.has(userId)) {
+      clearTimeout(disconnectTimeouts.get(userId));
+      disconnectTimeouts.delete(userId);
+    }
 
     // ── Mark user online ──────────────────────────────────
     User.findByIdAndUpdate(userId, { status: 'online' }).exec();
@@ -122,27 +130,34 @@ module.exports = (io) => {
     });
 
     // ── Disconnect ────────────────────────────────────────
-    socket.on('disconnect', async () => {
+    socket.on('disconnect', () => {
       console.log(`🔌 Disconnected: ${socket.user.name}`);
-      try {
-        const userRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
-        const hasActiveConnections = userRoom && userRoom.size > 0;
+      
+      // Delay disconnect cleanup by 5 seconds to handle page reloads smoothly
+      const timeoutId = setTimeout(async () => {
+        try {
+          disconnectTimeouts.delete(userId);
+          const userRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
+          const hasActiveConnections = userRoom && userRoom.size > 0;
 
-        if (!hasActiveConnections) {
-          await User.findByIdAndUpdate(userId, { status: 'offline' });
-          io.emit('user:offline', { userId });
+          if (!hasActiveConnections) {
+            await User.findByIdAndUpdate(userId, { status: 'offline' });
+            io.emit('user:offline', { userId });
 
-          const today = new Date().toISOString().split('T')[0];
-          await WorkLog.findOneAndUpdate(
-            { userId, date: today },
-            { active: false, breakActive: false }
-          );
+            const today = new Date().toISOString().split('T')[0];
+            await WorkLog.findOneAndUpdate(
+              { userId, date: today },
+              { active: false, breakActive: false }
+            );
 
-          io.emit('member:timer:update', { userId, active: false, breakActive: false });
+            io.emit('member:timer:update', { userId, active: false, breakActive: false });
+          }
+        } catch (err) {
+          console.error('Error on socket disconnect cleanup:', err);
         }
-      } catch (err) {
-        console.error('Error on socket disconnect cleanup:', err);
-      }
+      }, 5000);
+
+      disconnectTimeouts.set(userId, timeoutId);
     });
   });
 };

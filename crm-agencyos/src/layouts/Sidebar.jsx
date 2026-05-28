@@ -224,36 +224,24 @@ function MemberTimer({ open }) {
         {/* Buttons */}
         {!timer?.breakActive && (
           <div className="flex gap-2">
-            {/* Pause / Resume */}
             {timer?.active ? (
               <button
-                onClick={() => useAppStore.getState().pauseTimer()}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[12.5px] font-semibold text-white transition-all"
-                style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)' }}
+                onClick={() => { setBreakMenuOpen((v) => !v); setShowCustom(false); }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[12.5px] font-semibold text-white transition-all',
+                  breakMenuOpen ? 'bg-amber-500' : ''
+                )}
+                style={!breakMenuOpen ? { background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)' } : {}}
               >
-                <Pause size={12} /> Pause
+                <Coffee size={12} /> Take a Break
+                {breakMenuOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
               </button>
             ) : (
               <button
                 onClick={() => useAppStore.getState().startTimer()}
                 className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition-all"
               >
-                <Play size={12} /> {workSecs > 0 ? 'Resume' : 'Start'}
-              </button>
-            )}
-
-            {/* Break button (only while working) */}
-            {timer?.active && (
-              <button
-                onClick={() => { setBreakMenuOpen((v) => !v); setShowCustom(false); }}
-                className={cn(
-                  'flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold text-white transition-all',
-                  breakMenuOpen ? 'bg-amber-500' : ''
-                )}
-                style={!breakMenuOpen ? { background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)' } : {}}
-              >
-                <Coffee size={12} /> Break
-                {breakMenuOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                <Play size={12} /> Start Timer
               </button>
             )}
           </div>
