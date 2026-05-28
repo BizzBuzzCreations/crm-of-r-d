@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee } from 'lucide-react';
+import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee, Edit3, Shield, ShieldCheck, Crown, AlertTriangle, Users } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -10,7 +10,7 @@ import {
   Modal, Input, Select, Button, ConfirmDialog,
   PriorityBadge, StatusBadge, ProgressBar, Tabs,
 } from '../components/ui';
-import { cn, getId, sameId, ROLE_CONFIG, canManage } from '../utils/helpers';
+import { cn, getId, sameId, ROLE_CONFIG, canManage, canAdmin } from '../utils/helpers';
 
 const statusColors = { online: '#10b981', away: '#f59e0b', offline: '#94a3b8' };
 const statusLabels = { online: 'Online', away: 'Away', offline: 'Offline' };
@@ -18,15 +18,12 @@ const statusLabels = { online: 'Online', away: 'Away', offline: 'Offline' };
 const p2 = (n) => String(Math.floor(Math.max(0, n))).padStart(2, '0');
 const fmtHMS = (s) => `${p2(s/3600)}:${p2((s%3600)/60)}:${p2(s%60)}`;
 
-const DEPARTMENTS = ['Marketing'];
-const POSITIONS   = [
-  'Developer','Graphic Designer',
-  'Video Editor','SEO','HR',
-  'BDE','SMM','Other',
-];
+// Fallback lists used only if systemSettings hasn't loaded yet
+const DEFAULT_DEPARTMENTS = ['Management', 'Marketing', 'Engineering', 'Sales', 'Support', 'General'];
+const DEFAULT_POSITIONS   = ['Developer', 'Graphic Designer', 'Video Editor', 'SEO', 'HR', 'BDE', 'SMM', 'Other'];
 
 // ── Add Member Modal ──────────────────────────────────────────
-function AddMemberModal({ open, onClose, onSave }) {
+function AddMemberModal({ open, onClose, onSave, departments = DEFAULT_DEPARTMENTS, positions = DEFAULT_POSITIONS }) {
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm({
     defaultValues: { role: 'member', status: 'offline' },
   });
@@ -90,17 +87,19 @@ function AddMemberModal({ open, onClose, onSave }) {
           <Select label="Role *" {...register('role', { required: true })}>
             <option value="member">Member</option>
             <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+            <option value="client_relations">Client Relations</option>
           </Select>
           <Select label="Department" {...register('department')}>
             <option value="">Select department…</option>
-            {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+            {departments.map((d) => <option key={d} value={d}>{d}</option>)}
           </Select>
         </div>
 
         {/* Position */}
         <Select label="Job Position" {...register('position')}>
           <option value="">Select position…</option>
-          {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+          {positions.map((p) => <option key={p} value={p}>{p}</option>)}
         </Select>
 
         {/* Join date */}
@@ -120,8 +119,230 @@ function AddMemberModal({ open, onClose, onSave }) {
   );
 }
 
+// ── Edit Member Modal ─────────────────────────────────────────
+function EditMemberModal({ open, onClose, user, onSave, currentUserRole, isCurrentUser, departments = DEFAULT_DEPARTMENTS, positions = DEFAULT_POSITIONS }) {
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm();
+  const [saving, setSaving] = useState(false);
+
+  // Reset form when user changes
+  useEffect(() => {
+    if (user && open) {
+      reset({
+        name:       user.name || '',
+        email:      user.email || '',
+        phone:      user.phone || '',
+        role:       user.role || 'member',
+        department: user.department || '',
+        position:   user.position || '',
+        joinDate:   user.joinDate || '',
+        password:   '',
+      });
+    }
+  }, [user, open, reset]);
+
+  const watchedRole = watch('role');
+  const originalRole = user?.role;
+  const isRoleChanged = watchedRole && watchedRole !== originalRole;
+
+  const onSubmit = async (data) => {
+    setSaving(true);
+    try {
+      // Only send password if provided
+      const payload = { ...data };
+      if (!payload.password) delete payload.password;
+      // Only admin can change roles; strip role if not admin
+      if (currentUserRole !== 'admin') delete payload.role;
+      await onSave(getId(user), payload);
+      onClose();
+    } catch (err) {
+      // Error handled by store
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!user) return null;
+
+  const roleOptions = [
+    { value: 'admin',            label: 'Admin',            icon: Crown,       desc: 'Full system access, can manage all users and settings',       color: '#7c3aed' },
+    { value: 'manager',          label: 'Manager',          icon: ShieldCheck, desc: 'Can manage team, tasks, clients, and view reports',           color: '#0ea5e9' },
+    { value: 'member',           label: 'Member',           icon: Shield,      desc: 'Can view own tasks, track time, and communicate',             color: '#64748b' },
+    { value: 'client_relations', label: 'Client Relations', icon: Users,       desc: 'Manages client communications, feedback, and onboarding',   color: '#10b981' },
+  ];
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => { reset(); onClose(); }}
+      title="Edit Team Member"
+      size="lg"
+      footer={
+        <>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit(onSubmit)} disabled={saving}>
+            {saving ? (
+              <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="32" strokeLinecap="round" /></svg> Saving…</>
+            ) : (
+              <><Edit3 size={13} /> Save Changes</>
+            )}
+          </Button>
+        </>
+      }
+    >
+      <div className="px-6 py-5 space-y-5">
+        {/* Profile header preview */}
+        <div className="flex items-center gap-4 p-4 rounded-xl bg-slate-50/60 dark:bg-white/[0.02] border border-slate-100 dark:border-slate-700/50">
+          <div
+            className="w-14 h-14 rounded-full flex items-center justify-center text-white text-[20px] font-bold flex-shrink-0"
+            style={{ background: user.color || '#6366f1' }}
+          >
+            {user.initials || user.name?.[0]}
+          </div>
+          <div className="min-w-0">
+            <h4 className="text-[14px] font-bold text-slate-900 dark:text-white truncate">{user.name}</h4>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">{user.email}</p>
+            <span className={cn('badge text-[10px] mt-1', ROLE_CONFIG[user.role]?.tw)}>
+              {ROLE_CONFIG[user.role]?.label || user.role}
+            </span>
+          </div>
+        </div>
+
+        {/* Name + Email */}
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Full Name *"
+            placeholder="e.g. John Smith"
+            error={errors.name?.message}
+            {...register('name', { required: 'Full name is required' })}
+          />
+          <Input
+            label="Email *"
+            type="email"
+            placeholder="john@agency.com"
+            error={errors.email?.message}
+            {...register('email', { required: 'Email is required' })}
+          />
+        </div>
+
+        {/* Phone + Department */}
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Phone"
+            placeholder="+1 (555) 000-0000"
+            {...register('phone')}
+          />
+          <Select label="Department" {...register('department')}>
+            <option value="">Select department…</option>
+            {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+          </Select>
+        </div>
+
+        {/* Position + Join Date */}
+        <div className="grid grid-cols-2 gap-4">
+          <Select label="Job Position" {...register('position')}>
+            <option value="">Select position…</option>
+            {positions.map((p) => <option key={p} value={p}>{p}</option>)}
+          </Select>
+          <Input
+            label="Join Date"
+            type="text"
+            placeholder="e.g. May 28, 2026"
+            {...register('joinDate')}
+          />
+        </div>
+
+        {/* Role Change — admin only */}
+        {canAdmin(currentUserRole) && !isCurrentUser && (
+          <div className="space-y-3">
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-300">
+              Role & Access Level
+            </label>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+              {roleOptions.map((opt) => {
+                const Icon = opt.icon;
+                const isSelected = watchedRole === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={cn(
+                      'relative flex flex-col items-center gap-2 p-3.5 rounded-xl border-2 cursor-pointer transition-all text-center',
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-800/50'
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      value={opt.value}
+                      {...register('role')}
+                      className="sr-only"
+                    />
+                    <div
+                      className={cn(
+                        'w-9 h-9 rounded-full flex items-center justify-center transition-all',
+                        isSelected ? 'text-white' : 'text-slate-400 bg-slate-100 dark:bg-slate-700'
+                      )}
+                      style={isSelected ? { background: opt.color } : {}}
+                    >
+                      <Icon size={18} />
+                    </div>
+                    <span className={cn(
+                      'text-[12.5px] font-bold',
+                      isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'
+                    )}>
+                      {opt.label}
+                    </span>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">
+                      {opt.desc}
+                    </span>
+                    {isSelected && (
+                      <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-500" />
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Role change warning */}
+            {isRoleChanged && (
+              <div className="flex items-start gap-2.5 px-3.5 py-3 bg-amber-50 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800 rounded-xl text-[12px] text-amber-700 dark:text-amber-300">
+                <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Role change:</span>{' '}
+                  <span className="capitalize">{user.name}</span> will be changed from{' '}
+                  <span className="font-bold capitalize">{originalRole}</span> to{' '}
+                  <span className="font-bold capitalize">{watchedRole}</span>.
+                  {watchedRole === 'admin' && ' They will have full system access including user management.'}
+                  {watchedRole === 'member' && originalRole !== 'member' && ' They will lose management privileges immediately.'}
+                  {' '}This change takes effect immediately.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Password Reset */}
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60">
+          <Input
+            label="Reset Password (optional)"
+            type="password"
+            placeholder="Leave empty to keep current password"
+            error={errors.password?.message}
+            {...register('password', {
+              minLength: { value: 6, message: 'Minimum 6 characters' },
+            })}
+          />
+          <p className="text-[10.5px] text-slate-400 mt-1">
+            Only fill this if you want to reset the member's password.
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Member Card (grid) ────────────────────────────────────────
-function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete, onDelete, onSelect }) {
+function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete, canEdit, onDelete, onEdit, onSelect }) {
   const roleCfg = ROLE_CONFIG[user.role] || {};
 
   const isWorking = user.status === 'online' && user.timerActive && !user.timerBreakActive;
@@ -139,16 +360,27 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
       onClick={() => onSelect(user)}
       className="card p-5 text-center relative group cursor-pointer"
     >
-      {/* Delete button — admin/manager only, can't delete self */}
-      {canDelete && !isCurrentUser && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(getId(user)); }}
-          className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-          title="Remove member"
-        >
-          <Trash2 size={13} />
-        </button>
-      )}
+      {/* Action buttons top-right — visible on hover */}
+      <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+        {canEdit && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(user); }}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
+            title="Edit member"
+          >
+            <Edit3 size={13} />
+          </button>
+        )}
+        {canDelete && !isCurrentUser && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(getId(user)); }}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+            title="Remove member"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
 
       {/* Avatar */}
       <div className="relative inline-block mb-3">
@@ -253,7 +485,7 @@ function MemberCard({ user, taskCount, completedCount, isCurrentUser, canDelete,
 }
 
 // ── Member Detail Modal ───────────────────────────────────────
-function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, activeTab, onTabChange }) {
+function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, activeTab, onTabChange, onEdit, canEdit }) {
   if (!user) return null;
 
   const userTasks = tasks.filter((t) => getId(t.assignedTo) === getId(user));
@@ -315,6 +547,14 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
             <div className="flex items-center gap-2"><Mail size={13} className="text-slate-400" /> <span>{user.email}</span></div>
             <div className="flex items-center gap-2"><Phone size={13} className="text-slate-400" /> <span>{user.phone || 'No phone number'}</span></div>
             <div className="flex items-center gap-2"><Calendar size={13} className="text-slate-400" /> <span>Joined {user.joinDate || '—'}</span></div>
+            {canEdit && (
+              <button
+                onClick={onEdit}
+                className="mt-1 flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline self-start"
+              >
+                <Edit3 size={12} /> Edit Member
+              </button>
+            )}
           </div>
         </div>
 
@@ -521,26 +761,35 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
 
 // ── Main TeamPage ─────────────────────────────────────────────
 export default function TeamPage() {
-  const { authUser, users, tasks, todos, addUser, deleteUser } = useAppStore(useShallow((s) => ({
-    authUser:   s.authUser,
-    users:      s.users,
-    tasks:      s.tasks,
-    todos:      s.todos,
-    addUser:    s.addUser,
-    deleteUser: s.deleteUser,
+  const { authUser, users, tasks, todos, addUser, deleteUser, updateUser, systemSettings } = useAppStore(useShallow((s) => ({
+    authUser:       s.authUser,
+    users:          s.users,
+    tasks:          s.tasks,
+    todos:          s.todos,
+    addUser:        s.addUser,
+    deleteUser:     s.deleteUser,
+    updateUser:     s.updateUser,
+    systemSettings: s.systemSettings,
   })));
+
+  const departments = systemSettings?.departments?.length ? systemSettings.departments : DEFAULT_DEPARTMENTS;
+  const positions   = systemSettings?.positions?.length   ? systemSettings.positions   : DEFAULT_POSITIONS;
 
   const [search,    setSearch]    = useState('');
   const [view,      setView]      = useState('grid');
   const [filter,    setFilter]    = useState('all');
   const [showAdd,   setShowAdd]   = useState(false);
-  const [confirmDel,setConfirmDel]= useState(null); // user id to delete
+  const [confirmDel,setConfirmDel]= useState(null);
 
-  // Detailed Modal states
+  // Detail modal states
   const [selectedUser, setSelectedUser] = useState(null);
   const [userLogs, setUserLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [modalTab, setModalTab] = useState('tasks');
+
+  // Edit modal states
+  const [showEdit,   setShowEdit]   = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
 
   const handleSelectUser = async (user) => {
     setSelectedUser(user);
@@ -557,8 +806,7 @@ export default function TeamPage() {
     }
   };
 
-  const role      = authUser?.role;
-  const isManager = canManage(role);
+  const role = authUser?.role;
 
   // Dynamic ticking timer and initial hydration of today's logs
   useEffect(() => {
@@ -631,6 +879,29 @@ export default function TeamPage() {
     toast.success(`${u?.name || 'Member'} removed from team.`);
   };
 
+  const handleEditOpen = (user) => {
+    setEditingUser(user);
+    setShowEdit(true);
+    setSelectedUser(null); // close detail modal if open
+  };
+
+  const handleEditSave = async (id, payload) => {
+    try {
+      const updated = await updateUser(id, payload);
+      toast.success('Member updated successfully!');
+      // If the user being edited was open in detail modal, refresh it
+      if (selectedUser && getId(selectedUser) === id) {
+        setSelectedUser(updated);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update member');
+      throw err;
+    }
+  };
+
+  const isAdmin   = role === 'admin';
+  const isManager = canManage(role);
+
   return (
     <Page>
       {/* Header */}
@@ -671,18 +942,18 @@ export default function TeamPage() {
           />
         </div>
         <div className="flex gap-1.5">
-          {['all', 'admin', 'manager', 'member'].map((r) => (
+          {['all', 'admin', 'manager', 'member', 'client_relations'].map((r) => (
             <button
               key={r}
               onClick={() => setFilter(r)}
               className={cn(
-                'px-3 py-1.5 rounded-lg text-[12.5px] font-medium capitalize transition-all',
+                'px-3 py-1.5 rounded-lg text-[12.5px] font-medium transition-all',
                 filter === r
                   ? 'bg-primary-500 text-white'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-600 hover:bg-slate-50'
               )}
             >
-              {r === 'all' ? 'All Roles' : r}
+              {r === 'all' ? 'All Roles' : (ROLE_CONFIG[r]?.label || r)}
             </button>
           ))}
         </div>
@@ -712,7 +983,9 @@ export default function TeamPage() {
                   completedCount={getCompletedCount(getId(u))}
                   isCurrentUser={sameId(u, authUser)}
                   canDelete={isManager}
+                  canEdit={isAdmin}
                   onDelete={(id) => setConfirmDel(id)}
+                  onEdit={handleEditOpen}
                   onSelect={handleSelectUser}
                 />
               ))}
@@ -810,16 +1083,27 @@ export default function TeamPage() {
                         </td>
                         <td className="text-slate-500 text-[12px]">{u.joinDate || '—'}</td>
                         <td>
-                          {isManager && !isSelf && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setConfirmDel(getId(u)); }}
-                              className="btn-icon text-slate-400 hover:text-red-500 p-1.5"
-                              title="Remove member"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                          {isSelf && <span className="text-[11.5px] text-slate-400 italic">You</span>}
+                          <div className="flex items-center gap-1">
+                            {isAdmin && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleEditOpen(u); }}
+                                className="btn-icon text-slate-400 hover:text-indigo-500 p-1.5"
+                                title="Edit member"
+                              >
+                                <Edit3 size={13} />
+                              </button>
+                            )}
+                            {isManager && !isSelf && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setConfirmDel(getId(u)); }}
+                                className="btn-icon text-slate-400 hover:text-red-500 p-1.5"
+                                title="Remove member"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                            {isSelf && <span className="text-[11.5px] text-slate-400 italic">You</span>}
+                          </div>
                         </td>
                       </motion.tr>
                     );
@@ -836,6 +1120,8 @@ export default function TeamPage() {
         open={showAdd}
         onClose={() => setShowAdd(false)}
         onSave={handleAddMember}
+        departments={departments}
+        positions={positions}
       />
 
       <MemberDetailModal
@@ -848,6 +1134,19 @@ export default function TeamPage() {
         todos={todos}
         activeTab={modalTab}
         onTabChange={setModalTab}
+        canEdit={isAdmin && selectedUser && !sameId(selectedUser, authUser)}
+        onEdit={() => selectedUser && handleEditOpen(selectedUser)}
+      />
+
+      <EditMemberModal
+        open={showEdit}
+        onClose={() => { setShowEdit(false); setEditingUser(null); }}
+        user={editingUser}
+        onSave={handleEditSave}
+        currentUserRole={role}
+        isCurrentUser={editingUser ? sameId(editingUser, authUser) : false}
+        departments={departments}
+        positions={positions}
       />
 
       <ConfirmDialog

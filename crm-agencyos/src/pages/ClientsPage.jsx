@@ -74,9 +74,9 @@ function ClientCalendar({ client, tasks, todos, users }) {
     [tasks, client]
   );
 
-  // Todos from team members assigned to this client, by createdAt
+  // Todos for this client only, by createdAt
   const clientTodos = useMemo(
-    () => todos.filter((t) => client.assignedTeam?.some((tm) => sameId(tm, t.userId)) && t.createdAt),
+    () => todos.filter((t) => sameId(t.clientId, client) && t.createdAt),
     [todos, client]
   );
 
@@ -88,8 +88,11 @@ function ClientCalendar({ client, tasks, todos, users }) {
       map[t.dueDate].tasks.push(t);
     });
     clientTodos.forEach((t) => {
-      if (!map[t.createdAt]) map[t.createdAt] = { tasks: [], todos: [] };
-      map[t.createdAt].todos.push(t);
+      const dateStr = t.createdAt?.split('T')[0] || t.createdAt;
+      if (dateStr) {
+        if (!map[dateStr]) map[dateStr] = { tasks: [], todos: [] };
+        map[dateStr].todos.push(t);
+      }
     });
     return map;
   }, [clientTasks, clientTodos]);
@@ -388,7 +391,7 @@ function ClientCalendar({ client, tasks, todos, users }) {
 
 // ── Edit Project Modal ────────────────────────────────────────
 function EditProjectModal({ open, onClose, project, users, onSave }) {
-  const memberUsers = users.filter((u) => u.role === 'member');
+  const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const [form, setForm]           = useState({});
   const [selectedTeam, setSelectedTeam] = useState([]);
   const [saving, setSaving]       = useState(false);
@@ -518,8 +521,10 @@ function EditProjectModal({ open, onClose, project, users, onSave }) {
 }
 
 // ── Edit Client Modal ─────────────────────────────────────────
-function EditClientModal({ open, onClose, client, users, services = [], onSave }) {
-  const memberUsers = users.filter((u) => u.role === 'member');
+const DEFAULT_INDUSTRIES = ['Technology','Retail','Marketing','Finance','Healthcare','Education','Real Estate','Other'];
+
+function EditClientModal({ open, onClose, client, users, services = [], industries = DEFAULT_INDUSTRIES, onSave }) {
+  const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const [form, setForm]                   = useState({});
   const [selectedServices, setSelectedServices] = useState([]);
   const [saving, setSaving]               = useState(false);
@@ -538,6 +543,7 @@ function EditClientModal({ open, onClose, client, users, services = [], onSave }
         address:          client.address          || '',
         status:           client.status           || 'active',
         paymentStatus:    client.paymentStatus    || 'pending',
+        showPaymentDetails: client.showPaymentDetails || false,
       });
       setSelectedServices(client.services || []);
     }
@@ -608,9 +614,7 @@ function EditClientModal({ open, onClose, client, users, services = [], onSave }
             <label className={labelCls}>Industry</label>
             <select className={inputCls} value={form.industry || ''} onChange={(e) => field('industry', e.target.value)}>
               <option value="">Select industry…</option>
-              {['Technology','Retail','Marketing','Finance','Healthcare','Education','Real Estate','Other'].map((i) => (
-                <option key={i} value={i}>{i}</option>
-              ))}
+              {industries.map((i) => <option key={i} value={i}>{i}</option>)}
             </select>
           </div>
         </div>
@@ -645,6 +649,19 @@ function EditClientModal({ open, onClose, client, users, services = [], onSave }
         <div>
           <label className={labelCls}>Office Address</label>
           <input className={inputCls} placeholder="123 Main St, City, State" value={form.address || ''} onChange={(e) => field('address', e.target.value)} />
+        </div>
+        <div className="mt-2.5">
+          <label className="flex items-center gap-2 px-1 py-0.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={form.showPaymentDetails || false}
+              onChange={(e) => field('showPaymentDetails', e.target.checked)}
+              className="rounded text-primary-600 focus:ring-primary-500 w-4 h-4"
+            />
+            <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-350">
+              Show Payment &amp; Budget Details to Team Members
+            </span>
+          </label>
         </div>
         <div>
           <label className={labelCls}>Services *</label>
@@ -686,7 +703,7 @@ const PROJECT_STATUS = {
   'on-hold':     { label: 'On Hold',     bg: 'bg-slate-100 dark:bg-slate-700',       text: 'text-slate-600 dark:text-slate-400',    dot: 'bg-slate-400' },
 };
 
-function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdit }) {
+function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdit, canSeePayment }) {
   const projTeam = users.filter((u) =>
     project.assignedTeam?.some((tm) => sameId(tm, u))
   );
@@ -748,7 +765,7 @@ function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdi
             <span className={cn('w-2 h-2 rounded-full', sc.dot)} />
             {sc.label}
           </span>
-          {project.budget && (
+          {project.budget && canSeePayment && (
             <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[12px] font-bold text-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 dark:text-indigo-300">
               {project.budget}
             </span>
@@ -823,12 +840,12 @@ function ProjectDetailDrawer({ project, users, onClose, onEdit, onDelete, canEdi
 }
 
 // ── Add Client Modal ──────────────────────────────────────────
-function AddClientModal({ open, onClose, users, services = [], onSave }) {
+function AddClientModal({ open, onClose, users, services = [], industries = DEFAULT_INDUSTRIES, onSave }) {
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: { status: 'active', paymentStatus: 'pending', contractDuration: '' },
   });
 
-  const memberUsers = users.filter((u) => u.role === 'member');
+  const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState([]);
   const [createInitialProject, setCreateInitialProject] = useState(false);
@@ -922,9 +939,7 @@ function AddClientModal({ open, onClose, users, services = [], onSave }) {
           <Input label="Website" placeholder="www.company.com" {...register('website')} />
           <Select label="Industry" {...register('industry')}>
             <option value="">Select industry…</option>
-            {['Technology','Retail','Marketing','Finance','Healthcare','Education','Real Estate','Other'].map((i) => (
-              <option key={i} value={i}>{i}</option>
-            ))}
+            {industries.map((i) => <option key={i} value={i}>{i}</option>)}
           </Select>
         </div>
 
@@ -995,6 +1010,19 @@ function AddClientModal({ open, onClose, users, services = [], onSave }) {
             <option key={getId(u)} value={getId(u)}>{u.name} — {u.position}</option>
           ))}
         </Select>
+
+        <div className="flex flex-col gap-1 mt-2.5">
+          <label className="flex items-center gap-2 px-1 py-0.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              {...register('showPaymentDetails')}
+              className="rounded text-primary-600 focus:ring-primary-500 w-4 h-4"
+            />
+            <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-355">
+              Show Payment &amp; Budget Details to Team Members
+            </span>
+          </label>
+        </div>
 
         {/* ── Create Initial Project Section ── */}
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-2">
@@ -1088,7 +1116,7 @@ function AddProjectModal({ open, onClose, users, onSave, clientId }) {
     defaultValues: { status: 'in-progress' },
   });
 
-  const memberUsers = users.filter((u) => u.role === 'member');
+  const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const [selectedTeam, setSelectedTeam] = useState([]);
 
   const handleToggleTeam = (id) => {
@@ -1200,8 +1228,10 @@ export default function ClientsPage() {
     updateProject:  s.updateProject,
     updateClient:   s.updateClient,
   })));
-  const users = useAppStore((s) => s.users);
-  const services = useAppStore((s) => s.services);
+  const users          = useAppStore((s) => s.users);
+  const services       = useAppStore((s) => s.services);
+  const systemSettings = useAppStore((s) => s.systemSettings);
+  const industries     = systemSettings?.industries?.length ? systemSettings.industries : DEFAULT_INDUSTRIES;
 
   const [view,     setView]     = useState('grid');
   const [search,   setSearch]   = useState('');
@@ -1225,10 +1255,11 @@ export default function ClientsPage() {
   // ── Client Detail View ────────────────────────────────────────
   if (selected) {
     const client  = clients.find((c) => sameId(c, selected)) || selected;
+    const canSeePayment = role !== 'member' || client.showPaymentDetails;
     const team    = users.filter((u) => client.assignedTeam?.some((tm) => sameId(tm, u)));
     const cTasks  = tasks.filter((t) => sameId(t.clientId, client));
-    // Todos from team members assigned to this client
-    const cTodos  = todos.filter((t) => client.assignedTeam?.some((tm) => sameId(tm, t.userId)));
+    // Todos for this client specifically
+    const cTodos  = todos.filter((t) => sameId(t.clientId, client));
     // Projects for this client
     const cProjects = projects.filter((p) => sameId(p.clientId, client));
 
@@ -1250,14 +1281,14 @@ export default function ClientsPage() {
               <p className="text-slate-400 text-[14px]">{client.industry} · {client.contact}</p>
               <div className="flex gap-2 mt-3">
                 <span className="badge badge-success text-[11px]">{client.status}</span>
-                <span className={cn('badge text-[11px]', `badge-${payVariant(client.paymentStatus)}`)}>{client.paymentStatus}</span>
+                {canSeePayment && <span className={cn('badge text-[11px]', `badge-${payVariant(client.paymentStatus)}`)}>{client.paymentStatus}</span>}
               </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="text-right">
-                <div className="text-3xl font-bold text-indigo-300">{client.budget}</div>
+                <div className="text-3xl font-bold text-indigo-300">{canSeePayment ? client.budget : 'Confidential'}</div>
                 <div className="text-slate-400 text-[12px] mt-0.5">Contract Value</div>
-                <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{fmtContractDuration(client.contractDuration)}</div>
+                <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{canSeePayment ? fmtContractDuration(client.contractDuration) : 'Confidential'}</div>
               </div>
               {canManage(role) && (
                 <button
@@ -1299,7 +1330,7 @@ export default function ClientsPage() {
                   [Globe,     'Website',    client.website],
                   [Building2, 'Industry',   client.industry],
                   [Calendar,  'Onboarding', client.onboardingDate],
-                  [FileText,  'Contract',   fmtContractDuration(client.contractDuration)],
+                  [FileText,  'Contract',   canSeePayment ? fmtContractDuration(client.contractDuration) : 'Confidential'],
                 ].map(([Icon, label, val]) => (
                   <div key={label} className="flex items-center gap-3 py-2 border-b border-slate-100 dark:border-slate-700/50 last:border-0">
                     <Icon size={14} className="text-slate-400 flex-shrink-0" />
@@ -1341,6 +1372,18 @@ export default function ClientsPage() {
                       </div>
                     ))}
                     {cTasks.length === 0 && <p className="text-[13px] text-slate-400">No active tasks</p>}
+                  </div>
+                </div>
+                <div className="card p-5">
+                  <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-3">Client Todos ({cTodos.length})</h3>
+                  <div className="space-y-2">
+                    {cTodos.slice(0, 5).map((td) => (
+                      <div key={getId(td)} className="flex items-center justify-between gap-2">
+                        <span className="text-[13px] text-slate-700 dark:text-slate-300 truncate flex-1">{td.title}</span>
+                        <StatusBadge status={td.status} />
+                      </div>
+                    ))}
+                    {cTodos.length === 0 && <p className="text-[13px] text-slate-400">No todos</p>}
                   </div>
                 </div>
               </div>
@@ -1398,7 +1441,7 @@ export default function ClientsPage() {
                           <div className="space-y-1">
                             <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">Budget &amp; Deadline</span>
                             <div className="flex items-center gap-2 text-[11.5px] font-medium text-slate-700 dark:text-slate-350">
-                              <span className="text-primary-600 font-bold">{p.budget || '—'}</span>
+                              <span className="text-primary-600 font-bold">{canSeePayment ? (p.budget || '—') : 'Confidential'}</span>
                               <span className="text-slate-300 dark:text-slate-700">|</span>
                               <span className="flex items-center gap-0.5"><Calendar size={11} className="text-slate-400" /> {formattedEndDate}</span>
                             </div>
@@ -1502,6 +1545,7 @@ export default function ClientsPage() {
             project={selectedProject}
             users={users}
             canEdit={canManage(role)}
+            canSeePayment={canSeePayment}
             onClose={() => setSelectedProject(null)}
             onEdit={() => {
               setShowEditProject(selectedProject);
@@ -1530,6 +1574,7 @@ export default function ClientsPage() {
           client={client}
           users={users}
           services={services}
+          industries={industries}
           onSave={async (data) => {
             await updateClient(getId(client), data);
             toast.success('Client updated!');
@@ -1607,11 +1652,11 @@ export default function ClientsPage() {
                   </div>
                 )}
                 <div className="flex items-center gap-2 mb-3">
-                  <Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge>
+                  {(role !== 'member' || c.showPaymentDetails) && <Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge>}
                   <span className="badge badge-neutral text-[10.5px]">{c.projectCount} projects</span>
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
-                  <span className="text-[15px] font-bold text-primary-600">{c.budget}</span>
+                  <span className="text-[15px] font-bold text-primary-600">{(role !== 'member' || c.showPaymentDetails) ? c.budget : 'Confidential'}</span>
                   <AvatarGroup users={team} max={3} size="xs" />
                 </div>
               </motion.div>
@@ -1639,8 +1684,8 @@ export default function ClientsPage() {
                     <td><Badge variant="neutral">{c.industry}</Badge></td>
                     <td><div className="flex gap-1">{c.services.slice(0,2).map((s) => <Badge key={s} variant="neutral" className="text-[10px]">{s}</Badge>)}</div></td>
                     <td><Badge variant={CLIENT_STATUS_CONFIG[c.status]?.tw?.replace('badge-','') || 'neutral'}>{c.status}</Badge></td>
-                    <td><Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge></td>
-                    <td className="font-semibold text-primary-600">{c.budget}</td>
+                    <td>{(role !== 'member' || c.showPaymentDetails) ? <Badge variant={payVariant(c.paymentStatus)}>{c.paymentStatus}</Badge> : <span className="text-slate-400 text-[12.5px]">Confidential</span>}</td>
+                    <td className="font-semibold text-primary-600">{(role !== 'member' || c.showPaymentDetails) ? c.budget : 'Confidential'}</td>
                     <td>
                       {cTasks.length > 0 ? (
                         <div className="flex items-center gap-2 min-w-[80px]">
@@ -1664,6 +1709,7 @@ export default function ClientsPage() {
         onClose={() => setShowAddClient(false)}
         users={users}
         services={services}
+        industries={industries}
         onSave={(data) => { addClient(data).then(()=>setShowAddClient(false)); toast.success('Client added!'); }}
       />
     </Page>

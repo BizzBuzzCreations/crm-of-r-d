@@ -140,7 +140,7 @@ export default function ReportsPage() {
   // List of members visible to current user based on roles
   const memberUsers = useMemo(() => {
     if (isManager) {
-      return users.filter((u) => u.role === 'member');
+      return users.filter((u) => u.role === 'member' || u.role === 'client_relations');
     }
     return users.filter((u) => getId(u) === getId(authUser));
   }, [users, isManager, authUser]);

@@ -93,7 +93,7 @@ export default function CalendarPage() {
 
   const statusDot = (s) => ({ completed:'#10b981','in-progress':'#3b82f6','sent-for-approval':'#8b5cf6',upcoming:'#f59e0b',pending:'#94a3b8' }[s] || '#94a3b8');
 
-  const memberUsers = users.filter((u) => u.role === 'member');
+  const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
 
   return (
     <Page>

@@ -22,8 +22,41 @@ exports.createUser = async (req, res, next) => {
 exports.updateUser = async (req, res, next) => {
   try {
     const { password, ...rest } = req.body;
+
+    // Only admin can change roles (managers cannot promote/demote)
+    if (rest.role && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only admin can change user roles' });
+    }
+
+    // Admin cannot demote themselves
+    if (rest.role && String(req.user._id) === req.params.id && rest.role !== 'admin') {
+      return res.status(400).json({ success: false, message: 'Cannot change your own role' });
+    }
+
+    // Recalculate initials if name changed
+    if (rest.name) {
+      rest.initials = rest.name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2);
+    }
+
     const user = await User.findByIdAndUpdate(req.params.id, rest, { new: true, runValidators: true });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // If password provided, update it separately (triggers pre-save hash)
+    if (password && password.length >= 6) {
+      const userWithPwd = await User.findById(req.params.id).select('+password');
+      userWithPwd.password = password;
+      await userWithPwd.save();
+    }
+
+    // Broadcast update to all connected clients for real-time sync
+    const io = req.app.get('io');
+    io?.emit('user:updated', user);
+
+    // If role changed, notify the affected user so their session picks up the new role
+    if (rest.role) {
+      io?.to(`user:${req.params.id}`).emit('role:changed', { role: rest.role });
+    }
+
     res.json({ success: true, data: user });
   } catch (err) { next(err); }
 };
@@ -135,6 +168,7 @@ const taskPopulate = [
   { path: 'assignedTo', select: 'name email color initials status' },
   { path: 'assignedBy', select: 'name' },
   { path: 'clientId',   select: 'name' },
+  { path: 'projectId',  select: 'name' },
 ];
 
 exports.getTasks = async (req, res, next) => {
@@ -229,6 +263,7 @@ exports.getTodos = async (req, res, next) => {
     if (req.user.role === 'member') filter.userId = req.user._id;
     const todos = await Todo.find(filter)
       .populate('userId', 'name color initials status')
+      .populate('clientId', 'name')
       .sort({ createdAt: -1 });
     res.json({ success: true, data: todos });
   } catch (err) { next(err); }
@@ -237,7 +272,10 @@ exports.getTodos = async (req, res, next) => {
 exports.createTodo = async (req, res, next) => {
   try {
     const todo = await Todo.create({ ...req.body, userId: req.user._id });
-    const populated = await todo.populate('userId', 'name color initials status');
+    const populated = await todo.populate([
+      { path: 'userId', select: 'name color initials status' },
+      { path: 'clientId', select: 'name' }
+    ]);
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
@@ -245,7 +283,10 @@ exports.createTodo = async (req, res, next) => {
 exports.updateTodo = async (req, res, next) => {
   try {
     const todo = await Todo.findByIdAndUpdate(req.params.id, req.body, { new: true })
-      .populate('userId', 'name color initials status');
+      .populate([
+        { path: 'userId', select: 'name color initials status' },
+        { path: 'clientId', select: 'name' }
+      ]);
     if (!todo) return res.status(404).json({ success: false, message: 'Todo not found' });
     res.json({ success: true, data: todo });
   } catch (err) { next(err); }

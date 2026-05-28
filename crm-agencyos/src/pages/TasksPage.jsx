@@ -54,20 +54,24 @@ function DateFilter({ value, onChange, label = 'All Dates' }) {
 
 // ── Task Form ─────────────────────────────────────────────────
 function TaskFormModal({ open, onClose, users, clients, currentUser }) {
-  const { addTask } = useAppStore();
+  const { addTask, projects } = useAppStore();
   const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm({
-    defaultValues: { priority: 'medium', type: 'inhouse', assignedTo: '', clientId: '' },
+    defaultValues: { priority: 'medium', type: 'inhouse', assignedTo: '', clientId: '', projectId: '' },
   });
   const taskType    = watch('type');
+  const selectedClientId = watch('clientId');
   const priorityVal = watch('priority');
-  const memberUsers = users.filter((u) => u.role === 'member');
+  const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
+
+  const clientProjects = projects.filter((p) => sameId(p.clientId, selectedClientId));
 
   const onSubmit = async (data) => {
     try {
       await addTask({
         ...data,
         assignedTo: data.assignedTo || currentUser.id || currentUser._id,
-        clientId:   data.clientId || null,
+        clientId:   data.type === 'client' ? (data.clientId || null) : null,
+        projectId:  data.type === 'client' ? (data.projectId || null) : null,
         assignedBy: currentUser.id || currentUser._id,
         status:     'pending',
         progress:   0,
@@ -110,11 +114,11 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
             <div className="grid grid-cols-2 gap-2">
               {[['inhouse','In-House'],['client','Client']].map(([v, l]) => (
                 <button key={v} type="button"
-                  onClick={() => { setValue('type', v); setValue('clientId', ''); }}
+                  onClick={() => { setValue('type', v); setValue('clientId', ''); setValue('projectId', ''); }}
                   className={cn('px-3 py-2 rounded-lg border-2 text-[13px] font-medium transition-all',
                     taskType === v
                       ? 'border-primary-400 bg-primary-50 text-primary-700 dark:border-primary-600 dark:bg-primary-900/20 dark:text-primary-400'
-                      : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      : 'border-slate-200 dark:border-slate-600 text-slate-655 dark:text-slate-400 hover:border-slate-300'
                   )}
                 >{l}</button>
               ))}
@@ -123,10 +127,16 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
         </div>
 
         {taskType === 'client' && (
-          <Select label="Client" {...register('clientId', { required: taskType === 'client' })}>
-            <option value="">Select client…</option>
-            {clients.map((c) => <option key={getId(c)} value={getId(c)}>{c.name}</option>)}
-          </Select>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Client *" error={errors.clientId?.message} {...register('clientId', { required: taskType === 'client' ? 'Client is required' : false })}>
+              <option value="">Select client…</option>
+              {clients.map((c) => <option key={getId(c)} value={getId(c)}>{c.name}</option>)}
+            </Select>
+            <Select label="Associated Project" {...register('projectId')}>
+              <option value="">Select project (optional)…</option>
+              {clientProjects.map((p) => <option key={getId(p)} value={getId(p)}>{p.name}</option>)}
+            </Select>
+          </div>
         )}
 
         <div className="grid grid-cols-2 gap-4">
@@ -161,6 +171,7 @@ function TaskFormModal({ open, onClose, users, clients, currentUser }) {
 
 // ── Kanban Card ───────────────────────────────────────────────
 function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, onDelete }) {
+  const projects  = useAppStore((s) => s.projects);
   const assignee  = users.find((u) => sameId(u, task.assignedTo));
   const client    = task.clientId ? clients.find((c) => sameId(c, task.clientId)) : null;
   const pCfg      = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
@@ -184,7 +195,20 @@ function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, o
         <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1">{task.title}</p>
         <DropdownMenu trigger={<button className="btn-icon p-1 text-slate-400 flex-shrink-0"><MoreHorizontal size={14} /></button>} items={menuItems} />
       </div>
-      {client && <div className="flex items-center gap-1 text-[11.5px] text-slate-500 mb-2"><Building2 size={11} /> {client.name}</div>}
+      {client && (
+        <div className="flex items-center gap-1.5 text-[11.5px] text-slate-500 mb-2.5 flex-wrap">
+          <Building2 size={11} className="text-slate-400 flex-shrink-0" />
+          <span className="font-medium text-slate-650 dark:text-slate-450">{client.name}</span>
+          {task.projectId && (
+            <>
+              <span className="text-slate-350">•</span>
+              <span className="text-primary-600 dark:text-primary-400 font-semibold text-[11px]">
+                {typeof task.projectId === 'object' ? task.projectId.name : (projects.find((p) => sameId(p, task.projectId))?.name || 'Project')}
+              </span>
+            </>
+          )}
+        </div>
+      )}
       {task.description && <p className="text-[12px] text-slate-500 leading-relaxed mb-2.5">{truncate(task.description, 80)}</p>}
       {task.status === 'completed' && (
         <div className="mb-2.5">
@@ -262,12 +286,13 @@ function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, o
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function TasksPage() {
-  const { authUser, tasks, clients, moveTask, deleteTask } = useAppStore(useShallow((s) => ({
+  const { authUser, tasks, clients, moveTask, deleteTask, projects } = useAppStore(useShallow((s) => ({
     authUser:   s.authUser,
     tasks:      s.tasks,
     clients:    s.clients,
     moveTask:   s.moveTask,
     deleteTask: s.deleteTask,
+    projects:   s.projects,
   })));
   const users = useAppStore((s) => s.users);
 
@@ -307,7 +332,7 @@ export default function TasksPage() {
     ? [['pending','Pending'],['in-progress','In Progress'],['sent-for-approval','For Approval'],['completed','Completed']]
     : [['pending','Pending'],['in-progress','In Progress'],['sent-for-approval','For Approval']];
 
-  const memberUsers = users.filter((u) => u.role === 'member');
+  const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const activeFiltersCount = [filters.search, filters.priority, filters.status, filters.memberId, filters.date].filter(Boolean).length;
 
   return (
@@ -446,7 +471,17 @@ export default function TasksPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 truncate">{task.title}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      {client && <span className="text-[11.5px] text-slate-500 flex items-center gap-1"><Building2 size={10} /> {client.name}</span>}
+                      {client && (
+                        <span className="text-[11.5px] text-slate-550 flex items-center gap-1">
+                          <Building2 size={10} className="text-slate-400" />
+                          {client.name}
+                          {task.projectId && (
+                            <span className="text-primary-600 dark:text-primary-450 font-medium pl-1 text-[11px]">
+                              ({typeof task.projectId === 'object' ? task.projectId.name : (projects.find((p) => sameId(p, task.projectId))?.name || 'Project')})
+                            </span>
+                          )}
+                        </span>
+                      )}
                       {task.dueDate && <span className="text-[11.5px] text-slate-400 flex items-center gap-1"><Calendar size={10} /> {task.dueDate}</span>}
                       <span className="text-[11px] text-slate-400">Created: {task.createdAt?.split?.('T')?.[0] || task.createdAt}</span>
                     </div>
@@ -496,7 +531,20 @@ export default function TasksPage() {
                 return (
                   <tr key={getId(task)}>
                     <td className="font-semibold max-w-[200px] truncate">{task.title}</td>
-                    <td>{client ? <Badge variant="neutral">{client.name}</Badge> : <span className="text-slate-400 text-[12px]">In-house</span>}</td>
+                    <td>
+                      {client ? (
+                        <div className="flex flex-col gap-0.5">
+                          <Badge variant="neutral">{client.name}</Badge>
+                          {task.projectId && (
+                            <span className="text-[10px] text-primary-600 dark:text-primary-400 font-semibold pl-1">
+                              Proj: {typeof task.projectId === 'object' ? task.projectId.name : (projects.find((p) => sameId(p, task.projectId))?.name || 'Project')}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-[12px]">In-house</span>
+                      )}
+                    </td>
                     <td><div className="flex items-center gap-2"><Avatar user={assignee} size="xs" /><span className="text-[13px]">{assignee?.name?.split(' ')[0]}</span></div></td>
                     <td><PriorityBadge priority={task.priority} /></td>
                     <td><StatusBadge status={task.status} /></td>

@@ -6,7 +6,7 @@ const UserSchema = new mongoose.Schema({
   name:       { type: String, required: [true, 'Name is required'], trim: true },
   email:      { type: String, required: [true, 'Email is required'], unique: true, lowercase: true, trim: true },
   password:   { type: String, required: [true, 'Password is required'], minlength: 6, select: false },
-  role:       { type: String, enum: ['admin','manager','member'], default: 'member' },
+  role:       { type: String, enum: ['admin','manager','member','client_relations'], default: 'member' },
   position:   { type: String, default: 'Team Member' },
   department: { type: String, default: 'General' },
   phone:      { type: String, default: '' },
@@ -16,6 +16,31 @@ const UserSchema = new mongoose.Schema({
   joinDate:   { type: String, default: '' },
   bio:        { type: String, default: '' },
   avatar:     { type: String, default: null },
+  emailSync: {
+    provider: { type: String, default: 'none' },
+    email: { type: String, default: '' },
+    imapHost: { type: String, default: '' },
+    imapPort: { type: Number, default: 993 },
+    smtpHost: { type: String, default: '' },
+    smtpPort: { type: Number, default: 465 }
+  },
+  calendarSyncEnabled: { type: Boolean, default: false },
+  notificationPrefs: {
+    type: Map,
+    of: Boolean,
+    default: {
+      task_assigned: true,
+      task_approved: true,
+      meeting_reminder: true,
+      client_update: false,
+      message_dm: true,
+      weekly_report: false,
+      deal_closed: true,
+      new_comment: true
+    }
+  },
+  personalSignature: { type: String, default: '' },
+  defaultLandingView: { type: String, default: 'dashboard' },
 }, { timestamps: true });
 
 // Hash password before save

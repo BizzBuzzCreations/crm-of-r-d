@@ -238,3 +238,12 @@ export const projectsAPI = {
   update:  (id, body)  => api.put(`/projects/${id}`, body),
   delete:  (id)        => api.delete(`/projects/${id}`),
 };
+
+// ─────────────────────────────────────────────────────────────
+// ── Settings
+// ─────────────────────────────────────────────────────────────
+export const settingsAPI = {
+  get:    ()          => api.get('/settings'),
+  update: (body)      => api.put('/settings', body),
+  invite: (body)      => api.post('/settings/users', body),
+};

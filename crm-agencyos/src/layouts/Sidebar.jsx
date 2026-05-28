@@ -352,14 +352,14 @@ const NAV = [
   {
     section: 'MENU',
     items: [
-      { path: '/dashboard', label: 'Dashboard',         icon: LayoutDashboard, roles: ['admin','manager','member'] },
-      { path: '/todos',     label: 'Daily Todos',        icon: ListTodo,        roles: ['admin','manager','member'] },
-      { path: '/tasks',     label: 'Daily Tasks',        icon: CheckSquare,     roles: ['admin','manager','member'] },
-      { path: '/clients',   label: 'Clients & Projects', icon: Users,           roles: ['admin','manager','member'] },
-      { path: '/messages',  label: 'Messages',           icon: MessageSquare,   roles: ['admin','manager','member'], badge: true },
-      { path: '/meetings',  label: 'Meetings',           icon: Video,           roles: ['admin','manager','member'] },
-      { path: '/reports',   label: 'Reports',            icon: BarChart3,       roles: ['admin','manager','member'] },
-      { path: '/calendar',  label: 'Calendar',           icon: Calendar,        roles: ['admin','manager','member'] },
+      { path: '/dashboard', label: 'Dashboard',         icon: LayoutDashboard, roles: ['admin','manager','member','client_relations'] },
+      { path: '/todos',     label: 'Todos',        icon: ListTodo,        roles: ['admin','manager','member','client_relations'] },
+      { path: '/tasks',     label: 'Tasks',        icon: CheckSquare,     roles: ['admin','manager','member','client_relations'] },
+      { path: '/clients',   label: 'Clients & Projects', icon: Users,           roles: ['admin','manager','member','client_relations'] },
+      { path: '/messages',  label: 'Messages',           icon: MessageSquare,   roles: ['admin','manager','member','client_relations'], badge: true },
+      { path: '/meetings',  label: 'Meetings',           icon: Video,           roles: ['admin','manager','member','client_relations'] },
+      { path: '/reports',   label: 'Reports',            icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },
+      { path: '/calendar',  label: 'Calendar',           icon: Calendar,        roles: ['admin','manager','member','client_relations'] },
     ],
   },
   {
@@ -371,7 +371,7 @@ const NAV = [
   {
     section: 'ACCOUNT',
     items: [
-      { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin','manager','member'] },
+      { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin','manager','member','client_relations'] },
     ],
   },
 ];

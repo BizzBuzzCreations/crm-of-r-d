@@ -33,6 +33,11 @@ const sendTokens = (user, statusCode, res) => {
         joinDate:   user.joinDate,
         bio:        user.bio,
         avatar:     user.avatar,
+        emailSync:  user.emailSync,
+        calendarSyncEnabled: user.calendarSyncEnabled,
+        notificationPrefs:   user.notificationPrefs,
+        personalSignature:   user.personalSignature,
+        defaultLandingView:  user.defaultLandingView,
       },
     });
 };
@@ -121,12 +126,30 @@ exports.me = async (req, res) => {
 // @PUT /api/auth/profile
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { name, email, position, phone, bio } = req.body;
+    const { name, email, position, phone, bio, color, emailSync, calendarSyncEnabled, notificationPrefs, personalSignature, defaultLandingView } = req.body;
+    const updateObj = {};
+    if (name !== undefined) updateObj.name = name;
+    if (email !== undefined) updateObj.email = email;
+    if (position !== undefined) updateObj.position = position;
+    if (phone !== undefined) updateObj.phone = phone;
+    if (bio !== undefined) updateObj.bio = bio;
+    if (color !== undefined) updateObj.color = color;
+    if (emailSync !== undefined) updateObj.emailSync = emailSync;
+    if (calendarSyncEnabled !== undefined) updateObj.calendarSyncEnabled = calendarSyncEnabled;
+    if (notificationPrefs !== undefined) updateObj.notificationPrefs = notificationPrefs;
+    if (personalSignature !== undefined) updateObj.personalSignature = personalSignature;
+    if (defaultLandingView !== undefined) updateObj.defaultLandingView = defaultLandingView;
+
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      { name, email, position, phone, bio },
+      updateObj,
       { new: true, runValidators: true }
     );
+
+    // Broadcast update for real-time presence/visual sync
+    const io = req.app.get('io');
+    io?.emit('user:updated', user);
+
     res.json({ success: true, user });
   } catch (err) { next(err); }
 };

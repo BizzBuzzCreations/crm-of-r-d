@@ -33,9 +33,10 @@ export const MEETING_TYPE_CONFIG = {
 
 // ── Role config ───────────────────────────────────────────────
 export const ROLE_CONFIG = {
-  admin:   { label: 'Admin',   tw: 'badge-purple',  color: '#7c3aed' },
-  manager: { label: 'Manager', tw: 'badge-info',    color: '#0ea5e9' },
-  member:  { label: 'Member',  tw: 'badge-neutral', color: '#64748b' },
+  admin:            { label: 'Admin',            tw: 'badge-purple',  color: '#7c3aed' },
+  manager:          { label: 'Manager',          tw: 'badge-info',    color: '#0ea5e9' },
+  member:           { label: 'Member',           tw: 'badge-neutral', color: '#64748b' },
+  client_relations: { label: 'Client Relations', tw: 'badge-success', color: '#10b981' },
 };
 
 // ── Payment status config ─────────────────────────────────────

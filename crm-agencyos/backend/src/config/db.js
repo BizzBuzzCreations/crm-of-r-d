@@ -32,6 +32,35 @@ const connectDB = async () => {
         ]);
         console.log('🌱 Seeded 5 default channels into MongoDB');
       }
+
+      // SystemSettings migration — ensure all required fields exist in the document
+      const SystemSettings = mongoose.model('SystemSettings');
+      const SETTINGS_DEFAULTS = {
+        departments: ['Management', 'Sales', 'Engineering', 'Marketing', 'Support', 'General'],
+        positions:   ['Developer', 'Graphic Designer', 'Video Editor', 'SEO', 'HR', 'BDE', 'SMM', 'Other'],
+        industries:  ['Technology', 'Retail', 'Marketing', 'Finance', 'Healthcare', 'Education', 'Real Estate', 'Other'],
+      };
+
+      let settingsDoc = await SystemSettings.findOne().lean();
+      if (!settingsDoc) {
+        // No document at all — create with full defaults
+        await SystemSettings.create({});
+        console.log('🌱 SystemSettings: Created default document');
+      } else {
+        // Document exists — patch any missing or empty fields using raw MongoDB update
+        const patch = {};
+        for (const [field, defaultValue] of Object.entries(SETTINGS_DEFAULTS)) {
+          if (!settingsDoc[field] || settingsDoc[field].length === 0) {
+            patch[field] = defaultValue;
+          }
+        }
+        if (Object.keys(patch).length > 0) {
+          await SystemSettings.updateOne({ _id: settingsDoc._id }, { $set: patch });
+          console.log(`🔧 SystemSettings: Patched missing fields → ${Object.keys(patch).join(', ')}`);
+        } else {
+          console.log('✅ SystemSettings: All fields present, no migration needed');
+        }
+      }
     } catch (err) {
       console.warn('⚠️ Startup self-healing skipped:', err.message);
     }

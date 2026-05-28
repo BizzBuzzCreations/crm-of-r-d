@@ -4,6 +4,7 @@ import toast        from 'react-hot-toast';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
   todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
+  settingsAPI,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -40,6 +41,8 @@ const DEFAULT_CHANNELS = [
 // ── Socket singleton ──────────────────────────────────────────
 let sock = null;
 let _beforeUnloadFn = null;  // reference so we can remove it on disconnect
+let _focusHandler = null;
+let _visibilityHandler = null;
 
 const getSocketUrl = () => {
   if (typeof window === 'undefined') return 'http://localhost:5000';
@@ -81,10 +84,28 @@ function connectSocket(token, store) {
 
   sock = io(getSocketUrl(), {
     auth: { token },
-    reconnectionAttempts: 10,
     reconnectionDelay: 1000,
     timeout: 10000,
   });
+
+  // Reconnect automatically on window focus or visibility change if disconnected
+  if (_focusHandler) window.removeEventListener('focus', _focusHandler);
+  _focusHandler = () => {
+    if (sock && !sock.connected) {
+      console.log('🔌 Window focused and socket disconnected — attempting reconnect');
+      sock.connect();
+    }
+  };
+  window.addEventListener('focus', _focusHandler);
+
+  if (_visibilityHandler) window.removeEventListener('visibilitychange', _visibilityHandler);
+  _visibilityHandler = () => {
+    if (document.visibilityState === 'visible' && sock && !sock.connected) {
+      console.log('🔌 Tab visible and socket disconnected — attempting reconnect');
+      sock.connect();
+    }
+  };
+  window.addEventListener('visibilitychange', _visibilityHandler);
 
   sock.on('connect', () => {
     console.log('🔌 Socket connected:', getSocketUrl());
@@ -289,6 +310,33 @@ function connectSocket(token, store) {
   sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline', timerActive: false, timerBreakActive: false } : u) })));
   sock.on('user:status',  ({ userId, status }) => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status } : u) })));
 
+  // User profile/role updated by admin — merge into users array for all clients
+  sock.on('user:updated', (updatedUser) => {
+    store.setState((s) => ({
+      users: s.users.map((u) =>
+        getId(u) === getId(updatedUser)
+          ? { ...u, ...updatedUser }  // merge — preserves timer fields
+          : u
+      ),
+    }));
+  });
+
+  // System settings updated — sync to all clients instantly
+  sock.on('settings:updated', (settings) => {
+    store.setState({ systemSettings: settings });
+  });
+
+  // Role changed — the affected user's own session gets this event
+  sock.on('role:changed', ({ role }) => {
+    const me = store.getState().authUser;
+    if (me) {
+      store.setState({ authUser: { ...me, role } });
+      // Reload data so access-restricted endpoints are re-fetched with new role
+      store.getState().loadAllData();
+      toast.success(`Your role has been updated to ${role.charAt(0).toUpperCase() + role.slice(1)}`);
+    }
+  });
+
   sock.on('member:timer:update', (payload) => {
     store.setState((s) => ({
       users: s.users.map((u) =>
@@ -329,6 +377,8 @@ function connectSocket(token, store) {
 
 function disconnectSocket() {
   if (_beforeUnloadFn) { window.removeEventListener('beforeunload', _beforeUnloadFn); _beforeUnloadFn = null; }
+  if (_focusHandler) { window.removeEventListener('focus', _focusHandler); _focusHandler = null; }
+  if (_visibilityHandler) { window.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
   if (sock) { sock.disconnect(); sock = null; }
 }
 
@@ -348,6 +398,7 @@ const useAppStore = create((set, get, store) => ({
   notifications: [],
   services:   [],
   projects:   [],
+  systemSettings: null,
   timer:      initialTimer(),
   activeThread:'general',
   sidebarOpen:true,
@@ -411,6 +462,41 @@ const useAppStore = create((set, get, store) => ({
           sameId(c, project.clientId) ? { ...c, projectCount: c.projectCount - 1 } : c
         )
       }));
+    }
+  },
+
+  // ── Settings ───────────────────────────────────────────────
+  fetchSystemSettings: async () => {
+    try {
+      const { data } = await settingsAPI.get();
+      set({ systemSettings: data.data });
+      return data.data;
+    } catch (err) {
+      console.error('Failed to fetch system settings', err);
+    }
+  },
+  updateSystemSettings: async (body) => {
+    try {
+      const { data } = await settingsAPI.update(body);
+      set({ systemSettings: data.data });
+      toast.success('Settings updated successfully');
+      return data.data;
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to update settings';
+      toast.error(msg);
+      throw err;
+    }
+  },
+  inviteUser: async (body) => {
+    try {
+      const { data } = await settingsAPI.invite(body);
+      set((s) => ({ users: [...s.users, data.data] }));
+      toast.success(`Invitation sent to ${body.name}!`);
+      return data.data;
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to invite user';
+      toast.error(msg);
+      throw err;
     }
   },
 
@@ -647,9 +733,10 @@ const useAppStore = create((set, get, store) => ({
   loadAllData: async () => {
     set({ loading:true });
     try {
-      const [uR, cR, tR, dR, mR, nR, chR, svR, pR] = await Promise.all([
+      const [uR, cR, tR, dR, mR, nR, chR, svR, pR, setR] = await Promise.all([
         usersAPI.getAll(), clientsAPI.getAll(), tasksAPI.getAll(), todosAPI.getAll(), meetingsAPI.getAll(),
         notificationsAPI.getAll(), channelsAPI.getAll(), servicesAPI.getAll(), projectsAPI.getAll(),
+        settingsAPI.get().catch(() => ({ data: { data: null } }))
       ]);
       const users = uR.data.data;
       const me    = get().authUser;
@@ -667,15 +754,16 @@ const useAppStore = create((set, get, store) => ({
       }));
       set({
         users,
-        clients:       cR.data.data,
-        tasks:         tR.data.data,
-        todos:         dR.data.data,
-        meetings:      mR.data.data,
-        notifications: nR.data.data,
-        services:      svR.data.data,
-        projects:      pR.data.data || [],
-        messages:      { ...get().messages, dms, channels },
-        loading:       false,
+        clients:        cR.data.data,
+        tasks:          tR.data.data,
+        todos:          dR.data.data,
+        meetings:       mR.data.data,
+        notifications:  nR.data.data,
+        services:       svR.data.data,
+        projects:       pR.data.data || [],
+        systemSettings: setR?.data?.data || null,
+        messages:       { ...get().messages, dms, channels },
+        loading:        false,
       });
       await get().fetchMySchedule();
       if (me?.role === 'admin' || me?.role === 'manager') {

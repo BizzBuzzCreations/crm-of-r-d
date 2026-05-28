@@ -25,6 +25,7 @@ const ClientSchema = new mongoose.Schema({
   assignedTeam:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   notes:            [NoteSchema],
   createdBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  showPaymentDetails: { type: Boolean, default: false },
 }, { timestamps: true });
 
 // ── Task ──────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ const TaskSchema = new mongoose.Schema({
   assignedTo:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   assignedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
+  projectId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Project', default: null },
   type:        { type: String, enum: ['inhouse','client'], default: 'inhouse' },
   dueDate:     { type: String, default: '' },
   eta:         { type: String, default: '' },
@@ -49,6 +51,7 @@ const TodoSchema = new mongoose.Schema({
   title:       { type: String, required: [true,'Title is required'], trim: true },
   description: { type: String, default: '' },
   userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
   eta:         { type: String, default: '' },
   priority:    { type: String, enum: ['urgent','high','medium','low'], default: 'medium' },
   status:      { type: String, enum: ['pending','in-progress','sent-for-approval','completed'], default: 'pending' },
@@ -170,5 +173,6 @@ module.exports = {
   WorkLog:           mongoose.model('WorkLog',           WorkLogSchema),
   Channel:           mongoose.model('Channel',           ChannelSchema),
   Project:           mongoose.model('Project',           ProjectSchema),
+  SystemSettings:    require('./SystemSettings'),
 };
 

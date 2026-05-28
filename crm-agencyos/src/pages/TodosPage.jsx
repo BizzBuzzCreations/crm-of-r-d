@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Plus, Trash2, Check, MoreHorizontal, Search, Calendar, X, ClipboardList } from 'lucide-react';
+import { Plus, Trash2, Check, MoreHorizontal, Search, Calendar, X, ClipboardList, Building2 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -50,14 +50,19 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 
 // ── Todo Form ───────────────────────────────────────────────────
 function TodoFormModal({ open, onClose, currentUser }) {
-  const { addTodo } = useAppStore();
+  const { addTodo, clients } = useAppStore();
   const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({
-    defaultValues: { priority: 'medium' },
+    defaultValues: { priority: 'medium', clientId: '' },
   });
   const priorityVal = watch('priority');
 
   const onSubmit = (data) => {
-    addTodo({ ...data, userId: getId(currentUser), status: 'pending' });
+    addTodo({
+      ...data,
+      userId: getId(currentUser),
+      clientId: data.clientId || null,
+      status: 'pending'
+    });
     toast.success('Todo added!');
     reset();
     onClose();
@@ -85,7 +90,17 @@ function TodoFormModal({ open, onClose, currentUser }) {
 
         <div className="grid grid-cols-2 gap-4">
           <Input label="ETA" placeholder="e.g. 1h, 30m" {...register('eta')} />
-          <div />
+          <div>
+            <label className="form-label">Associated Client / Purpose</label>
+            <select className="form-input text-[14px]" {...register('clientId')}>
+              <option value="">Personal / Internal Use</option>
+              {clients.map((c) => (
+                <option key={getId(c)} value={getId(c)}>
+                  Client: {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div>
@@ -114,6 +129,7 @@ function TodoFormModal({ open, onClose, currentUser }) {
 
 // ── Todo Card ──────────────────────────────────────────────────
 function TodoCard({ todo, users, role, onMove, onApprove, onDelete }) {
+  const clients   = useAppStore((s) => s.clients);
   const owner     = users.find((u) => sameId(u, todo.userId));
   const pCfg      = PRIORITY_CONFIG[todo.priority] || PRIORITY_CONFIG.medium;
   const isManager = canManage(role);
@@ -138,6 +154,12 @@ function TodoCard({ todo, users, role, onMove, onApprove, onDelete }) {
       <div className="flex gap-1.5 flex-wrap mb-2.5">
         <PriorityBadge priority={todo.priority} />
         {todo.eta && <span className="badge badge-neutral text-[10.5px]">⏱ {todo.eta}</span>}
+        {todo.clientId && (
+          <span className="badge badge-primary text-[10.5px] flex items-center gap-1">
+            <Building2 size={10} />
+            {typeof todo.clientId === 'object' ? todo.clientId.name : (clients.find((c) => sameId(c, todo.clientId))?.name || 'Client')}
+          </span>
+        )}
       </div>
       <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/50">
         <div className="flex items-center gap-1.5">
@@ -205,7 +227,7 @@ export default function TodosPage() {
   const handleApprove = (id) => { updateTodo(id, { status: 'completed' }); toast.success('Todo approved & completed!'); };
   const handleDelete  = (id) => { deleteTodo(id); toast.success('Todo deleted.'); };
 
-  const memberUsers          = users.filter((u) => u.role === 'member');
+  const memberUsers          = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const statusFilterOptions  = isManager ? ALL_STATUSES : MEMBER_STATUSES;
   const cols                 = ALL_STATUSES;
   const activeFiltersCount   = [filters.search, filters.priority, filters.status, filters.memberId, filters.date].filter(Boolean).length;
