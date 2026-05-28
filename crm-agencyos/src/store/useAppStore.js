@@ -93,6 +93,19 @@ function connectSocket(token, store) {
     if (_beforeUnloadFn) window.removeEventListener('beforeunload', _beforeUnloadFn);
     _beforeUnloadFn = () => flushTimerToDb(store);
     window.addEventListener('beforeunload', _beforeUnloadFn);
+
+    // Immediately broadcast current timer state so admins/managers see it right away
+    const { timer, authUser } = store.getState();
+    if (timer && authUser && timer.active !== undefined) {
+      sock?.emit('timer:sync', {
+        workSeconds:  timer.workSeconds,
+        active:       timer.active,
+        breakActive:  timer.breakActive,
+        sessionDate:  timer.sessionDate,
+        sessionStart: timer.sessionStart,
+        targetSeconds:timer.targetSeconds,
+      });
+    }
   });
   sock.on('disconnect', (reason) => {
     console.warn('🔌 Socket disconnected:', reason);
@@ -248,7 +261,31 @@ function connectSocket(token, store) {
   }));
 
   // User presence
-  sock.on('user:online',  ({ userId })         => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'online'  } : u) })));
+  sock.on('user:online',  ({ userId }) => {
+    store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'online' } : u) }));
+    // Re-fetch this member's timer state from DB so timerActive/workSeconds are restored
+    // (user:offline previously wiped timerActive to false)
+    const me = store.getState().authUser;
+    if (me?.role === 'admin' || me?.role === 'manager') {
+      worklogAPI.getAll({ userId, date: new Date().toISOString().split('T')[0] })
+        .then(({ data }) => {
+          const log = (data?.data || [])[0];
+          if (log) {
+            store.setState((s) => ({
+              users: s.users.map((u) => getId(u) === userId ? {
+                ...u,
+                timerActive:       log.active,
+                timerBreakActive:  log.breakActive,
+                timerWorkSeconds:  log.workSeconds || 0,
+                timerSessionStart: log.sessionStart,
+                timerTargetSeconds:log.targetSeconds || 8 * 3600,
+                timerLastUpdated:  Date.now(),
+              } : u)
+            }));
+          }
+        }).catch(() => {});
+    }
+  });
   sock.on('user:offline', ({ userId })          => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status:'offline', timerActive: false, timerBreakActive: false } : u) })));
   sock.on('user:status',  ({ userId, status }) => store.setState((s) => ({ users: s.users.map((u) => getId(u) === userId ? { ...u, status } : u) })));
 
