@@ -6,6 +6,7 @@ import {
   X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock, Pencil, Settings, Ban,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
+import { getBackendUrl } from '../services/api';
 import { useShallow } from 'zustand/shallow';
 import { Page, Avatar } from '../components/ui';
 import { cn, getId, sameId } from '../utils/helpers';
@@ -67,7 +68,7 @@ function handleDownload(url, filename) {
 function AttachmentCard({ att, isMe }) {
   const { icon:Icon, color, bg } = fileIconCfg(att);
   const isImg = isImageFile(att);
-  const base  = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+  const base  = getBackendUrl();
   const url   = att.url?.startsWith('http') ? att.url : `${base}${att.url}`;
   const [preview, setPreview] = useState(false);
   return (

@@ -182,7 +182,36 @@ exports.getTasks = async (req, res, next) => {
 
 exports.createTask = async (req, res, next) => {
   try {
-    const task = await Task.create({ ...req.body, assignedBy: req.user._id });
+    const body = { ...req.body };
+
+    // Tags may arrive as JSON string or repeated form fields (tags[])
+    if (typeof body.tags === 'string') {
+      try { body.tags = JSON.parse(body.tags); } catch { body.tags = body.tags ? [body.tags] : []; }
+    }
+    if (!Array.isArray(body.tags)) body.tags = [];
+
+    // File attachments (uploaded via multer)
+    const fileAttachments = (req.files || []).map((f) => ({
+      type:     'file',
+      name:     f.originalname,
+      url:      `/uploads/${f.filename}`,
+      size:     f.size,
+      mimeType: f.mimetype,
+      filename: f.filename,
+    }));
+
+    // Link attachments (sent as JSON string in body.links)
+    let linkAttachments = [];
+    if (body.links) {
+      try { linkAttachments = JSON.parse(body.links).map((l) => ({ type: 'link', name: l.name || l.url, url: l.url })); } catch {}
+      delete body.links;
+    }
+
+    const task = await Task.create({
+      ...body,
+      assignedBy:  req.user._id,
+      attachments: [...fileAttachments, ...linkAttachments],
+    });
     const populated = await task.populate(taskPopulate);
     const io = req.app.get('io');
     io?.emit('task:created', populated);
@@ -207,7 +236,39 @@ exports.createTask = async (req, res, next) => {
 exports.updateTask = async (req, res, next) => {
   try {
     const prev = await Task.findById(req.params.id).lean();
-    const task = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+    const body = { ...req.body };
+
+    // Parse tags
+    if (typeof body.tags === 'string') {
+      try { body.tags = JSON.parse(body.tags); } catch { body.tags = body.tags ? [body.tags] : []; }
+    }
+    if (body['tags[]']) {
+      body.tags = Array.isArray(body['tags[]']) ? body['tags[]'] : [body['tags[]']];
+      delete body['tags[]'];
+    }
+
+    // Merge attachments: existing + new files + new links
+    if (req.files?.length || body.links || body.existingAttachments !== undefined) {
+      const existing = body.existingAttachments
+        ? JSON.parse(body.existingAttachments)
+        : (prev?.attachments || []);
+      delete body.existingAttachments;
+
+      const newFiles = (req.files || []).map((f) => ({
+        type: 'file', name: f.originalname, url: `/uploads/${f.filename}`,
+        size: f.size, mimeType: f.mimetype, filename: f.filename,
+      }));
+
+      let newLinks = [];
+      if (body.links) {
+        try { newLinks = JSON.parse(body.links).map((l) => ({ type: 'link', name: l.name || l.url, url: l.url })); } catch {}
+        delete body.links;
+      }
+
+      body.attachments = [...existing, ...newFiles, ...newLinks];
+    }
+
+    const task = await Task.findByIdAndUpdate(req.params.id, body, { new: true, runValidators: true })
       .populate(taskPopulate);
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
     const io = req.app.get('io');
@@ -257,13 +318,21 @@ exports.deleteTask = async (req, res, next) => {
 // ═══════════════════════════════════════════════════
 // TODOS
 // ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
+// TODOS
+// ═══════════════════════════════════════════════════
+const todoPopulate = [
+  { path: 'userId',   select: 'name email color initials status' },
+  { path: 'clientId', select: 'name' },
+  { path: 'taskId',   select: 'title taskNumber' }
+];
+
 exports.getTodos = async (req, res, next) => {
   try {
     let filter = {};
     if (req.user.role === 'member') filter.userId = req.user._id;
     const todos = await Todo.find(filter)
-      .populate('userId', 'name color initials status')
-      .populate('clientId', 'name')
+      .populate(todoPopulate)
       .sort({ createdAt: -1 });
     res.json({ success: true, data: todos });
   } catch (err) { next(err); }
@@ -271,23 +340,82 @@ exports.getTodos = async (req, res, next) => {
 
 exports.createTodo = async (req, res, next) => {
   try {
-    const todo = await Todo.create({ ...req.body, userId: req.user._id });
-    const populated = await todo.populate([
-      { path: 'userId', select: 'name color initials status' },
-      { path: 'clientId', select: 'name' }
-    ]);
+    const body = { ...req.body };
+
+    // Standard members can only self-assign
+    if (req.user.role === 'member') {
+      body.userId = req.user._id;
+    } else {
+      body.userId = body.userId || req.user._id;
+    }
+
+    // File attachments (uploaded via multer)
+    const fileAttachments = (req.files || []).map((f) => ({
+      type:     'file',
+      name:     f.originalname,
+      url:      `/uploads/${f.filename}`,
+      size:     f.size,
+      mimeType: f.mimetype,
+      filename: f.filename,
+    }));
+
+    // Link attachments
+    let linkAttachments = [];
+    if (body.links) {
+      try { linkAttachments = JSON.parse(body.links).map((l) => ({ type: 'link', name: l.name || l.url, url: l.url })); } catch {}
+      delete body.links;
+    }
+
+    const todo = await Todo.create({
+      ...body,
+      attachments: [...fileAttachments, ...linkAttachments],
+    });
+
+    const populated = await todo.populate(todoPopulate);
+    const io = req.app.get('io');
+    io?.emit('todo:created', populated);
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
 
 exports.updateTodo = async (req, res, next) => {
   try {
-    const todo = await Todo.findByIdAndUpdate(req.params.id, req.body, { new: true })
-      .populate([
-        { path: 'userId', select: 'name color initials status' },
-        { path: 'clientId', select: 'name' }
-      ]);
-    if (!todo) return res.status(404).json({ success: false, message: 'Todo not found' });
+    const prev = await Todo.findById(req.params.id).lean();
+    if (!prev) return res.status(404).json({ success: false, message: 'Todo not found' });
+
+    const body = { ...req.body };
+
+    // Standard members cannot change assignee
+    if (req.user.role === 'member') {
+      delete body.userId; // ensure standard member cannot change it
+    }
+
+    // Merge attachments: existing + new files + new links
+    if (req.files?.length || body.links || body.existingAttachments !== undefined) {
+      const existing = body.existingAttachments
+        ? JSON.parse(body.existingAttachments)
+        : (prev?.attachments || []);
+      delete body.existingAttachments;
+
+      const newFiles = (req.files || []).map((f) => ({
+        type: 'file', name: f.originalname, url: `/uploads/${f.filename}`,
+        size: f.size, mimeType: f.mimetype, filename: f.filename,
+      }));
+
+      let newLinks = [];
+      if (body.links) {
+        try { newLinks = JSON.parse(body.links).map((l) => ({ type: 'link', name: l.name || l.url, url: l.url })); } catch {}
+        delete body.links;
+      }
+
+      body.attachments = [...existing, ...newFiles, ...newLinks];
+    }
+
+    const todo = await Todo.findByIdAndUpdate(req.params.id, body, { new: true, runValidators: true })
+      .populate(todoPopulate);
+
+    const io = req.app.get('io');
+    io?.emit('todo:updated', todo);
     res.json({ success: true, data: todo });
   } catch (err) { next(err); }
 };
@@ -295,6 +423,8 @@ exports.updateTodo = async (req, res, next) => {
 exports.deleteTodo = async (req, res, next) => {
   try {
     await Todo.findByIdAndDelete(req.params.id);
+    const io = req.app.get('io');
+    io?.emit('todo:deleted', req.params.id);
     res.json({ success: true, message: 'Todo deleted' });
   } catch (err) { next(err); }
 };

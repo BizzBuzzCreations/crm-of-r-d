@@ -47,8 +47,8 @@ module.exports.clients = clientsRouter;
 const tasksRouter = express.Router();
 tasksRouter.use(protect);
 tasksRouter.get('/',    ctrl.getTasks);
-tasksRouter.post('/',   ctrl.createTask);
-tasksRouter.put('/:id', ctrl.updateTask);
+tasksRouter.post('/',   upload.array('files', 10), ctrl.createTask);
+tasksRouter.put('/:id', upload.array('files', 10), ctrl.updateTask);
 tasksRouter.delete('/:id', authorize('admin','manager'), ctrl.deleteTask);
 module.exports.tasks = tasksRouter;
 
@@ -56,8 +56,8 @@ module.exports.tasks = tasksRouter;
 const todosRouter = express.Router();
 todosRouter.use(protect);
 todosRouter.get('/',    ctrl.getTodos);
-todosRouter.post('/',   ctrl.createTodo);
-todosRouter.put('/:id', ctrl.updateTodo);
+todosRouter.post('/',   upload.array('files', 10), ctrl.createTodo);
+todosRouter.put('/:id', upload.array('files', 10), ctrl.updateTodo);
 todosRouter.delete('/:id', ctrl.deleteTodo);
 module.exports.todos = todosRouter;
 

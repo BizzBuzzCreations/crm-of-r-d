@@ -1,0 +1,9 @@
+"=== MEMBER SUMMARY ==="
+"Member","Tasks Total","Tasks Done","Todos Total","Todos Done","Completion Rate"
+"Emma Wilson","1","1","0","0","100%"
+"Mike Davis","0","0","0","0","0%"
+"James Brown","0","0","0","0","0%"
+
+"=== TASK DETAIL ==="
+"Title","Assigned To","Status","Priority","Due Date","Created"
+"design the ui","Emma Wilson","completed","high","2026-05-27","2026-05-25T13:45:41.511Z"

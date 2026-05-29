@@ -23,7 +23,8 @@ const fileFilter = (_req, file, cb) => {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/csv','text/plain',
     'application/zip','application/x-rar-compressed',
-    'video/mp4','video/quicktime',
+    'video/mp4','video/quicktime','video/webm','video/x-msvideo',
+    'audio/mpeg','audio/wav','audio/aac','audio/ogg','audio/webm','audio/mp4',
   ];
   if (allowed.includes(file.mimetype)) cb(null, true);
   else cb(new Error(`File type ${file.mimetype} not allowed`), false);

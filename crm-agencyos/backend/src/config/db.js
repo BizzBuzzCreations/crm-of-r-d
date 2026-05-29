@@ -61,6 +61,27 @@ const connectDB = async () => {
           console.log('✅ SystemSettings: All fields present, no migration needed');
         }
       }
+
+      // Task self-healing: assign sequential taskNumbers to any task without one
+      const Task = mongoose.model('Task');
+      const Counter = mongoose.model('Counter');
+      const unnumberedTasks = await Task.find({ taskNumber: { $exists: false } }).sort({ createdAt: 1 });
+      if (unnumberedTasks.length > 0) {
+        console.log(`🧹 Task Self-Healing: Found ${unnumberedTasks.length} tasks without a task number`);
+        let counter = await Counter.findOne({ id: 'taskNumber' });
+        let nextSeq = counter ? counter.seq : 0;
+        for (const task of unnumberedTasks) {
+          nextSeq += 1;
+          task.taskNumber = nextSeq;
+          await task.save();
+        }
+        await Counter.findOneAndUpdate(
+          { id: 'taskNumber' },
+          { seq: nextSeq },
+          { new: true, upsert: true }
+        );
+        console.log(`🧹 Task Self-Healing: Assigned sequence numbers up to #${nextSeq} successfully`);
+      }
     } catch (err) {
       console.warn('⚠️ Startup self-healing skipped:', err.message);
     }

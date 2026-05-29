@@ -25,6 +25,10 @@ const getApiUrl = () => {
 
 const BASE = getApiUrl();
 
+export const getBackendUrl = () => {
+  return BASE.endsWith('/api') ? BASE.slice(0, -4) : BASE;
+};
+
 // ── Axios instance ────────────────────────────────────────────
 const api = axios.create({
   baseURL:         BASE,
@@ -130,8 +134,12 @@ export const clientsAPI = {
 // ─────────────────────────────────────────────────────────────
 export const tasksAPI = {
   getAll:  ()          => api.get('/tasks'),
-  create:  (body)      => api.post('/tasks',      body),
-  update:  (id, body)  => api.put(`/tasks/${id}`, body),
+  create:  (body)      => body instanceof FormData
+    ? api.post('/tasks', body, { headers: { 'Content-Type': 'multipart/form-data' } })
+    : api.post('/tasks', body),
+  update:  (id, body)  => body instanceof FormData
+    ? api.put(`/tasks/${id}`, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+    : api.put(`/tasks/${id}`, body),
   delete:  (id)        => api.delete(`/tasks/${id}`),
 };
 
@@ -140,8 +148,12 @@ export const tasksAPI = {
 // ─────────────────────────────────────────────────────────────
 export const todosAPI = {
   getAll:  ()          => api.get('/todos'),
-  create:  (body)      => api.post('/todos',      body),
-  update:  (id, body)  => api.put(`/todos/${id}`, body),
+  create:  (body)      => body instanceof FormData
+    ? api.post('/todos', body, { headers: { 'Content-Type': 'multipart/form-data' } })
+    : api.post('/todos', body),
+  update:  (id, body)  => body instanceof FormData
+    ? api.put(`/todos/${id}`, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+    : api.put(`/todos/${id}`, body),
   delete:  (id)        => api.delete(`/todos/${id}`),
 };
 

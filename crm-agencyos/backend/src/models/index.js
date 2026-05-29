@@ -28,7 +28,23 @@ const ClientSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // ── Task ──────────────────────────────────────────────────────
+const CounterSchema = new mongoose.Schema({
+  id:  { type: String, required: true, unique: true },
+  seq: { type: Number, default: 0 }
+});
+const Counter = mongoose.model('Counter', CounterSchema);
+
+const TaskAttachmentSchema = new mongoose.Schema({
+  type:     { type: String, enum: ['file', 'link'], default: 'file' },
+  name:     { type: String, default: '' },
+  url:      { type: String, required: true },
+  size:     { type: Number, default: 0 },
+  mimeType: { type: String, default: '' },
+  filename: { type: String, default: '' },
+}, { _id: false });
+
 const TaskSchema = new mongoose.Schema({
+  taskNumber:  { type: Number },
   title:       { type: String, required: [true,'Title is required'], trim: true },
   description: { type: String, default: '' },
   assignedTo:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -36,14 +52,30 @@ const TaskSchema = new mongoose.Schema({
   clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
   projectId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Project', default: null },
   type:        { type: String, enum: ['inhouse','client'], default: 'inhouse' },
+  startDate:   { type: String, default: '' },
+  startTime:   { type: String, default: '' },
   dueDate:     { type: String, default: '' },
+  dueTime:     { type: String, default: '' },
   eta:         { type: String, default: '' },
   priority:    { type: String, enum: ['urgent','high','medium','low'], default: 'medium' },
   status:      { type: String, enum: ['pending','in-progress','sent-for-approval','completed'], default: 'pending' },
   progress:    { type: Number, default: 0, min: 0, max: 100 },
   tags:        [{ type: String }],
+  attachments: { type: [TaskAttachmentSchema], default: [] },
   readyForApproval: { type: Boolean, default: false },
 }, { timestamps: true });
+
+TaskSchema.pre('save', async function (next) {
+  if (this.isNew) {
+    const counter = await Counter.findOneAndUpdate(
+      { id: 'taskNumber' },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+    this.taskNumber = counter.seq;
+  }
+  next();
+});
 
 // ── Todo ──────────────────────────────────────────────────────
 const TodoSchema = new mongoose.Schema({
@@ -51,9 +83,16 @@ const TodoSchema = new mongoose.Schema({
   description: { type: String, default: '' },
   userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
+  taskId:      { type: mongoose.Schema.Types.ObjectId, ref: 'Task', default: null },
+  startDate:   { type: String, default: '' },
+  startTime:   { type: String, default: '' },
+  dueDate:     { type: String, default: '' },
+  dueTime:     { type: String, default: '' },
   eta:         { type: String, default: '' },
   priority:    { type: String, enum: ['urgent','high','medium','low'], default: 'medium' },
   status:      { type: String, enum: ['pending','in-progress','sent-for-approval','completed'], default: 'pending' },
+  readyForApproval: { type: Boolean, default: false },
+  attachments: { type: [TaskAttachmentSchema], default: [] },
 }, { timestamps: true });
 
 // ── Meeting ───────────────────────────────────────────────────
@@ -173,5 +212,6 @@ module.exports = {
   Channel:           mongoose.model('Channel',           ChannelSchema),
   Project:           mongoose.model('Project',           ProjectSchema),
   SystemSettings:    require('./SystemSettings'),
+  Counter,
 };
 

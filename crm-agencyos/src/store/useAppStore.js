@@ -157,6 +157,16 @@ function connectSocket(store) {
   sock.on('task:updated', (t) => store.setState((s) => ({ tasks: s.tasks.map((x) => getId(x) === getId(t) ? t : x) })));
   sock.on('task:deleted', (id)=> store.setState((s) => ({ tasks: s.tasks.filter((x) => getId(x) !== String(id)) })));
 
+  // Todos
+  sock.on('todo:created', (t) => store.setState((s) => {
+    // Use sameId for reliable string-based comparison (avoids ObjectId === failures)
+    const already = s.todos.some((x) => sameId(x, t));
+    if (already) return {};
+    return { todos: [t, ...s.todos] };
+  }));
+  sock.on('todo:updated', (t) => store.setState((s) => ({ todos: s.todos.map((x) => getId(x) === getId(t) ? t : x) })));
+  sock.on('todo:deleted', (id)=> store.setState((s) => ({ todos: s.todos.filter((x) => getId(x) !== String(id)) })));
+
   // Meetings
   sock.on('meeting:created', (m) => store.setState((s) => ({ meetings: [m, ...s.meetings] })));
 
@@ -949,7 +959,8 @@ const useAppStore = create((set, get, store) => ({
   addTodo: async (body) => {
     try {
       const { data } = await todosAPI.create(body);
-      set((s) => ({ todos: [data.data, ...s.todos] }));
+      // Don't push to store here — the backend's 'todo:created' socket event
+      // will add it via the socket listener (single source of truth, no duplicates)
       return data.data;
     } catch (err) { toast.error(err.response?.data?.message || 'Failed to create todo'); throw err; }
   },
