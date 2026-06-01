@@ -133,7 +133,8 @@ export const clientsAPI = {
 // ── Tasks  (Section 5)
 // ─────────────────────────────────────────────────────────────
 export const tasksAPI = {
-  getAll:  ()          => api.get('/tasks'),
+  getAll:          ()                => api.get('/tasks'),
+  getByDateRange:  (start, end)      => api.get('/tasks', { params: { startDate: start, endDate: end } }),
   create:  (body)      => body instanceof FormData
     ? api.post('/tasks', body, { headers: { 'Content-Type': 'multipart/form-data' } })
     : api.post('/tasks', body),
@@ -147,7 +148,8 @@ export const tasksAPI = {
 // ── Todos  (Section 6)
 // ─────────────────────────────────────────────────────────────
 export const todosAPI = {
-  getAll:  ()          => api.get('/todos'),
+  getAll:          ()                => api.get('/todos'),
+  getByDateRange:  (start, end)      => api.get('/todos', { params: { startDate: start, endDate: end } }),
   create:  (body)      => body instanceof FormData
     ? api.post('/todos', body, { headers: { 'Content-Type': 'multipart/form-data' } })
     : api.post('/todos', body),

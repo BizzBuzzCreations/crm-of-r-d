@@ -1,5 +1,5 @@
-import { useMemo, useRef, useEffect } from 'react';
-import { Calendar } from 'lucide-react';
+import { useMemo, useRef, useEffect, useState } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, RefreshCw, LayoutGrid } from 'lucide-react';
 import { cn, PRIORITY_CONFIG } from '../utils/helpers';
 import { Avatar } from './ui';
 
@@ -29,6 +29,112 @@ function daysDiff(a, b) {
   return Math.round((pd(b) - pd(a)) / 86400000);
 }
 function toStr(d) { return pd(d).toISOString().split('T')[0]; }
+function monthStart(year, month) { return new Date(year, month, 1); }
+function monthEnd(year, month)   { return new Date(year, month + 1, 0); }
+function fmtMonth(year, month)   {
+  return new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+/* ── Period Navigation Bar ─────────────────────────────────────── */
+/**
+ * onPeriodChange(startStr, endStr) — called when user navigates to a specific month.
+ *   Pass null, null to signal "show all data" (no date filter).
+ * isFetching — show spinner while parent fetches.
+ */
+function PeriodNav({ onPeriodChange, isFetching }) {
+  const now = new Date();
+  const [year,  setYear]  = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const [active, setActive] = useState('all'); // 'all' | 'thisMonth' | 'lastMonth' | 'custom'
+
+  const emit = (y, m, label) => {
+    setYear(y); setMonth(m); setActive(label);
+    const s = toStr(monthStart(y, m));
+    const e = toStr(monthEnd(y, m));
+    onPeriodChange(s, e);
+  };
+
+  const handlePrev = () => {
+    const d = new Date(year, month - 1, 1);
+    emit(d.getFullYear(), d.getMonth(), 'custom');
+  };
+  const handleNext = () => {
+    const d = new Date(year, month + 1, 1);
+    emit(d.getFullYear(), d.getMonth(), 'custom');
+  };
+  const handleAll = () => {
+    setActive('all');
+    onPeriodChange(null, null);
+  };
+  const handleThisMonth = () => {
+    emit(now.getFullYear(), now.getMonth(), 'thisMonth');
+  };
+  const handleLastMonth = () => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    emit(d.getFullYear(), d.getMonth(), 'lastMonth');
+  };
+
+  const btnBase = 'px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all border select-none';
+  const btnActive = 'bg-indigo-600 text-white border-indigo-600 shadow-sm';
+  const btnInactive = 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:text-indigo-600';
+
+  return (
+    <div className="flex items-center gap-2 mb-3 flex-wrap select-none">
+      {/* Quick range buttons */}
+      <button onClick={handleAll} className={cn(btnBase, active === 'all' ? btnActive : btnInactive)}>
+        <LayoutGrid size={12} className="inline mr-1.5 -mt-0.5" />
+        All Data
+      </button>
+      <button onClick={handleThisMonth} className={cn(btnBase, active === 'thisMonth' ? btnActive : btnInactive)}>
+        This Month
+      </button>
+      <button onClick={handleLastMonth} className={cn(btnBase, active === 'lastMonth' ? btnActive : btnInactive)}>
+        Last Month
+      </button>
+
+      <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+
+      {/* Month navigator */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={handlePrev}
+          disabled={isFetching}
+          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-40 transition-all"
+        >
+          <ChevronLeft size={14} />
+        </button>
+
+        <button
+          className={cn(
+            'px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all min-w-[140px] text-center',
+            active === 'custom'
+              ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 text-indigo-700 dark:text-indigo-300'
+              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+          )}
+          onClick={() => emit(year, month, 'custom')}
+          disabled={isFetching}
+        >
+          {fmtMonth(year, month)}
+        </button>
+
+        <button
+          onClick={handleNext}
+          disabled={isFetching}
+          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-40 transition-all"
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+
+      {isFetching && (
+        <div className="flex items-center gap-1.5 text-[12px] text-indigo-500 ml-1">
+          <RefreshCw size={13} className="animate-spin" />
+          <span>Loading…</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── GanttView ─────────────────────────────────────────────────── */
 /**
@@ -36,11 +142,15 @@ function toStr(d) { return pd(d).toISOString().split('T')[0]; }
  *   id, title, subtitle?, startDate?, dueDate?,
  *   priority, status, assignee (user obj), raw (original obj)
  * }[]
- * onItemClick: (raw) => void
+ * onItemClick:     (raw) => void
+ * onPeriodChange:  (startDateStr|null, endDateStr|null) => void  (if provided, shows nav bar)
+ * isFetching:      bool — show spinner while parent loads data for a period
  */
 export default function GanttView({
   items = [],
   onItemClick,
+  onPeriodChange,
+  isFetching       = false,
   emptyTitle       = 'No items to display',
   emptyDescription = 'Items with start and due dates will appear here.',
 }) {
@@ -50,7 +160,7 @@ export default function GanttView({
   const datedItems   = items.filter(i => i.startDate && i.dueDate);
   const undatedItems = items.filter(i => !i.startDate || !i.dueDate);
 
-  /* ── Compute range ── */
+  /* ── Compute date range ── */
   const { rangeStart, totalDays } = useMemo(() => {
     if (datedItems.length === 0) {
       return { rangeStart: addDays(new Date(), -7), totalDays: 44 };
@@ -64,7 +174,7 @@ export default function GanttView({
 
   const todayOffset = daysDiff(rangeStart, new Date());
 
-  /* Scroll so today is roughly ⅓ from left on mount */
+  /* Scroll to today on mount */
   useEffect(() => {
     if (!wrapRef.current) return;
     const desired = Math.max(0, todayOffset * DAY_W - (wrapRef.current.clientWidth - LEFT_W) * 0.33);
@@ -83,7 +193,7 @@ export default function GanttView({
           key,
           label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
           short: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-          start: i, span: 1,
+          span: 1,
         });
       } else { last.span++; }
     }
@@ -103,17 +213,6 @@ export default function GanttView({
       };
     }),
   [rangeStart, totalDays, todayStr]);
-
-  /* ── Empty state ── */
-  if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
-        <Calendar size={38} className="text-slate-300 mb-3" />
-        <p className="text-[14px] font-semibold text-slate-500">{emptyTitle}</p>
-        <p className="text-[12.5px] text-slate-400 mt-1 max-w-xs text-center">{emptyDescription}</p>
-      </div>
-    );
-  }
 
   const timeW = totalDays * DAY_W;
 
@@ -196,14 +295,11 @@ export default function GanttView({
           {todayOffset >= 0 && todayOffset < totalDays && (
             <div
               className="absolute inset-y-0 w-[2px] z-10 pointer-events-none"
-              style={{
-                left: todayOffset * DAY_W + DAY_W / 2 - 1,
-                background: 'rgba(99,102,241,0.45)',
-              }}
+              style={{ left: todayOffset * DAY_W + DAY_W / 2 - 1, background: 'rgba(99,102,241,0.45)' }}
             />
           )}
 
-          {/* Task / Todo bar */}
+          {/* Bar */}
           {bar && (
             <div
               className="absolute top-1/2 -translate-y-1/2 rounded-[6px] cursor-pointer transition-all hover:brightness-90 active:scale-[0.99] shadow-sm flex items-center overflow-hidden"
@@ -225,9 +321,7 @@ export default function GanttView({
                   </span>
                 )}
               </div>
-              {overdue && (
-                <span className="pr-1.5 text-white font-bold text-[10px] flex-shrink-0">⚠</span>
-              )}
+              {overdue && <span className="pr-1.5 text-white font-bold text-[10px] flex-shrink-0">⚠</span>}
             </div>
           )}
 
@@ -248,91 +342,129 @@ export default function GanttView({
   };
 
   return (
-    <div
-      ref={wrapRef}
-      className="overflow-auto border border-slate-200 dark:border-slate-700 rounded-xl max-h-[75vh] bg-white dark:bg-slate-900"
-    >
-      <div style={{ minWidth: LEFT_W + timeW }}>
+    <div>
+      {/* ── Period navigation (only when callback is provided) ── */}
+      {onPeriodChange && (
+        <PeriodNav onPeriodChange={onPeriodChange} isFetching={isFetching} />
+      )}
 
-        {/* ══════════ STICKY HEADER ══════════ */}
-        <div className="sticky top-0 z-20 flex border-b border-slate-200 dark:border-slate-700">
+      {/* ── Empty state ── */}
+      {!isFetching && items.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-24 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+          <Calendar size={38} className="text-slate-300 mb-3" />
+          <p className="text-[14px] font-semibold text-slate-500">{emptyTitle}</p>
+          <p className="text-[12.5px] text-slate-400 mt-1 max-w-xs text-center">{emptyDescription}</p>
+        </div>
+      )}
 
-          {/* Corner: sticky top+left */}
-          <div
-            className="sticky left-0 z-30 flex items-end px-4 pb-2.5 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60"
-            style={{ width: LEFT_W, minWidth: LEFT_W, height: 72 }}
-          >
-            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 select-none">
-              Title / Assignee
-            </span>
-          </div>
+      {/* ── Loading overlay (when items are present but re-fetching) ── */}
+      {isFetching && items.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-24 border border-slate-200 dark:border-slate-700 rounded-xl">
+          <RefreshCw size={28} className="text-indigo-400 animate-spin mb-3" />
+          <p className="text-[13px] text-slate-500">Loading…</p>
+        </div>
+      )}
 
-          {/* Date columns */}
-          <div style={{ width: timeW, minWidth: timeW }}>
-            {/* Month row */}
-            <div className="flex border-b border-slate-200 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/60" style={{ height: 36 }}>
-              {months.map(m => (
-                <div
-                  key={m.key}
-                  className="flex items-center px-2 border-r border-slate-200 dark:border-slate-700/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 overflow-hidden shrink-0"
-                  style={{ width: m.span * DAY_W }}
-                >
-                  {m.span * DAY_W >= 80 ? m.label : m.span * DAY_W >= 42 ? m.short : ''}
+      {/* ── Chart ── */}
+      {items.length > 0 && (
+        <div
+          ref={wrapRef}
+          className={cn(
+            'overflow-auto border border-slate-200 dark:border-slate-700 rounded-xl max-h-[72vh] bg-white dark:bg-slate-900 relative',
+            isFetching ? 'opacity-50 pointer-events-none' : '',
+          )}
+        >
+          {isFetching && (
+            <div className="absolute inset-0 flex items-center justify-center z-50 bg-white/60 dark:bg-slate-900/60">
+              <RefreshCw size={24} className="text-indigo-500 animate-spin" />
+            </div>
+          )}
+
+          <div style={{ minWidth: LEFT_W + timeW }}>
+
+            {/* ══════════ STICKY HEADER ══════════ */}
+            <div className="sticky top-0 z-20 flex border-b border-slate-200 dark:border-slate-700">
+              {/* Corner */}
+              <div
+                className="sticky left-0 z-30 flex items-end px-4 pb-2.5 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60"
+                style={{ width: LEFT_W, minWidth: LEFT_W, height: 72 }}
+              >
+                <div className="w-full">
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 select-none block">
+                    Title / Assignee
+                  </span>
+                  <span className="text-[10px] text-slate-400 select-none">
+                    {items.length} item{items.length !== 1 ? 's' : ''}
+                    {undatedItems.length > 0 && ` · ${undatedItems.length} undated`}
+                  </span>
                 </div>
-              ))}
+              </div>
+
+              {/* Date columns */}
+              <div style={{ width: timeW, minWidth: timeW }}>
+                {/* Month row */}
+                <div className="flex border-b border-slate-200 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/60" style={{ height: 36 }}>
+                  {months.map(m => (
+                    <div
+                      key={m.key}
+                      className="flex items-center px-2 border-r border-slate-200 dark:border-slate-700/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 overflow-hidden shrink-0"
+                      style={{ width: m.span * DAY_W }}
+                    >
+                      {m.span * DAY_W >= 80 ? m.label : m.span * DAY_W >= 42 ? m.short : ''}
+                    </div>
+                  ))}
+                </div>
+                {/* Day row */}
+                <div className="flex bg-slate-50 dark:bg-slate-800/60" style={{ height: 36 }}>
+                  {dayHeaders.map((day, di) => (
+                    <div
+                      key={di}
+                      className={cn(
+                        'flex flex-col items-center justify-center border-r border-slate-100 dark:border-slate-700/40 shrink-0 select-none',
+                        day.isToday
+                          ? 'bg-indigo-500 text-white font-bold'
+                          : day.isWeekend
+                          ? 'bg-slate-100/80 dark:bg-slate-800/80 text-slate-400 font-semibold'
+                          : 'text-slate-500 dark:text-slate-400 font-semibold'
+                      )}
+                      style={{ width: DAY_W, fontSize: '9.5px', lineHeight: 1 }}
+                    >
+                      <span className="opacity-70">{day.short}</span>
+                      <span className="mt-0.5 font-bold">{day.num}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            {/* Day row */}
-            <div className="flex bg-slate-50 dark:bg-slate-800/60" style={{ height: 36 }}>
-              {dayHeaders.map((day, di) => (
-                <div
-                  key={di}
-                  className={cn(
-                    'flex flex-col items-center justify-center border-r border-slate-100 dark:border-slate-700/40 shrink-0 select-none',
-                    day.isToday
-                      ? 'bg-indigo-500 text-white font-bold'
-                      : day.isWeekend
-                      ? 'bg-slate-100/80 dark:bg-slate-800/80 text-slate-400 font-semibold'
-                      : 'text-slate-500 dark:text-slate-400 font-semibold'
-                  )}
-                  style={{ width: DAY_W, fontSize: '9.5px', lineHeight: 1 }}
-                >
-                  <span className="opacity-70">{day.short}</span>
-                  <span className="mt-0.5 font-bold">{day.num}</span>
+            {/* ══════════ DATED ROWS ══════════ */}
+            {datedItems.map((item, idx) => renderRow(item, idx))}
+
+            {/* ══════════ UNDATED SECTION ══════════ */}
+            {undatedItems.length > 0 && (
+              <>
+                <div className="flex" style={{ height: 34 }}>
+                  <div
+                    className="sticky left-0 z-10 flex items-center px-4 border-b border-r border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20"
+                    style={{ width: LEFT_W, minWidth: LEFT_W }}
+                  >
+                    <span className="text-[10.5px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 select-none">
+                      No Timeline · {undatedItems.length}
+                    </span>
+                  </div>
+                  <div
+                    className="border-b border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10"
+                    style={{ width: timeW, minWidth: timeW }}
+                  />
                 </div>
-              ))}
-            </div>
+                {undatedItems.map((item, idx) => renderRow(item, datedItems.length + idx, true))}
+              </>
+            )}
+
+            <div style={{ height: 12 }} />
           </div>
         </div>
-
-        {/* ══════════ DATED ROWS ══════════ */}
-        {datedItems.map((item, idx) => renderRow(item, idx))}
-
-        {/* ══════════ NO-DATE SECTION ══════════ */}
-        {undatedItems.length > 0 && (
-          <>
-            {/* Section divider */}
-            <div className="flex" style={{ height: 34 }}>
-              <div
-                className="sticky left-0 z-10 flex items-center px-4 border-b border-r border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20"
-                style={{ width: LEFT_W, minWidth: LEFT_W }}
-              >
-                <span className="text-[10.5px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 select-none">
-                  No Timeline · {undatedItems.length}
-                </span>
-              </div>
-              <div
-                className="border-b border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10"
-                style={{ width: timeW, minWidth: timeW }}
-              />
-            </div>
-            {undatedItems.map((item, idx) => renderRow(item, datedItems.length + idx, true))}
-          </>
-        )}
-
-        {/* Bottom padding */}
-        <div style={{ height: 12 }} />
-      </div>
+      )}
     </div>
   );
 }

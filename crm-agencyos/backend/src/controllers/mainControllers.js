@@ -175,6 +175,34 @@ exports.getTasks = async (req, res, next) => {
   try {
     let filter = {};
     if (req.user.role === 'member') filter.assignedTo = req.user._id;
+
+    // Date-range filtering: include tasks that overlap [startDate, endDate]
+    const { startDate, endDate } = req.query;
+    if (startDate || endDate) {
+      const orClauses = [];
+      if (startDate && endDate) {
+        // overlap: task.startDate <= endDate AND task.dueDate >= startDate
+        orClauses.push({ startDate: { $lte: endDate }, dueDate: { $gte: startDate } });
+        // tasks that only have one of the two dates inside the window
+        orClauses.push({ startDate: { $gte: startDate, $lte: endDate } });
+        orClauses.push({ dueDate:   { $gte: startDate, $lte: endDate } });
+        // tasks with no dates but created inside the window
+        orClauses.push({
+          startDate: { $in: [null, ''] },
+          createdAt: { $gte: new Date(startDate), $lte: new Date(endDate + 'T23:59:59.999Z') },
+        });
+      } else if (startDate) {
+        orClauses.push({ dueDate:   { $gte: startDate } });
+        orClauses.push({ startDate: { $gte: startDate } });
+        orClauses.push({ createdAt: { $gte: new Date(startDate) } });
+      } else {
+        orClauses.push({ startDate: { $lte: endDate } });
+        orClauses.push({ dueDate:   { $lte: endDate } });
+        orClauses.push({ createdAt: { $lte: new Date(endDate + 'T23:59:59.999Z') } });
+      }
+      filter.$or = orClauses;
+    }
+
     const tasks = await Task.find(filter).populate(taskPopulate).sort({ createdAt: -1 });
     res.json({ success: true, data: tasks });
   } catch (err) { next(err); }
@@ -331,6 +359,31 @@ exports.getTodos = async (req, res, next) => {
   try {
     let filter = {};
     if (req.user.role === 'member') filter.userId = req.user._id;
+
+    // Date-range filtering: include todos that overlap [startDate, endDate]
+    const { startDate, endDate } = req.query;
+    if (startDate || endDate) {
+      const orClauses = [];
+      if (startDate && endDate) {
+        orClauses.push({ startDate: { $lte: endDate }, dueDate: { $gte: startDate } });
+        orClauses.push({ startDate: { $gte: startDate, $lte: endDate } });
+        orClauses.push({ dueDate:   { $gte: startDate, $lte: endDate } });
+        orClauses.push({
+          startDate: { $in: [null, ''] },
+          createdAt: { $gte: new Date(startDate), $lte: new Date(endDate + 'T23:59:59.999Z') },
+        });
+      } else if (startDate) {
+        orClauses.push({ dueDate:   { $gte: startDate } });
+        orClauses.push({ startDate: { $gte: startDate } });
+        orClauses.push({ createdAt: { $gte: new Date(startDate) } });
+      } else {
+        orClauses.push({ startDate: { $lte: endDate } });
+        orClauses.push({ dueDate:   { $lte: endDate } });
+        orClauses.push({ createdAt: { $lte: new Date(endDate + 'T23:59:59.999Z') } });
+      }
+      filter.$or = orClauses;
+    }
+
     const todos = await Todo.find(filter)
       .populate(todoPopulate)
       .sort({ createdAt: -1 });

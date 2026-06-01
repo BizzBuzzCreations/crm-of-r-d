@@ -8,7 +8,7 @@ import {
   ListOrdered, RefreshCw, ChevronDown, Columns, Table, ClipboardList, GanttChart,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
-import { getBackendUrl } from '../services/api';
+import { getBackendUrl, tasksAPI } from '../services/api';
 import { useShallow } from 'zustand/shallow';
 import { TodoDetailDrawer } from './TodosPage';
 import {
@@ -1231,6 +1231,20 @@ export default function TasksPage() {
   const [selectedTodo, setSelectedTodo] = useState(null);
   const [filters,    setFilters]    = useState({ search: '', priority: '', status: '', position: '', memberId: '', date: '' });
 
+  // Gantt: optional date-range fetch (null = use store data)
+  const [ganttOverride,  setGanttOverride]  = useState(null);  // fetched items or null
+  const [ganttFetching,  setGanttFetching]  = useState(false);
+
+  const handleGanttPeriodChange = async (start, end) => {
+    if (!start && !end) { setGanttOverride(null); return; }
+    setGanttFetching(true);
+    try {
+      const { data } = await tasksAPI.getByDateRange(start, end);
+      setGanttOverride(data.data);
+    } catch { setGanttOverride([]); }
+    finally { setGanttFetching(false); }
+  };
+
   const role      = authUser?.role;
   const isManager = canManage(role);
 
@@ -1567,7 +1581,7 @@ export default function TasksPage() {
       {/* ── Gantt ── */}
       {view === 'gantt' && (
         <GanttView
-          items={filtered.map((task) => ({
+          items={(ganttOverride ?? filtered).map((task) => ({
             id:        getId(task),
             title:     task.title,
             subtitle:  `#${task.taskNumber || '—'}`,
@@ -1579,8 +1593,10 @@ export default function TasksPage() {
             raw:       task,
           }))}
           onItemClick={setSelectedTask}
-          emptyTitle="No tasks to display"
-          emptyDescription="Create tasks with start and due dates to see them in the Gantt chart."
+          onPeriodChange={handleGanttPeriodChange}
+          isFetching={ganttFetching}
+          emptyTitle="No tasks found for this period"
+          emptyDescription="Try a different date range or switch to All Data."
         />
       )}
 

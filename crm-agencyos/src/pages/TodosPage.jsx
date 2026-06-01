@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
-import { getBackendUrl } from '../services/api';
+import { getBackendUrl, todosAPI } from '../services/api';
 import {
   Page, Button, PriorityBadge, Avatar, Modal, Input, Select,
   Textarea, EmptyState, ConfirmDialog, DropdownMenu, Badge, StatusBadge, ViewToggle,
@@ -1033,6 +1033,20 @@ export default function TodosPage() {
     date:     '',
   });
 
+  // Gantt: optional date-range fetch (null = use store data)
+  const [ganttOverride,  setGanttOverride]  = useState(null);
+  const [ganttFetching,  setGanttFetching]  = useState(false);
+
+  const handleGanttPeriodChange = async (start, end) => {
+    if (!start && !end) { setGanttOverride(null); return; }
+    setGanttFetching(true);
+    try {
+      const { data } = await todosAPI.getByDateRange(start, end);
+      setGanttOverride(data.data);
+    } catch { setGanttOverride([]); }
+    finally { setGanttFetching(false); }
+  };
+
   const role      = authUser?.role;
   const isManager = canManage(role);
 
@@ -1511,7 +1525,7 @@ export default function TodosPage() {
       {/* ── Gantt ── */}
       {view === 'gantt' && (
         <GanttView
-          items={filtered.map((todo) => ({
+          items={(ganttOverride ?? filtered).map((todo) => ({
             id:        getId(todo),
             title:     todo.title,
             startDate: todo.startDate || null,
@@ -1522,8 +1536,10 @@ export default function TodosPage() {
             raw:       todo,
           }))}
           onItemClick={setSelectedTodo}
-          emptyTitle="No todos to display"
-          emptyDescription="Create todos with start and due dates to see them in the Gantt chart."
+          onPeriodChange={handleGanttPeriodChange}
+          isFetching={ganttFetching}
+          emptyTitle="No todos found for this period"
+          emptyDescription="Try a different date range or switch to All Data."
         />
       )}
 
