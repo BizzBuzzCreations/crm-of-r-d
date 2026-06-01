@@ -5,7 +5,7 @@ import {
   Plus, List, Search, MoreHorizontal, Trash2, Check,
   Calendar, Clock, Building2, X, Paperclip, Link2,
   Bold, Italic, Underline as UnderlineIcon, List as ListIcon,
-  ListOrdered, RefreshCw, ChevronDown, Columns, Table, ClipboardList,
+  ListOrdered, RefreshCw, ChevronDown, Columns, Table, ClipboardList, GanttChart,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { getBackendUrl } from '../services/api';
@@ -16,6 +16,7 @@ import {
   ViewToggle, EmptyState, ProgressBar, ConfirmDialog, DropdownMenu,
 } from '../components/ui';
 import { cn, PRIORITY_CONFIG, canManage, truncate, getId, sameId } from '../utils/helpers';
+import GanttView from '../components/GanttView';
 
 const KANBAN_COLS = [
   { id: 'pending',           label: 'Pending',      color: '#f59e0b', bg: '#fffbeb' },
@@ -1289,9 +1290,10 @@ export default function TasksPage() {
         <div className="flex items-center gap-2">
           <ViewToggle
             views={[
-              { value: 'kanban', icon: Columns, label: 'Kanban' },
-              { value: 'list',   icon: List,    label: 'List'   },
-              { value: 'table',  icon: Table,   label: 'Table'  },
+              { value: 'kanban', icon: Columns,   label: 'Kanban' },
+              { value: 'list',   icon: List,       label: 'List'   },
+              { value: 'table',  icon: Table,      label: 'Table'  },
+              { value: 'gantt',  icon: GanttChart, label: 'Gantt'  },
             ]}
             active={view} onChange={setView}
           />
@@ -1560,6 +1562,26 @@ export default function TasksPage() {
           </table>
           {filtered.length === 0 && <EmptyState icon={Calendar} title="No tasks found" description={filters.date ? `No tasks for ${filters.date}` : 'Adjust filters or create a task.'} />}
         </div>
+      )}
+
+      {/* ── Gantt ── */}
+      {view === 'gantt' && (
+        <GanttView
+          items={filtered.map((task) => ({
+            id:        getId(task),
+            title:     task.title,
+            subtitle:  `#${task.taskNumber || '—'}`,
+            startDate: task.startDate || null,
+            dueDate:   task.dueDate   || null,
+            priority:  task.priority,
+            status:    task.status,
+            assignee:  users.find((u) => sameId(u, task.assignedTo)),
+            raw:       task,
+          }))}
+          onItemClick={setSelectedTask}
+          emptyTitle="No tasks to display"
+          emptyDescription="Create tasks with start and due dates to see them in the Gantt chart."
+        />
       )}
 
       <TaskCreateDrawer open={showCreate} onClose={() => setShowCreate(false)} users={users} clients={clients} currentUser={authUser} />

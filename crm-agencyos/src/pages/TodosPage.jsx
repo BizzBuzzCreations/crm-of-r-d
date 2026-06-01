@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import {
   Plus, Trash2, Check, MoreHorizontal, Search, Calendar, X, ClipboardList,
   Building2, Columns, List, Table, Clock, Paperclip, Link2, Bold, Italic,
-  Underline as UnderlineIcon, List as ListIcon, ListOrdered, RefreshCw, ChevronDown
+  Underline as UnderlineIcon, List as ListIcon, ListOrdered, RefreshCw, ChevronDown, GanttChart,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -14,6 +14,7 @@ import {
   Textarea, EmptyState, ConfirmDialog, DropdownMenu, Badge, StatusBadge, ViewToggle,
 } from '../components/ui';
 import { cn, PRIORITY_CONFIG, canManage, truncate, getId, sameId } from '../utils/helpers';
+import GanttView from '../components/GanttView';
 
 const MEMBER_STATUSES = [
   { id: 'pending',           label: 'Pending',      color: '#f59e0b', bg: '#fffbeb' },
@@ -1109,9 +1110,10 @@ export default function TodosPage() {
           </button>
           <ViewToggle
             views={[
-              { value: 'kanban', icon: Columns, label: 'Kanban' },
-              { value: 'list',   icon: List,    label: 'List'   },
-              { value: 'table',  icon: Table,   label: 'Table'  },
+              { value: 'kanban', icon: Columns,   label: 'Kanban' },
+              { value: 'list',   icon: List,       label: 'List'   },
+              { value: 'table',  icon: Table,      label: 'Table'  },
+              { value: 'gantt',  icon: GanttChart, label: 'Gantt'  },
             ]}
             active={view} onChange={setView}
           />
@@ -1504,6 +1506,25 @@ export default function TodosPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Gantt ── */}
+      {view === 'gantt' && (
+        <GanttView
+          items={filtered.map((todo) => ({
+            id:        getId(todo),
+            title:     todo.title,
+            startDate: todo.startDate || null,
+            dueDate:   todo.dueDate   || null,
+            priority:  todo.priority,
+            status:    todo.status,
+            assignee:  users.find((u) => sameId(u, todo.userId)),
+            raw:       todo,
+          }))}
+          onItemClick={setSelectedTodo}
+          emptyTitle="No todos to display"
+          emptyDescription="Create todos with start and due dates to see them in the Gantt chart."
+        />
       )}
 
       <TodoFormModal open={showCreate} onClose={() => setShowCreate(false)} currentUser={authUser} />
