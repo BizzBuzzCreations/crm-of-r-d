@@ -941,7 +941,8 @@ const useAppStore = create((set, get, store) => ({
     else if (status === 'in-progress') updates.progress = 50;
     else if (status === 'sent-for-approval') updates.progress = 90;
 
-    if (status === 'sent-for-approval' || status === 'completed') {
+    // Clear readyForApproval whenever leaving in-progress (pending=reverted, sent-for-approval=moved by manager, completed=done)
+    if (status === 'pending' || status === 'sent-for-approval' || status === 'completed') {
       updates.readyForApproval = false;
     }
     return get().updateTask(id, updates);
