@@ -88,26 +88,34 @@ exports.getSystemStatus = async (req, res, next) => {
     const mongoState = mongoose.connection.readyState;
     const mongoStatus = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState] ?? 'unknown';
 
-    // Redis check — try to reach the configured Redis host
-    let redisStatus = 'unknown';
+    // Redis check — use ioredis (guaranteed installed as a BullMQ dependency)
+    let redisStatus = 'disconnected';
+    let redisClient = null;
     try {
-      const { createClient } = require('redis');
+      const IORedis = require('ioredis');
       const host = process.env.REDIS_HOST || '127.0.0.1';
       const port = parseInt(process.env.REDIS_PORT || '6379', 10);
-      const client = createClient({ socket: { host, port, connectTimeout: 1500 } });
-      await client.connect();
-      await client.ping();
-      await client.quit();
-      redisStatus = 'connected';
+
+      redisClient = new IORedis({
+        host,
+        port,
+        lazyConnect:          true,
+        connectTimeout:       2000,
+        commandTimeout:       1500,
+        maxRetriesPerRequest: 0,
+        enableOfflineQueue:   false,
+        enableReadyCheck:     false,
+      });
+
+      await redisClient.connect();
+      const pong = await redisClient.ping();
+      if (pong === 'PONG') redisStatus = 'connected';
     } catch {
-      // Try BullMQ's internal ioredis connection instead
-      try {
-        const { emailQueue } = require('../queues/emailQueue');
-        const client = emailQueue.client ?? emailQueue._client;
-        if (client && client.status === 'ready') redisStatus = 'connected';
-        else redisStatus = 'disconnected';
-      } catch {
-        redisStatus = 'disconnected';
+      redisStatus = 'disconnected';
+    } finally {
+      // Always close the probe connection — never leave it dangling
+      if (redisClient) {
+        try { redisClient.disconnect(false); } catch {}
       }
     }
 
