@@ -217,9 +217,10 @@ export const worklogAPI = {
 // ── Notifications  (Section 11)
 // ─────────────────────────────────────────────────────────────
 export const notificationsAPI = {
-  getAll:    ()   => api.get('/notifications'),
-  markRead:  (id) => api.patch(`/notifications/${id}/read`),
-  markAllRead:()  => api.patch('/notifications/read-all'),
+  getAll:         (params) => api.get('/notifications', { params }),
+  getUnreadCount: ()       => api.get('/notifications/unread-count'),
+  markRead:       (id)     => api.patch(`/notifications/${id}/read`),
+  markAllRead:    ()       => api.patch('/notifications/read-all'),
   delete:    (id) => api.delete(`/notifications/${id}`),
 };
 

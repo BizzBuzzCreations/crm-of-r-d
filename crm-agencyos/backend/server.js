@@ -6,8 +6,9 @@ const socketHandler = require('./src/socket/socketHandler');
 const { Server } = require('socket.io');
 const { QueueEvents } = require('bullmq');
 const { emailQueue } = require('./src/queues/emailQueue');
-const { logger } = require('./src/utils/sysLogger');
+const { logger }   = require('./src/utils/sysLogger');
 const { LogWatcher } = require('./src/utils/logWatcher');
+const notifService = require('./src/services/notificationService');
 
 const PORT = process.env.PORT || 5000;
 
@@ -77,6 +78,14 @@ emailQueueEvents.on('completed', async ({ jobId }) => {
       jobId, emailType, to: recipientEmail,
       message: `Email delivered to ${recipientEmail}`,
     });
+    // In-app notification for the user who triggered the send
+    notifService.dispatch(io, {
+      recipient: triggeredBy, sender: null,
+      type: 'email_sent', priority: 'success',
+      title: '✅ Email Delivered',
+      message: `${emailType.replace(/_/g, ' ')} sent successfully to ${recipientEmail}`,
+      link: '/leads',
+    });
   } catch {}
 });
 
@@ -95,6 +104,16 @@ emailQueueEvents.on('failed', async ({ jobId, failedReason }) => {
         ? `Email to ${recipientEmail} failed after all retries`
         : `Email to ${recipientEmail} failed — retrying…`,
     });
+    // Only notify on final failure (not transient retries)
+    if (isFinal) {
+      notifService.dispatch(io, {
+        recipient: triggeredBy, sender: null,
+        type: 'email_failed', priority: 'error',
+        title: '❌ Email Delivery Failed',
+        message: `Failed to send ${emailType.replace(/_/g, ' ')} to ${recipientEmail} after all retries`,
+        link: '/leads',
+      });
+    }
   } catch {}
 });
 

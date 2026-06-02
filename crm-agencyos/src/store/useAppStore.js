@@ -196,44 +196,44 @@ function connectSocket(store) {
   sock.on('meeting:created', (m) => store.setState((s) => ({ meetings: [m, ...s.meetings] })));
 
   // Messages
-  sock.on('message:new', (msg) => store.setState((s) => {
-    // ── Canonical DM thread → local "dm-{otherId}" form ─────────────────────────
-    // The backend stores DMs as dm-{smallerId}-{largerId}.
-    // We must derive the OTHER user's id regardless of which position we occupy.
+  sock.on('message:new', (msg) => {
+    // Read state first so we can use it for both the state update and the toast.
+    // Using getState() + setState(obj) instead of setState(fn) so we can run
+    // side-effects (toast, sound) after the state change without putting them
+    // inside a pure state-updater callback.
+    const s = store.getState();
+
+    // ── Canonical DM thread → local "dm-{otherId}" form ──────────────────
     let tid = msg.threadId;
     const myId = getId(s.authUser);
     if (tid && tid.startsWith('dm-')) {
-      // Strip the 'dm-' prefix then split on the remaining '-'
-      const withoutPrefix = tid.slice(3); // e.g. "AAA-BBB"
+      const withoutPrefix = tid.slice(3);
       const dashIdx = withoutPrefix.indexOf('-');
       if (dashIdx !== -1) {
         const id1 = withoutPrefix.slice(0, dashIdx);
         const id2 = withoutPrefix.slice(dashIdx + 1);
-        // otherId is whichever is NOT me
-        const otherId = id1 === myId ? id2 : id1;
-        tid = `dm-${otherId}`;
+        tid = `dm-${id1 === myId ? id2 : id1}`;
       }
     }
 
     // Dedup — drop if already in thread cache
-    const already = (s.messages.threads[tid] || []).some((x) => x._id === msg._id);
-    if (already) return {};
-    const msgWithLocalTid = { ...msg, threadId: tid };
+    if ((s.messages.threads[tid] || []).some((x) => x._id === msg._id)) return;
 
-    // Increment unread only if:
-    //   1. This is not the thread the user is currently viewing AND
-    //   2. The message was NOT sent by this user (never increment own messages)
+    const msgWithLocalTid = { ...msg, threadId: tid };
+    const senderId  = getId(msg.userId);
+    const isFromMe  = senderId === myId;
+    const isActive  = tid === s.activeThread;
+
+    // ── Unread counters ────────────────────────────────────────────────────
     let channels = s.messages.channels;
-    let dms = s.messages.dms;
-    const senderId = getId(msg.userId);
-    if (tid !== s.activeThread && senderId !== myId) {
-      const isChannel = channels.some((c) => c.id === tid);
-      if (isChannel) {
+    let dms      = s.messages.dms;
+    if (!isActive && !isFromMe) {
+      const isChannelThread = channels.some((c) => c.id === tid);
+      if (isChannelThread) {
         channels = channels.map((c) => c.id === tid ? { ...c, unread: (c.unread || 0) + 1 } : c);
       } else {
         dms = dms.map((d) => d.id === tid ? { ...d, unread: (d.unread || 0) + 1 } : d);
       }
-      // Persist so the badge survives page reloads
       const uid = getId(s.authUser);
       if (uid) {
         const saved = loadUnreadLS(uid);
@@ -242,18 +242,79 @@ function connectSocket(store) {
       }
     }
 
-    return {
+    // ── State update ───────────────────────────────────────────────────────
+    store.setState({
       messages: {
         ...s.messages,
         channels,
         dms,
-        threads: {
-          ...s.messages.threads,
-          [tid]: [...(s.messages.threads[tid] || []), msgWithLocalTid]
+        threads: { ...s.messages.threads, [tid]: [...(s.messages.threads[tid] || []), msgWithLocalTid] },
+      },
+    });
+
+    // ── Toast + sound (only for messages not from me and not in active thread) ──
+    if (!isActive && !isFromMe) {
+      const isChannelThread = s.messages.channels.some((c) => c.id === tid);
+
+      // Resolve sender display name
+      const senderObj  = msg.userId && typeof msg.userId === 'object' ? msg.userId : null;
+      const senderName = senderObj?.name
+        || (s.users || []).find((u) => getId(u) === senderId)?.name
+        || 'Someone';
+
+      // Resolve thread label
+      let threadLabel;
+      if (isChannelThread) {
+        const ch = s.messages.channels.find((c) => c.id === tid);
+        threadLabel = ch?.name ? '#' + ch.name : '#channel';
+      } else {
+        const dm = s.messages.dms.find((d) => d.id === tid);
+        threadLabel = dm?.name || senderName;
+      }
+
+      // Build preview text — strip HTML tags, truncate
+      const rawText   = (msg.text || '').replace(/<[^>]*>/g, '').trim();
+      const hasFile   = (msg.fileUrls?.length || msg.files?.length) > 0;
+      const preview   = rawText
+        ? (rawText.length > 60 ? rawText.slice(0, 60) + '…' : rawText)
+        : (hasFile ? '📎 Attachment' : 'New message');
+
+      const toastTitle = isChannelThread ? `💬 ${senderName} in ${threadLabel}` : `💬 ${threadLabel}`;
+
+      // ── In-app react-hot-toast ─────────────────────────────────────────
+      toast(`${toastTitle}\n${preview}`, { duration: 5000, position: 'bottom-right', icon: '💬' });
+
+      // ── Browser / OS notification (fires even when tab is minimised) ───
+      if (typeof window !== 'undefined' && 'Notification' in window && document.hidden) {
+        if (Notification.permission === 'granted') {
+          try {
+            new Notification(toastTitle, {
+              body: preview,
+              icon: '/favicon.ico',
+              tag:  tid,
+            });
+          } catch {}
         }
       }
-    };
-  }));
+
+      // Soft chime — lighter tone than the notification sound
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx  = new AudioCtx();
+          const osc  = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.setValueAtTime(783.99, ctx.currentTime); // G5
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.18);
+        }
+      } catch {}
+    }
+  });
   sock.on('message:deleted', ({ id, threadId }) => store.setState((s) => {
     let tid = threadId;
     const myId = getId(s.authUser);
@@ -293,9 +354,64 @@ function connectSocket(store) {
     };
   }));
 
-  // Notifications
+  // Notifications — prepend to store, show toast, trigger browser notif + sound
   sock.on('notification:new', (notif) => {
     store.setState((s) => ({ notifications: [notif, ...s.notifications] }));
+
+    // ── Toast — no JSX allowed in a .js file; use the string overload ──
+    const priority = notif.priority || 'info';
+    const isError  = priority === 'error' || priority === 'critical';
+    const isWarn   = priority === 'warning';
+    const isOk     = priority === 'success';
+    const emoji    = isError ? '❌ ' : isWarn ? '⚠️ ' : isOk ? '✅ ' : '🔔 ';
+    const msg      = emoji + notif.title + (notif.message ? '\n' + notif.message : '');
+
+    const opts = {
+      id:       notif._id,
+      duration: priority === 'critical' ? 10000 : 5000,
+      position: 'bottom-right',
+    };
+
+    if (isError)     toast.error(msg, opts);
+    else if (isWarn) toast(msg, { ...opts, icon: '⚠️' });
+    else if (isOk)   toast.success(msg, opts);
+    else             toast(msg, { ...opts, icon: '🔔' });
+
+    // ── Browser / desktop notification (when tab is hidden) ────────────
+    if (typeof window !== 'undefined' && 'Notification' in window && document.hidden) {
+      if (Notification.permission === 'granted') {
+        try {
+          new Notification(notif.title, { body: notif.message, icon: '/favicon.ico', tag: notif._id });
+        } catch {}
+      }
+    }
+
+    // ── Sound (Web Audio API — no file dependency) ─────────────────────
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        const ctx  = new AudioCtx();
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        if (isError) {
+          osc.frequency.setValueAtTime(880, ctx.currentTime);
+          osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
+          gain.gain.setValueAtTime(0.25, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.35);
+        } else {
+          osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+          osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.18, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.28);
+        }
+      }
+    } catch {}
   });
 
   // Dynamic channels
@@ -748,6 +864,11 @@ const useAppStore = create((set, get, store) => ({
 
       set({ authUser:user, timer:timerState, loading:false });
       saveTimerLS(getId(user), timerState);
+
+      // Request browser notification permission silently after login
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
 
       // Sync active state back to database if timer is restored as active
       if (timerState.active && user.role === 'member') {

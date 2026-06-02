@@ -304,6 +304,20 @@ exports.updateLead = async (req, res, next) => {
           clientUrl: `/clients`
         });
 
+        // Personal notification for the assigned rep
+        const wonRecipient = lead.assignedTo || req.user?._id;
+        if (wonRecipient && String(wonRecipient) !== String(req.user?._id)) {
+          notifService.dispatch(io, {
+            recipient: wonRecipient,
+            sender:    req.user?._id,
+            type:      'lead_won',
+            priority:  'success',
+            title:     '🏆 Deal Won!',
+            message:   `${lead.companyName} has been converted into a client (₹${(lead.dealValue || 0).toLocaleString('en-IN')})`,
+            link:      '/clients',
+          });
+        }
+
         // Email the assigned rep (or the person who closed it) — non-blocking
         const recipientId = lead.assignedTo || req.user?._id;
         if (recipientId) {
@@ -410,6 +424,20 @@ exports.updateLead = async (req, res, next) => {
 
     // Broadcast update
     io?.emit('lead:updated', enriched);
+
+    // Lead Lost notification
+    if (status === 'Lost' && oldStatus !== 'Lost') {
+      const lostRecipient = lead.assignedTo || req.user?._id;
+      if (lostRecipient && String(lostRecipient) !== String(req.user?._id)) {
+        notifService.dispatch(io, {
+          recipient: lostRecipient, sender: req.user?._id,
+          type: 'lead_lost', priority: 'warning',
+          title: 'Lead Marked as Lost',
+          message: `${lead.companyName} has been marked as lost.`,
+          link: '/leads',
+        });
+      }
+    }
 
     // Determine the most specific audit action
     const leadAction = (() => {

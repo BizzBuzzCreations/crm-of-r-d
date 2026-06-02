@@ -2,11 +2,38 @@ const Notification = require('../models/Notification');
 
 exports.getNotifications = async (req, res, next) => {
   try {
-    const notifications = await Notification.find({ recipient: req.user._id })
-      .populate('sender', 'name color initials')
-      .sort({ createdAt: -1 })
-      .limit(50);
-    res.json({ success: true, data: notifications });
+    const page  = Math.max(1, Number(req.query.page)  || 1);
+    const limit = Math.min(100, Number(req.query.limit) || 50);
+    const skip  = (page - 1) * limit;
+
+    const filter = { recipient: req.user._id };
+    if (req.query.unreadOnly === 'true') filter.read = false;
+    if (req.query.type)     filter.type     = req.query.type;
+    if (req.query.priority) filter.priority = req.query.priority;
+
+    const [notifications, total, unreadCount] = await Promise.all([
+      Notification.find(filter)
+        .populate('sender', 'name color initials avatar')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Notification.countDocuments(filter),
+      Notification.countDocuments({ recipient: req.user._id, read: false }),
+    ]);
+
+    res.json({
+      success: true,
+      data:    notifications,
+      pagination: { total, page, limit, pages: Math.ceil(total / limit) },
+      unreadCount,
+    });
+  } catch (err) { next(err); }
+};
+
+exports.getUnreadCount = async (req, res, next) => {
+  try {
+    const count = await Notification.countDocuments({ recipient: req.user._id, read: false });
+    res.json({ success: true, count });
   } catch (err) { next(err); }
 };
 
