@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock, 
   Layers, Plus, Trash2, X, Edit2, Zap, Palette, Smartphone, Globe, BarChart3, 
   PenTool, Clapperboard, Camera, Wrench, Lightbulb, Shield, Rocket, HelpCircle, 
-  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Code, Info
+  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Code, Info, ArrowUpRight
 } from 'lucide-react';
 import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -1294,7 +1295,9 @@ function PersonalNotificationSection({ user, onUpdate }) {
       message_dm: true,
       weekly_report: false,
       deal_closed: true,
-      new_comment: true
+      new_comment: true,
+      lead_assigned: true,
+      lead_mentioned: true
     };
     if (!raw) return defaults;
     
@@ -1308,6 +1311,10 @@ function PersonalNotificationSection({ user, onUpdate }) {
   }, [user]);
 
   const [prefs, setPrefs] = useState(initialPrefs);
+
+  useEffect(() => {
+    setPrefs(initialPrefs);
+  }, [initialPrefs]);
 
   const handleToggle = (key, val) => {
     setPrefs({ ...prefs, [key]: val });
@@ -1325,7 +1332,9 @@ function PersonalNotificationSection({ user, onUpdate }) {
     { key: 'message_dm',       label: 'Direct Channel Messages', desc: 'Notifications on receiving direct chat thread communications.' },
     { key: 'new_comment',      label: 'Comments & Activity', desc: 'Get alerts on task feedback or client timeline notes.' },
     { key: 'deal_closed',      label: 'Closed Deal summary', desc: 'Admin summary alerts when sales deals are closed won/lost.' },
-    { key: 'weekly_report',    label: 'Weekly Digest summary', desc: 'Receive Monday performance stats in a summary email.' }
+    { key: 'weekly_report',    label: 'Weekly Digest summary', desc: 'Receive Monday performance stats in a summary email.' },
+    { key: 'lead_assigned',    label: 'Lead Reassignments',  desc: 'Get notified immediately when a B2B sales lead is assigned to you.' },
+    { key: 'lead_mentioned',   label: 'Lead Note @Mentions', desc: 'Alert when other sales reps or admins tag you in internal lead activity streams.' }
   ];
 
   return (
@@ -1439,7 +1448,8 @@ export default function SettingsPage() {
       { id: 'notifications', label: 'My Alerts',       icon: Bell },
       { id: 'signature',     label: 'Signature',       icon: PenTool },
       { id: 'security',      label: 'Security & Pwd',  icon: Lock },
-      { id: 'worklog',       label: 'Hours Log',       icon: Clock }
+      { id: 'worklog',       label: 'Hours Log',       icon: Clock },
+      { id: 'lead_import',   label: 'Lead Importer',   icon: Database }
     ]});
 
     // Tier 2: Managerial Settings (Admins & Managers)
@@ -1469,7 +1479,15 @@ export default function SettingsPage() {
     return list;
   }, [isAdmin, isManager]);
 
-  const [activeTab, setActiveTab] = useState('profile');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabParam || 'profile');
+
+  useEffect(() => {
+    if (tabParam) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
 
   // Personal Profile updates
   const handleUpdateProfile = async (body) => {
@@ -1590,6 +1608,9 @@ export default function SettingsPage() {
               </div>
               <WorkLogSection authUser={authUser} users={users} />
             </div>
+          )}
+          {activeTab === 'lead_import' && (
+            <LeadImporterSection />
           )}
 
           {/* Tier 2: Managerial Settings */}
@@ -2134,6 +2155,583 @@ function ServicesSection() {
 
       {showModal && (
         <AddServiceModal onClose={() => setShowModal(false)} onSave={async (body) => { await addService(body); toast.success('Service added!'); }} />
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────
+// ── Lead Importer Subcomponent (Spreadsheet Data Clean Flow)
+// ───────────────────────────────────────────────────────────────────
+function LeadImporterSection() {
+  const navigate = useNavigate();
+  const bulkCreateLeads = useAppStore((s) => s.bulkCreateLeads);
+
+  const [step, setStep] = useState(1); // 1: Ingest/Upload, 2: Mapping, 3: Spreadsheet/Editing
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [csvLines, setCsvLines] = useState([]);
+  
+  // Mapping state: key is target B2B field, value is index of matched CSV column
+  const [mapping, setMapping] = useState({
+    companyName: '',
+    contactPerson: '',
+    dealValue: '',
+    email: '',
+    phone: '',
+    website: ''
+  });
+
+  // Table editor data
+  const [importRows, setImportRows] = useState([]);
+
+  // File states
+  const [fileName, setFileName] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+
+  // Download simple B2B CSV template
+  const handleDownloadTemplate = () => {
+    const templateRows = [
+      ['Company Name', 'Contact Person', 'Deal Value', 'Email', 'Phone', 'Website'],
+      ['Acme Corp', 'Alice Smith', '5000', 'alice@acme.com', '123-456-7890', 'acme.com'],
+      ['Apex Solutions', 'Bob Johnson', '₹12,000', 'bob@apex.co', '9876543210', 'apex.co'],
+      ['Global Partners Ltd', '', 'invalid-value', 'invalid-email', '555', ''], // row with errors / warnings
+    ];
+    downloadCSV(templateRows, 'lead_import_template.csv');
+    toast.success('B2B Template CSV downloaded successfully!');
+  };
+
+  // Parse CSV file content
+  const processCSVFile = (file) => {
+    if (!file) return;
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const rawLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        if (rawLines.length <= 1) {
+          toast.error('The selected CSV file has no records');
+          return;
+        }
+
+        // Parse headers from the first line
+        const parsedHeaders = rawLines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
+        setCsvHeaders(parsedHeaders);
+
+        // Store CSV rows parsed by split commas
+        const linesData = [];
+        for (let i = 1; i < rawLines.length; i++) {
+          const rowData = rawLines[i].split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+          linesData.push(rowData);
+        }
+        setCsvLines(linesData);
+
+        // Pre-fill mapping automatically by scanning header names
+        const initialMapping = {
+          companyName: '',
+          contactPerson: '',
+          dealValue: '',
+          email: '',
+          phone: '',
+          website: ''
+        };
+
+        parsedHeaders.forEach((h, idx) => {
+          const l = h.toLowerCase();
+          if (l.includes('company') || l.includes('title') || l.includes('org') || l.includes('firm')) {
+            initialMapping.companyName = idx;
+          } else if (l.includes('contact') || l.includes('person') || l.includes('name')) {
+            initialMapping.contactPerson = idx;
+          } else if (l.includes('value') || l.includes('deal') || l.includes('size') || l.includes('budget') || l.includes('worth')) {
+            initialMapping.dealValue = idx;
+          } else if (l.includes('email') || l.includes('mail')) {
+            initialMapping.email = idx;
+          } else if (l.includes('phone') || l.includes('mobile') || l.includes('cell') || l.includes('contact no')) {
+            initialMapping.phone = idx;
+          } else if (l.includes('website') || l.includes('site') || l.includes('link') || l.includes('web')) {
+            initialMapping.website = idx;
+          }
+        });
+
+        setMapping(initialMapping);
+        setStep(2); // Go to step 2 (Mapping)
+        toast.success('CSV uploaded successfully! Please verify column mappings.');
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to parse CSV file. Ensure it is comma-separated.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    processCSVFile(file);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    processCSVFile(file);
+  };
+
+  // Convert raw CSV lines to Lead objects based on mappings
+  const handleConfirmMapping = () => {
+    if (mapping.companyName === '') {
+      toast.error('You must map the Company Name field (Required)');
+      return;
+    }
+
+    const rows = csvLines.map((cols) => {
+      const companyName = cols[mapping.companyName] || '';
+      const contactPerson = mapping.contactPerson !== '' ? cols[mapping.contactPerson] || '' : '';
+      const dealValue = mapping.dealValue !== '' ? cols[mapping.dealValue] || '' : '';
+      const email = mapping.email !== '' ? cols[mapping.email] || '' : '';
+      const phone = mapping.phone !== '' ? cols[mapping.phone] || '' : '';
+      const website = mapping.website !== '' ? cols[mapping.website] || '' : '';
+
+      return {
+        companyName,
+        contactPerson,
+        dealValue,
+        email,
+        phone,
+        website
+      };
+    });
+
+    setImportRows(rows);
+    setStep(3); // Go to step 3 (Spreadsheet validation)
+    toast.success('Leads structured! Please review and fix any validation warnings.');
+  };
+
+  // Inline row validation
+  const validateRow = (row) => {
+    const errors = [];
+    const warnings = [];
+
+    if (!row.companyName || !row.companyName.trim()) {
+      errors.push('Company name is required');
+    }
+
+    if (!row.contactPerson || !row.contactPerson.trim() || row.contactPerson.trim() === 'Undecided') {
+      warnings.push('Contact person is blank (will default to "Undecided")');
+    }
+
+    const cleanedVal = String(row.dealValue).replace(/[^0-9.]/g, '');
+    const numVal = Number(cleanedVal);
+    if (isNaN(numVal) || numVal < 0 || String(row.dealValue).trim() === '') {
+      warnings.push('Deal value is invalid or negative (will default to 0)');
+    } else if (cleanedVal !== String(row.dealValue).trim()) {
+      warnings.push('Value contains non-numeric formatting (will be cleaned)');
+    }
+
+    if (row.email && row.email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(row.email.trim())) {
+        warnings.push('Email address format is invalid');
+      }
+    }
+
+    if (row.phone && row.phone.trim()) {
+      const digits = row.phone.replace(/[^0-9]/g, '');
+      if (digits.length < 6) {
+        warnings.push('Phone number is too short');
+      }
+    }
+
+    let status = 'clean';
+    if (errors.length > 0) status = 'error';
+    else if (warnings.length > 0) status = 'warning';
+
+    return { status, errors, warnings };
+  };
+
+  // Live evaluated data rows with validations added on top
+  const evaluatedRows = useMemo(() => {
+    return importRows.map(row => ({
+      data: row,
+      val: validateRow(row)
+    }));
+  }, [importRows]);
+
+  const stats = useMemo(() => {
+    let clean = 0;
+    let warning = 0;
+    let error = 0;
+
+    evaluatedRows.forEach(r => {
+      if (r.val.status === 'clean') clean++;
+      else if (r.val.status === 'warning') warning++;
+      else if (r.val.status === 'error') error++;
+    });
+
+    return { clean, warning, error, total: evaluatedRows.length };
+  }, [evaluatedRows]);
+
+  // Edit in-place
+  const handleCellChange = (rowIndex, field, value) => {
+    const updated = [...importRows];
+    updated[rowIndex] = { ...updated[rowIndex], [field]: value };
+    setImportRows(updated);
+  };
+
+  // Delete row from import
+  const handleDeleteRow = (rowIndex) => {
+    setImportRows(importRows.filter((_, i) => i !== rowIndex));
+  };
+
+  // Auto-resolve warnings in bulk
+  const handleAutoResolve = () => {
+    const resolved = importRows.map(row => {
+      const updated = { ...row };
+
+      // 1. Contact Person fallback
+      if (!updated.contactPerson || !updated.contactPerson.trim()) {
+        updated.contactPerson = 'Undecided';
+      }
+
+      // 2. Deal Value numeric extraction
+      const cleanVal = String(updated.dealValue).replace(/[^0-9.]/g, '');
+      const parsedVal = Number(cleanVal);
+      updated.dealValue = isNaN(parsedVal) || cleanVal === '' ? 0 : parsedVal;
+
+      // 3. Email & Phone trim
+      if (updated.email) updated.email = updated.email.trim();
+      if (updated.phone) updated.phone = updated.phone.trim();
+
+      return updated;
+    });
+
+    setImportRows(resolved);
+    toast.success('Auto-resolved and sanitized warnings in-bulk!');
+  };
+
+  // Submit complete ingestion to database
+  const handleCompleteImport = async () => {
+    if (stats.error > 0) {
+      toast.error('Please fix all Company Name errors before completing the ingestion.');
+      return;
+    }
+
+    // Sanitize values for the final payload
+    const finalLeads = importRows.map(row => {
+      const cleanVal = String(row.dealValue).replace(/[^0-9.]/g, '');
+      const parsedVal = Number(cleanVal);
+
+      return {
+        companyName: row.companyName.trim(),
+        contactPerson: row.contactPerson.trim() || 'Undecided',
+        dealValue: isNaN(parsedVal) || cleanVal === '' ? 0 : parsedVal,
+        email: row.email ? row.email.trim() : '',
+        phone: row.phone ? row.phone.trim() : '',
+        website: row.website ? row.website.trim() : '',
+        status: 'New Lead',
+        source: 'Import'
+      };
+    });
+
+    try {
+      await bulkCreateLeads(finalLeads);
+      navigate('/leads');
+    } catch {}
+  };
+
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      {/* Tab Title */}
+      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700/60">
+        <h3 className="text-[16px] font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Database size={18} className="text-indigo-500" /> B2B Leads Ingestion Importer
+        </h3>
+        <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="flex items-center gap-1 text-[12px] text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-950">
+          <Download size={13} />
+          <span>Download Template CSV</span>
+        </Button>
+      </div>
+
+      {/* Progress timeline */}
+      <div className="flex items-center justify-center gap-2 text-[12.5px] font-bold py-2 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-slate-200 dark:border-slate-800">
+        <span className={cn("px-3 py-1 rounded-full transition-all", step >= 1 ? "bg-indigo-500 text-white" : "text-slate-450")}>1. Ingest File</span>
+        <span className="text-slate-400">➔</span>
+        <span className={cn("px-3 py-1 rounded-full transition-all", step >= 2 ? "bg-indigo-500 text-white" : "text-slate-450")}>2. Column Mapping</span>
+        <span className="text-slate-400">➔</span>
+        <span className={cn("px-3 py-1 rounded-full transition-all", step >= 3 ? "bg-indigo-500 text-white" : "text-slate-450")}>3. Interactive Clean-up</span>
+      </div>
+
+      {/* STEP 1: Upload Dropzone */}
+      {step === 1 && (
+        <div className="space-y-4">
+          <div className="bg-slate-50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-[13px] text-slate-550 flex gap-2.5">
+            <Info size={16} className="text-indigo-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-slate-700 dark:text-slate-350 mb-0.5">Prepare clean B2B sheets for error-free importing</p>
+              <p>Drag in your CSV file. Standard comma layouts work immediately. We automatically map columns for company, contact representatives, and deal value sizes, let you edit records inline, and resolve warnings before committing to the catalog.</p>
+            </div>
+          </div>
+
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            className={cn(
+              "border-2 border-dashed rounded-3xl p-12 text-center relative cursor-pointer transition-all min-h-[220px] flex flex-col justify-center items-center",
+              dragOver 
+                ? "border-indigo-500 bg-indigo-500/[0.04]" 
+                : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/10"
+            )}
+          >
+            <input
+              type="file" accept=".csv"
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              onChange={handleFileChange}
+            />
+            <Database size={40} className="text-indigo-500 mb-3.5 opacity-80" />
+            <p className="text-[13.5px] font-bold text-slate-800 dark:text-slate-200">
+              Drag your sales CSV sheet here or <span className="text-indigo-650 dark:text-indigo-400 underline">browse computer</span>
+            </p>
+            <p className="text-[11.5px] text-slate-400 mt-1">Supports standard comma-separated sheets up to 500 records</p>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 2: Mapping Header columns */}
+      {step === 2 && (
+        <div className="space-y-6">
+          <div className="p-4 rounded-xl bg-indigo-500/[0.02] border border-indigo-500/10 text-[12.5px] leading-relaxed text-slate-600 dark:text-slate-400 space-y-1">
+            <p className="font-bold text-indigo-650 dark:text-indigo-400 flex items-center gap-1.5">
+              <ArrowUpRight size={15} /> Header Column Alignment:
+            </p>
+            <p>Align the column headers from your file <strong className="text-slate-700 dark:text-slate-300">({fileName})</strong> to the CRM B2B Lead fields. We pre-mapped fields that matched closely.</p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden text-[13px]">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-400 uppercase tracking-widest text-[10.5px]">
+                  <th className="px-5 py-3">Lead Database Target Field</th>
+                  <th className="px-5 py-3">CSV Header Match Selection</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-105 dark:divide-slate-800 font-semibold text-slate-800 dark:text-slate-200">
+                {[
+                  { key: 'companyName', label: 'Company Name (Required)', required: true },
+                  { key: 'contactPerson', label: 'Contact Person', required: false },
+                  { key: 'dealValue', label: 'Deal Value (Budget)', required: false },
+                  { key: 'email', label: 'Email Address', required: false },
+                  { key: 'phone', label: 'Phone Number', required: false },
+                  { key: 'website', label: 'Website Link', required: false }
+                ].map((f) => (
+                  <tr key={f.key}>
+                    <td className="px-5 py-4">{f.label}</td>
+                    <td className="px-5 py-4">
+                      <select
+                        className="form-input text-[13px] py-1.5 w-64 font-sans font-medium"
+                        value={mapping[f.key]}
+                        onChange={(e) => setMapping({ ...mapping, [f.key]: e.target.value === '' ? '' : Number(e.target.value) })}
+                      >
+                        <option value="">-- Do Not Import --</option>
+                        {csvHeaders.map((h, i) => (
+                          <option key={i} value={i}>Column #{i + 1}: "{h}"</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end gap-3 text-[13px]">
+            <Button variant="outline" onClick={() => setStep(1)}>Go Back</Button>
+            <Button variant="primary" onClick={handleConfirmMapping} disabled={mapping.companyName === ''}>
+              Align Columns & Structure Data
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 3: Spreadsheet interactive review and validator */}
+      {step === 3 && (
+        <div className="space-y-5 animate-fadeIn">
+          {/* Summary dashboard */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-250 dark:border-slate-800 text-[12px] font-semibold text-slate-450">
+              <span>Total rows parsed</span>
+              <p className="text-[20px] font-bold text-slate-800 dark:text-white mt-1">{stats.total}</p>
+            </div>
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[12px] font-semibold text-emerald-600 dark:text-emerald-450">
+              <span>Clean rows (🟢 Ready)</span>
+              <p className="text-[20px] font-bold mt-1">{stats.clean}</p>
+            </div>
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[12px] font-semibold text-amber-600 dark:text-amber-450">
+              <span>Warnings (🟡 Flagged)</span>
+              <p className="text-[20px] font-bold mt-1">{stats.warning}</p>
+            </div>
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-[12px] font-semibold text-red-500">
+              <span>Errors (🔴 Critical)</span>
+              <p className="text-[20px] font-bold mt-1">{stats.error}</p>
+            </div>
+          </div>
+
+          {/* Interactive controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[12.5px] p-4 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div>
+              <p className="font-bold text-slate-800 dark:text-slate-200">Interactive Spreadsheet Editor</p>
+              <p className="text-[11.5px] text-slate-400">Click on any cell to edit details inline. Clear all errors before completing.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={handleAutoResolve} className="text-amber-605 border-amber-200 hover:bg-amber-50 dark:border-amber-950 dark:hover:bg-amber-950/20">
+                ⚡ Auto-Resolve Warnings
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setStep(2)}>
+                Change Mapping
+              </Button>
+            </div>
+          </div>
+
+          {/* Interactive Spreadsheet Grid */}
+          <div className="border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-md">
+            <div className="overflow-x-auto max-h-[440px]">
+              <table className="w-full text-left border-collapse text-[12.5px] font-sans">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-855 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-400 uppercase tracking-widest text-[10px]">
+                    <th className="px-4 py-3 text-center w-16">Status</th>
+                    <th className="px-4 py-3 min-w-[90px]">Lead ID</th>
+                    <th className="px-4 py-3 min-w-[140px]">Company Name *</th>
+                    <th className="px-4 py-3 min-w-[120px]">Contact Person</th>
+                    <th className="px-4 py-3 min-w-[100px]">Deal Value (₹)</th>
+                    <th className="px-4 py-3 min-w-[150px]">Email</th>
+                    <th className="px-4 py-3 min-w-[110px]">Phone</th>
+                    <th className="px-4 py-3 min-w-[120px]">Website</th>
+                    <th className="px-4 py-3 text-center w-12">Delete</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
+                  {evaluatedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan="9" className="px-4 py-8 text-center text-slate-450 italic">
+                        No records loaded in import grid list.
+                      </td>
+                    </tr>
+                  ) : (
+                    evaluatedRows.map((row, idx) => {
+                      const isErr = row.val.status === 'error';
+                      const isWarn = row.val.status === 'warning';
+                      const hasAlert = isErr || isWarn;
+
+                      return (
+                        <tr key={idx} className={cn(
+                          "transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/10",
+                          isErr ? "bg-red-500/[0.02]" : isWarn ? "bg-amber-500/[0.01]" : ""
+                        )}>
+                          <td className="px-4 py-2.5 text-center">
+                            <span 
+                              className={cn(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded-full cursor-help",
+                                isErr 
+                                  ? "bg-red-500/15 text-red-500" 
+                                  : isWarn 
+                                    ? "bg-amber-500/15 text-amber-500" 
+                                    : "bg-emerald-500/15 text-emerald-500"
+                              )}
+                              title={hasAlert ? [...row.val.errors, ...row.val.warnings].join(' | ') : 'Ready to import!'}
+                            >
+                              {isErr ? '🔴 Err' : isWarn ? '🟡 Warn' : '🟢 Ready'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-[11.5px] font-bold text-slate-450 dark:text-slate-500 italic select-none">
+                            <span>[Auto]</span>
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              className={cn(
+                                "bg-transparent border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 py-1 w-full outline-none transition-all",
+                                isErr && !row.data.companyName?.trim() ? "border-red-500/40 bg-red-500/[0.01]" : ""
+                              )}
+                              value={row.data.companyName}
+                              onChange={(e) => handleCellChange(idx, 'companyName', e.target.value)}
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              className="bg-transparent border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 py-1 w-full outline-none transition-all"
+                              value={row.data.contactPerson}
+                              onChange={(e) => handleCellChange(idx, 'contactPerson', e.target.value)}
+                              placeholder="e.g. John Doe"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              className={cn(
+                                "bg-transparent border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-855 hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 py-1 w-full outline-none transition-all text-right font-mono",
+                                isWarn && isNaN(Number(String(row.data.dealValue).replace(/[^0-9.]/g, ''))) ? "border-amber-500/30" : ""
+                              )}
+                              value={row.data.dealValue}
+                              onChange={(e) => handleCellChange(idx, 'dealValue', e.target.value)}
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              className="bg-transparent border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 py-1 w-full outline-none transition-all font-mono"
+                              value={row.data.email}
+                              onChange={(e) => handleCellChange(idx, 'email', e.target.value)}
+                              placeholder="client@company.com"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              className="bg-transparent border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 py-1 w-full outline-none transition-all font-mono"
+                              value={row.data.phone}
+                              onChange={(e) => handleCellChange(idx, 'phone', e.target.value)}
+                              placeholder="12345"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              className="bg-transparent border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 py-1 w-full outline-none transition-all"
+                              value={row.data.website}
+                              onChange={(e) => handleCellChange(idx, 'website', e.target.value)}
+                              placeholder="company.com"
+                            />
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button
+                              onClick={() => handleDeleteRow(idx)}
+                              className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                              title="Delete row from imports"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center text-[12.5px] mt-2">
+            <span className="text-slate-450 italic">
+              * Company Name is required. Hover over warnings / error tags to inspect alerts.
+            </span>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setStep(2)}>Go Back</Button>
+              <Button 
+                variant="primary" 
+                onClick={handleCompleteImport} 
+                disabled={stats.error > 0 || stats.total === 0}
+                className={cn(stats.error > 0 ? "opacity-50 cursor-not-allowed" : "")}
+              >
+                ✓ Complete Ingestion ({stats.clean + stats.warning} Clean Leads)
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

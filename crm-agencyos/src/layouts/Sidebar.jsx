@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
-  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil
+  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -356,6 +356,7 @@ const NAV = [
       { path: '/todos',     label: 'Todos',        icon: ListTodo,        roles: ['admin','manager','member','client_relations'] },
       { path: '/tasks',     label: 'Tasks',        icon: CheckSquare,     roles: ['admin','manager','member','client_relations'] },
       { path: '/clients',   label: 'Clients & Projects', icon: Users,           roles: ['admin','manager','client_relations'] },
+      { path: '/leads',     label: 'Leads Pipeline',     icon: Target,          roles: ['admin','manager','client_relations','member'] },
       { path: '/messages',  label: 'Messages',           icon: MessageSquare,   roles: ['admin','manager','member','client_relations'], badge: true },
       { path: '/meetings',  label: 'Meetings',           icon: Video,           roles: ['admin','manager','member','client_relations'] },
       { path: '/reports',   label: 'Reports',            icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },
@@ -452,7 +453,14 @@ export default function Sidebar() {
                       {!sidebarOpen && isActive && (
                         <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-indigo-400 rounded-r" />
                       )}
-                      <item.icon size={16} className="flex-shrink-0" />
+                      {/* Icon — wrapped in relative div so we can overlay the collapsed dot */}
+                      <div className="relative flex-shrink-0">
+                        <item.icon size={16} />
+                        {/* Collapsed sidebar: pulsing red dot when there are unreads */}
+                        {!sidebarOpen && item.badge && totalUnread > 0 && (
+                          <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border border-slate-900 animate-pulse" />
+                        )}
+                      </div>
                       <AnimatePresence>
                         {sidebarOpen && (
                           <motion.span
@@ -464,6 +472,7 @@ export default function Sidebar() {
                           </motion.span>
                         )}
                       </AnimatePresence>
+                      {/* Expanded sidebar: full numeric badge */}
                       {sidebarOpen && item.badge && totalUnread > 0 && (
                         <span className="ml-auto bg-red-500 text-white text-[9.5px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-4">
                           {totalUnread}

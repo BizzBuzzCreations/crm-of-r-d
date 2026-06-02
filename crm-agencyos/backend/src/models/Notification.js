@@ -8,7 +8,7 @@ const NotificationSchema = new mongoose.Schema({
     enum: [
       'task_assigned', 'task_approved', 'task_ready_approval',
       'meeting_scheduled', 'message_dm', 'client_update', 'todo_submitted',
-      'service_added',
+      'service_added', 'lead_assigned', 'lead_mentioned',
     ],
     required: true,
   },

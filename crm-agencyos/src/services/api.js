@@ -261,3 +261,16 @@ export const settingsAPI = {
   update: (body)      => api.put('/settings', body),
   invite: (body)      => api.post('/settings/users', body),
 };
+
+// ── Leads
+// ─────────────────────────────────────────────────────────────
+export const leadsAPI = {
+  getAll: ()                      => api.get('/leads'),
+  create: (body)                  => api.post('/leads', body),
+  bulkCreate: (leads)             => api.post('/leads/bulk', { leads }),
+  update: (id, body)              => api.put(`/leads/${id}`, body),
+  delete: (id)                    => api.delete(`/leads/${id}`),
+  merge:  (body)                  => api.post('/leads/merge', body),
+  sendEmail: (id, subject, body)  => api.post(`/leads/${id}/email`, { subject, body }),
+  getEmailLogs: (id)              => api.get(`/leads/${id}/emails`),
+};

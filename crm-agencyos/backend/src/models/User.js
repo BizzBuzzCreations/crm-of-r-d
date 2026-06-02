@@ -36,7 +36,9 @@ const UserSchema = new mongoose.Schema({
       message_dm: true,
       weekly_report: false,
       deal_closed: true,
-      new_comment: true
+      new_comment: true,
+      lead_assigned: true,
+      lead_mentioned: true
     }
   },
   personalSignature: { type: String, default: '' },

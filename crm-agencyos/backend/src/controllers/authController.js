@@ -127,24 +127,28 @@ exports.me = async (req, res) => {
 exports.updateProfile = async (req, res, next) => {
   try {
     const { name, email, position, phone, bio, color, emailSync, calendarSyncEnabled, notificationPrefs, personalSignature, defaultLandingView } = req.body;
-    const updateObj = {};
-    if (name !== undefined) updateObj.name = name;
-    if (email !== undefined) updateObj.email = email;
-    if (position !== undefined) updateObj.position = position;
-    if (phone !== undefined) updateObj.phone = phone;
-    if (bio !== undefined) updateObj.bio = bio;
-    if (color !== undefined) updateObj.color = color;
-    if (emailSync !== undefined) updateObj.emailSync = emailSync;
-    if (calendarSyncEnabled !== undefined) updateObj.calendarSyncEnabled = calendarSyncEnabled;
-    if (notificationPrefs !== undefined) updateObj.notificationPrefs = notificationPrefs;
-    if (personalSignature !== undefined) updateObj.personalSignature = personalSignature;
-    if (defaultLandingView !== undefined) updateObj.defaultLandingView = defaultLandingView;
+    
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      updateObj,
-      { new: true, runValidators: true }
-    );
+    if (name !== undefined) user.name = name;
+    if (email !== undefined) user.email = email;
+    if (position !== undefined) user.position = position;
+    if (phone !== undefined) user.phone = phone;
+    if (bio !== undefined) user.bio = bio;
+    if (color !== undefined) user.color = color;
+    if (emailSync !== undefined) user.emailSync = emailSync;
+    if (calendarSyncEnabled !== undefined) user.calendarSyncEnabled = calendarSyncEnabled;
+    if (personalSignature !== undefined) user.personalSignature = personalSignature;
+    if (defaultLandingView !== undefined) user.defaultLandingView = defaultLandingView;
+
+    if (notificationPrefs !== undefined && typeof notificationPrefs === 'object') {
+      Object.entries(notificationPrefs).forEach(([key, val]) => {
+        user.notificationPrefs.set(key, !!val);
+      });
+    }
+
+    await user.save();
 
     // Broadcast update for real-time presence/visual sync
     const io = req.app.get('io');

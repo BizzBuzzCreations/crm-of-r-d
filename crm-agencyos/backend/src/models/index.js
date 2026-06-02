@@ -211,6 +211,7 @@ module.exports = {
   WorkLog:           mongoose.model('WorkLog',           WorkLogSchema),
   Channel:           mongoose.model('Channel',           ChannelSchema),
   Project:           mongoose.model('Project',           ProjectSchema),
+  Lead:              require('./Lead'),
   SystemSettings:    require('./SystemSettings'),
   Counter,
 };

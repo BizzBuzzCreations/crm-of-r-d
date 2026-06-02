@@ -7,11 +7,13 @@ const errorHandler= require('./middleware/errorHandler');
 
 const app = express();
 
-// ── CORS — allow dev (localhost:5173), configured CLIENT_URL, and any LAN IP ──
+// ── CORS — allow dev (localhost:5173, 5174), configured CLIENT_URL, and any LAN IP ──
 const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/$/, '') : null;
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
   'http://localhost:5000',
   clientUrl,
 ].filter(Boolean);
@@ -61,6 +63,7 @@ app.use('/api/notifications',  require('./routes/notifications'));
 app.use('/api/services',       require('./routes/services'));
 app.use('/api/channels',       require('./routes/channels'));
 app.use('/api/projects',       require('./routes/projects'));
+app.use('/api/leads',          require('./routes/leads'));
 app.use('/api/settings',       require('./routes/settings'));
 
 // ── Health check ─────────────────────────────────────────────

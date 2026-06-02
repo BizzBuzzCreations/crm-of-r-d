@@ -4,7 +4,7 @@ import toast        from 'react-hot-toast';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
   todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
-  settingsAPI,
+  settingsAPI, leadsAPI,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -53,8 +53,8 @@ let _visibilityHandler = null;
 const getSocketUrl = () => {
   if (typeof window === 'undefined') return 'http://localhost:5000';
   const { protocol, hostname, port } = window.location;
-  // Vite dev server runs on 5173; backend is always on 5000 in that case
-  if (port === '5173') return 'http://localhost:5000';
+  // Vite dev server runs on 5173 or 5174; backend is always on 5000 in that case
+  if (port === '5173' || port === '5174') return 'http://localhost:5000';
   // Production: frontend and socket are served from the same origin
   return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
 };
@@ -157,6 +157,30 @@ function connectSocket(store) {
   sock.on('task:updated', (t) => store.setState((s) => ({ tasks: s.tasks.map((x) => getId(x) === getId(t) ? t : x) })));
   sock.on('task:deleted', (id)=> store.setState((s) => ({ tasks: s.tasks.filter((x) => getId(x) !== String(id)) })));
 
+  // Leads
+  sock.on('lead:created', (l) => store.setState((s) => {
+    const already = s.leads.some((x) => sameId(x, l));
+    if (already) return {};
+    return { leads: [l, ...s.leads] };
+  }));
+  sock.on('lead:updated', (l) => store.setState((s) => ({ leads: s.leads.map((x) => getId(x) === getId(l) ? l : x) })));
+  sock.on('lead:deleted', (id)=> store.setState((s) => ({ leads: s.leads.filter((x) => getId(x) !== String(id)) })));
+  sock.on('lead:won:alert', (payload) => {
+    toast.success(`🎉 New Client Secured! "${payload.companyName}" workspace initialized.`, { duration: 6000 });
+  });
+
+  // ── Real-time email delivery feedback ────────────────────────
+  sock.on('email:sent', (payload) => {
+    toast.success(`✉️ Email delivered to ${payload.to}`, { duration: 4000 });
+  });
+  sock.on('email:failed', (payload) => {
+    if (payload.willRetry) {
+      toast.error(`⚠️ Email to ${payload.to} failed — retrying automatically`, { duration: 4000 });
+    } else {
+      toast.error(`❌ Email to ${payload.to} could not be delivered after all retries`, { duration: 6000 });
+    }
+  });
+
   // Todos
   sock.on('todo:created', (t) => store.setState((s) => {
     // Use sameId for reliable string-based comparison (avoids ObjectId === failures)
@@ -172,21 +196,36 @@ function connectSocket(store) {
 
   // Messages
   sock.on('message:new', (msg) => store.setState((s) => {
+    // ── Canonical DM thread → local "dm-{otherId}" form ─────────────────────────
+    // The backend stores DMs as dm-{smallerId}-{largerId}.
+    // We must derive the OTHER user's id regardless of which position we occupy.
     let tid = msg.threadId;
     const myId = getId(s.authUser);
-    if (tid && tid.startsWith('dm-') && tid.includes('-')) {
-      const parts = tid.split('-');
-      const otherId = parts[1] === myId ? parts[2] : parts[1];
-      tid = `dm-${otherId}`;
+    if (tid && tid.startsWith('dm-')) {
+      // Strip the 'dm-' prefix then split on the remaining '-'
+      const withoutPrefix = tid.slice(3); // e.g. "AAA-BBB"
+      const dashIdx = withoutPrefix.indexOf('-');
+      if (dashIdx !== -1) {
+        const id1 = withoutPrefix.slice(0, dashIdx);
+        const id2 = withoutPrefix.slice(dashIdx + 1);
+        // otherId is whichever is NOT me
+        const otherId = id1 === myId ? id2 : id1;
+        tid = `dm-${otherId}`;
+      }
     }
+
+    // Dedup — drop if already in thread cache
     const already = (s.messages.threads[tid] || []).some((x) => x._id === msg._id);
     if (already) return {};
     const msgWithLocalTid = { ...msg, threadId: tid };
 
-    // Increment unread count if NOT currently viewing this thread
+    // Increment unread only if:
+    //   1. This is not the thread the user is currently viewing AND
+    //   2. The message was NOT sent by this user (never increment own messages)
     let channels = s.messages.channels;
     let dms = s.messages.dms;
-    if (tid !== s.activeThread) {
+    const senderId = getId(msg.userId);
+    if (tid !== s.activeThread && senderId !== myId) {
       const isChannel = channels.some((c) => c.id === tid);
       if (isChannel) {
         channels = channels.map((c) => c.id === tid ? { ...c, unread: (c.unread || 0) + 1 } : c);
@@ -430,6 +469,7 @@ const useAppStore = create((set, get, store) => ({
   notifications: [],
   services:   [],
   projects:   [],
+  leads:      [],
   systemSettings: null,
   timer:      initialTimer(),
   activeThread:'general',
@@ -494,6 +534,92 @@ const useAppStore = create((set, get, store) => ({
           sameId(c, project.clientId) ? { ...c, projectCount: c.projectCount - 1 } : c
         )
       }));
+    }
+  },
+
+  // ── Leads ──────────────────────────────────────────────────
+  loadLeads: async () => {
+    try {
+      const { data } = await leadsAPI.getAll();
+      set({ leads: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load leads');
+    }
+  },
+  createLead: async (body) => {
+    try {
+      const { data } = await leadsAPI.create(body);
+      set((s) => {
+        const already = s.leads.some((x) => sameId(x, data.data));
+        if (already) return {};
+        return { leads: [data.data, ...s.leads] };
+      });
+      toast.success('Lead created successfully');
+      return data.data;
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to create lead';
+      toast.error(msg);
+      throw err;
+    }
+  },
+  bulkCreateLeads: async (leads) => {
+    try {
+      const { data } = await leadsAPI.bulkCreate(leads);
+      set((s) => {
+        const newLeads = (data.data || []).filter((l) => !s.leads.some((x) => sameId(x, l)));
+        if (newLeads.length === 0) return {};
+        return { leads: [...newLeads, ...s.leads] };
+      });
+      toast.success(`Successfully imported ${data.count} leads in bulk!`);
+      return data.data;
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to import bulk leads';
+      toast.error(msg);
+      throw err;
+    }
+  },
+  updateLead: async (id, body) => {
+    try {
+      const { data } = await leadsAPI.update(id, body);
+      set((s) => ({ leads: s.leads.map((l) => l._id === id ? data.data : l) }));
+      
+      // If B2B conversion trigger initialized dynamic client/projects, reload catalog to sync UI
+      if (body.status === 'Won') {
+        const { data: clientsData } = await clientsAPI.getAll();
+        const { data: projectsData } = await projectsAPI.getAll();
+        set({ clients: clientsData.data, projects: projectsData.data });
+      }
+
+      return data.data;
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to update lead';
+      toast.error(msg);
+      throw err;
+    }
+  },
+  deleteLead: async (id) => {
+    try {
+      await leadsAPI.delete(id);
+      set((s) => ({ leads: s.leads.filter((l) => l._id !== id) }));
+      toast.success('Lead deleted successfully');
+    } catch (err) {
+      toast.error('Failed to delete lead');
+      throw err;
+    }
+  },
+  mergeLeads: async (body) => {
+    try {
+      const { data } = await leadsAPI.merge(body);
+      // Reload leads timeline and client profiles to fully capture changes
+      const { data: leadsData } = await leadsAPI.getAll();
+      set({ leads: leadsData.data });
+      toast.success('Duplicate B2B leads merged successfully');
+      return data.data;
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to merge leads';
+      toast.error(msg);
+      throw err;
     }
   },
 
@@ -695,6 +821,18 @@ const useAppStore = create((set, get, store) => ({
     }
   },
 
+  updateProfile: async (body) => {
+    try {
+      const { data } = await authAPI.updateProfile(body);
+      set({ authUser: data.user });
+      return { success: true, user: data.user };
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to update profile';
+      toast.error(msg);
+      return { success: false, message: msg };
+    }
+  },
+
   // Restore session on page reload using stored token
   restoreSession: async () => {
     const token = localStorage.getItem('crm_access_token');
@@ -774,9 +912,10 @@ const useAppStore = create((set, get, store) => ({
   loadAllData: async () => {
     set({ loading:true });
     try {
-      const [uR, cR, tR, dR, mR, nR, chR, svR, pR, setR] = await Promise.all([
+      const [uR, cR, tR, dR, mR, nR, chR, svR, pR, lR, setR] = await Promise.all([
         usersAPI.getAll(), clientsAPI.getAll(), tasksAPI.getAll(), todosAPI.getAll(), meetingsAPI.getAll(),
         notificationsAPI.getAll(), channelsAPI.getAll(), servicesAPI.getAll(), projectsAPI.getAll(),
+        leadsAPI.getAll(),
         settingsAPI.get().catch(() => ({ data: { data: null } }))
       ]);
       const users = uR.data.data;
@@ -804,6 +943,7 @@ const useAppStore = create((set, get, store) => ({
         notifications:  nR.data.data,
         services:       svR.data.data,
         projects:       pR.data.data || [],
+        leads:          lR.data.data || [],
         systemSettings: setR?.data?.data || null,
         messages:       { ...get().messages, dms, channels },
         loading:        false,

@@ -304,6 +304,18 @@ function TodoFormModal({ open, onClose, currentUser }) {
       toast.error('Title is required');
       return;
     }
+    if (!startDate) {
+      toast.error('Start date (From) is required');
+      return;
+    }
+    if (!dueDate) {
+      toast.error('Due date (To) is required');
+      return;
+    }
+    if (!eta.trim()) {
+      toast.error('ETA is required (e.g. 2h, 45m)');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -337,7 +349,7 @@ function TodoFormModal({ open, onClose, currentUser }) {
 
   return (
     <Modal open={open} onClose={onClose} title="Add Daily Todo" size="lg"
-      footer={<><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button><Button variant="primary" onClick={handleSubmit} disabled={saving || !title.trim()}>{saving ? 'Adding...' : 'Add Todo'}</Button></>
+      footer={<><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button><Button variant="primary" onClick={handleSubmit} disabled={saving || !title.trim() || !startDate || !dueDate || !eta.trim()}>{saving ? 'Adding...' : 'Add Todo'}</Button></>
       }
     >
       <form onSubmit={(e) => { e.preventDefault(); }} className="px-6 py-5 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -389,12 +401,12 @@ function TodoFormModal({ open, onClose, currentUser }) {
 
         {/* Timeline ranges */}
         <div>
-          <label className="form-label mb-1.5 block text-slate-500 font-bold uppercase tracking-wider text-[11px]">Timeline Dates &amp; Times</label>
+          <label className="form-label mb-1.5 block text-slate-500 font-bold uppercase tracking-wider text-[11px]">Timeline Dates &amp; Times <span className="text-red-500">*</span></label>
           <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/20 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700">
             <div className="space-y-2.5">
               <div>
-                <label className="block text-[11px] text-slate-400 mb-0.5">Start Date</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="form-input text-[13px] py-1.5" />
+                <label className="block text-[11px] text-slate-400 mb-0.5">Start Date (From) <span className="text-red-500">*</span></label>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={cn('form-input text-[13px] py-1.5', !startDate && 'border-red-300 dark:border-red-800/60')} />
               </div>
               <div>
                 <label className="block text-[11px] text-slate-400 mb-0.5">Start Time (From)</label>
@@ -403,8 +415,8 @@ function TodoFormModal({ open, onClose, currentUser }) {
             </div>
             <div className="space-y-2.5">
               <div>
-                <label className="block text-[11px] text-slate-400 mb-0.5">Due Date</label>
-                <input type="date" value={dueDate} min={startDate} onChange={(e) => setDueDate(e.target.value)} className="form-input text-[13px] py-1.5" />
+                <label className="block text-[11px] text-slate-400 mb-0.5">Due Date (To) <span className="text-red-500">*</span></label>
+                <input type="date" value={dueDate} min={startDate} onChange={(e) => setDueDate(e.target.value)} className={cn('form-input text-[13px] py-1.5', !dueDate && 'border-red-300 dark:border-red-800/60')} />
               </div>
               <div>
                 <label className="block text-[11px] text-slate-400 mb-0.5">Due Time (To)</label>
@@ -415,7 +427,11 @@ function TodoFormModal({ open, onClose, currentUser }) {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Input label="ETA (e.g., 2h, 45m)" placeholder="e.g. 1h, 30m" value={eta} onChange={(e) => setEta(e.target.value)} />
+          <div>
+            <label className="form-label mb-1 block">ETA <span className="text-red-500">*</span> <span className="text-slate-400 font-normal text-[11px]">(e.g. 2h, 45m)</span></label>
+            <Input placeholder="e.g. 1h, 30m" value={eta} onChange={(e) => setEta(e.target.value)}
+              className={!eta.trim() ? 'border-red-300 dark:border-red-800/60' : ''} />
+          </div>
           <div>
             <label className="form-label mb-1.5 block">Priority</label>
             <div className="grid grid-cols-4 gap-1.5">

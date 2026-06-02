@@ -288,6 +288,7 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
   const [dueTime,     setDueTime]     = useState('');
   const [tags,        setTags]        = useState([]);
   const [tagInput,    setTagInput]    = useState('');
+  const [eta,         setEta]         = useState('');
   const [attachments, setAttachments] = useState([]);
   const [saving,      setSaving]      = useState(false);
   const [userSearch,  setUserSearch]  = useState('');
@@ -301,6 +302,7 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
       setAssignedTo(getId(currentUser));
       setStartDate(''); setStartTime('');
       setDueDate(''); setDueTime('');
+      setEta('');
       setTags([]); setTagInput(''); setAttachments([]);
       setSaving(false);
       setUserSearch('');
@@ -319,6 +321,9 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
   const handleSubmit = async () => {
     if (!title.trim()) { toast.error('Task title is required'); return; }
     if (taskType === 'client' && !clientId) { toast.error('Please select a client'); return; }
+    if (!startDate) { toast.error('Start date (From) is required'); return; }
+    if (!dueDate) { toast.error('Due date (To) is required'); return; }
+    if (!eta.trim()) { toast.error('ETA is required (e.g. 2h, 45m)'); return; }
 
     setSaving(true);
     try {
@@ -332,6 +337,7 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
       fd.append('startTime',  startTime);
       fd.append('dueDate',    dueDate);
       fd.append('dueTime',    dueTime);
+      fd.append('eta',        eta.trim());
       fd.append('status',     'pending');
       fd.append('progress',   '0');
       if (taskType === 'client' && clientId)  fd.append('clientId',  clientId);
@@ -498,14 +504,14 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
                 </div>
               </div>
 
-              {/* ETA range */}
+              {/* ETA / Timeline */}
               <div>
-                <label className={labelCls}>ETA / Timeline</label>
+                <label className={labelCls}>ETA / Timeline <span className="text-red-500">*</span></label>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-[11.5px] text-slate-500 mb-1">Start Date</label>
-                      <input type="date" className="form-input text-[13.5px] py-2"
+                      <label className="block text-[11.5px] text-slate-500 mb-1">Start Date (From) <span className="text-red-500">*</span></label>
+                      <input type="date" className={cn('form-input text-[13.5px] py-2', !startDate && 'border-red-300 dark:border-red-800/60 focus:border-red-400')}
                         value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                     </div>
                     <div>
@@ -516,8 +522,8 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
                   </div>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-[11.5px] text-slate-500 mb-1">Due Date</label>
-                      <input type="date" className="form-input text-[13.5px] py-2"
+                      <label className="block text-[11.5px] text-slate-500 mb-1">Due Date (To) <span className="text-red-500">*</span></label>
+                      <input type="date" className={cn('form-input text-[13.5px] py-2', !dueDate && 'border-red-300 dark:border-red-800/60 focus:border-red-400')}
                         min={startDate} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
                     </div>
                     <div>
@@ -527,6 +533,19 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* ETA input */}
+              <div>
+                <label className={labelCls}>ETA (Estimated Time) <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  className={cn('form-input text-[13.5px] py-2 w-full', !eta.trim() && 'border-red-300 dark:border-red-800/60 focus:border-red-400')}
+                  placeholder="e.g. 2h, 45m, 1h 30m…"
+                  value={eta}
+                  onChange={(e) => setEta(e.target.value)}
+                />
+                <p className="text-[11px] text-slate-400 mt-1">How long will this task take? (required)</p>
               </div>
 
               {/* Tags */}
@@ -581,7 +600,7 @@ function TaskCreateDrawer({ open, onClose, users, clients, currentUser }) {
                 className="px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
                 Cancel
               </button>
-              <button type="button" onClick={handleSubmit} disabled={saving || !title.trim()}
+              <button type="button" onClick={handleSubmit} disabled={saving || !title.trim() || !startDate || !dueDate || !eta.trim()}
                 className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13.5px] font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
                 {saving
                   ? <><RefreshCw size={14} className="animate-spin" /> Creating…</>

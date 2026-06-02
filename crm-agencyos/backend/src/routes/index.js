@@ -114,3 +114,17 @@ servicesRouter.post('/',    authorize('admin'), serviceCtr.createService);
 servicesRouter.put('/:id',  authorize('admin'), serviceCtr.updateService);
 servicesRouter.delete('/:id', authorize('admin'), serviceCtr.deleteService);
 module.exports.services = servicesRouter;
+
+// ── Leads routes ──────────────────────────────────────────────
+const leadCtrl = require('../controllers/leadController');
+const leadsRouter = express.Router();
+leadsRouter.use(protect);
+leadsRouter.get('/',            leadCtrl.getLeads);
+leadsRouter.post('/bulk',       leadCtrl.bulkCreateLeads);   // /bulk before /:id
+leadsRouter.post('/merge',      authorize('admin','manager'), leadCtrl.mergeLeads);
+leadsRouter.post('/',           leadCtrl.createLead);
+leadsRouter.put('/:id',         leadCtrl.updateLead);
+leadsRouter.post('/:id/email',  leadCtrl.sendLeadEmail);
+leadsRouter.get('/:id/emails',  leadCtrl.getLeadEmails);     // email history log
+leadsRouter.delete('/:id',      authorize('admin','manager'), leadCtrl.deleteLead);
+module.exports.leads = leadsRouter;

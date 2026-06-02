@@ -8,6 +8,7 @@ import DashboardPage   from '../pages/DashboardPage';
 import TasksPage       from '../pages/TasksPage';
 import TodosPage       from '../pages/TodosPage';
 import ClientsPage     from '../pages/ClientsPage';
+import LeadsPage       from '../pages/LeadsPage';
 import MessagesPage    from '../pages/MessagesPage';
 import ReportsPage     from '../pages/ReportsPage';
 import MeetingsPage    from '../pages/MeetingsPage';
@@ -55,6 +56,14 @@ export default function AppRouter() {
             element={
               <RequireRole roles={['admin', 'manager', 'client_relations']}>
                 <ClientsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="leads"
+            element={
+              <RequireRole roles={['admin', 'manager', 'client_relations', 'member']}>
+                <LeadsPage />
               </RequireRole>
             }
           />
