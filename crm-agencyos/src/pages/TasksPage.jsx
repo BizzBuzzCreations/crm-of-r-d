@@ -676,12 +676,7 @@ function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, o
           {task.tags.map((t) => <span key={t} className="badge badge-neutral text-[10.5px]">#{t}</span>)}
         </div>
       )}
-      {task.readyForApproval && task.status === 'in-progress' && (
-        <div className="mb-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10.5px] font-bold text-emerald-500 w-fit select-none animate-pulse">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Ready for Approval
-        </div>
-      )}
+
       <div className="flex items-center justify-between mt-1 pt-2 border-t border-slate-100 dark:border-slate-700/50">
         <div className="flex items-center gap-1.5 flex-wrap">
           <PriorityBadge priority={task.priority} />
@@ -1131,11 +1126,7 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
                             </span>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                            {td.readyForApproval && (
-                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9.5px] font-bold text-emerald-500 select-none animate-pulse">
-                                For Approval
-                              </span>
-                            )}
+
                             <PriorityBadge priority={td.priority} />
                             <StatusBadge status={td.status} />
                           </div>

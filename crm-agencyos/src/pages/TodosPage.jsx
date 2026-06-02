@@ -519,12 +519,7 @@ function TodoCard({ todo, users, role, authUser, onMove, onApprove, onDelete, on
           dangerouslySetInnerHTML={{ __html: truncate(todo.description.replace(/<[^>]*>/g, ''), 75) }} />
       )}
       
-      {todo.readyForApproval && (
-        <div className="mb-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-500 w-fit select-none animate-pulse">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Ready for Approval
-        </div>
-      )}
+
 
       <div className="flex gap-1.5 flex-wrap items-center mb-2">
         <PriorityBadge priority={todo.priority} />
@@ -1386,11 +1381,7 @@ export default function TodosPage() {
                           <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 truncate">
                             {todo.title}
                           </p>
-                          {todo.readyForApproval && (
-                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9.5px] font-bold text-emerald-500 select-none animate-pulse">
-                              Ready for Approval
-                            </span>
-                          )}
+
                         </div>
                         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                           {todo.description && (
@@ -1499,11 +1490,7 @@ export default function TodosPage() {
                         <td className="max-w-[280px]">
                           <div className="flex items-center gap-2">
                             <div className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={todo.title}>{todo.title}</div>
-                            {todo.readyForApproval && (
-                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-bold text-emerald-500 select-none animate-pulse flex-shrink-0">
-                                Ready for Approval
-                              </span>
-                            )}
+
                           </div>
                           <div className="flex items-center gap-2 mt-1">
                             {taskRef && (
