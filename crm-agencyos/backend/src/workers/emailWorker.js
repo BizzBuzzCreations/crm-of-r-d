@@ -69,8 +69,10 @@ const transporter = nodemailer.createTransport({
   connectionTimeout: 10000,
 });
 
-transporter.verify((err, _ok) => {
+transporter.verify((verifyErr, _ok) => {
+  const err = verifyErr;
   if (err) {
+    sysLog.error('SMTP', `SMTP verification failed: ${err.message}`, { code: err.code });
     console.error('❌ SMTP CONNECTION FAILED');
     console.error('   Code    :', err.code   || 'n/a');
     console.error('   Message :', err.message);
@@ -82,6 +84,7 @@ transporter.verify((err, _ok) => {
     console.error('   3. SMTP_PORT=587 + SMTP_SECURE=false → STARTTLS (recommended)');
     console.error('      SMTP_PORT=465 + SMTP_SECURE=true  → SSL/TLS\n');
   } else {
+    sysLog.info('SMTP', `SMTP connection verified — authenticated as ${cfg.smtp.user}`);
     console.log('✅ SMTP connection verified — ready to send emails');
     console.log(`   Authenticated as: ${cfg.smtp.user}\n`);
   }
@@ -422,6 +425,10 @@ const ts  = () => new Date().toISOString().replace('T', ' ').slice(0, 23);
 const log = (...a) => console.log(`[${ts()}]`, ...a);
 const err = (...a) => console.error(`[${ts()}] ❌`, ...a);
 
+// Structured file logger — writes to logs/email.log and logs/combined.log
+let sysLog = { info: () => {}, warn: () => {}, error: () => {} };
+try { sysLog = require('../utils/sysLogger').logger; } catch {}
+
 // ── Worker ───────────────────────────────────────────────────────────────────
 const worker = new Worker('email-queue', async (job) => {
   const { recipientEmail, emailType, templateData, queuedAt, cc, leadId, triggeredBy } = job.data;
@@ -498,17 +505,33 @@ const worker = new Worker('email-queue', async (job) => {
 }, { connection: cfg.redis, concurrency: 5 });
 
 // ── Worker events ────────────────────────────────────────────────────────────
-worker.on('ready',     ()        => { log('✅ Worker ready — listening on "email-queue"'); });
-worker.on('active',    (job)     => { log(`▶  Job ${job.id} active (${job.data?.emailType} → ${job.data?.recipientEmail})`); });
-worker.on('completed', (job, r)  => { log(`✔  Job ${job.id} completed | msgId=${r?.messageId || 'n/a'}`); });
-worker.on('failed',    (job, e)  => {
+worker.on('ready', () => {
+  log('✅ Worker ready — listening on "email-queue"');
+  sysLog.info('WORKER', 'Email worker ready — listening on "email-queue"');
+});
+worker.on('active', (job) => {
+  log(`▶  Job ${job.id} active (${job.data?.emailType} → ${job.data?.recipientEmail})`);
+  sysLog.info('QUEUE', `Job ${job.id} active — ${job.data?.emailType} → ${job.data?.recipientEmail}`);
+});
+worker.on('completed', (job, r) => {
+  log(`✔  Job ${job.id} completed | msgId=${r?.messageId || 'n/a'}`);
+  sysLog.info('EMAIL', `Job ${job.id} delivered to ${job.data?.recipientEmail} | msgId=${r?.messageId || 'n/a'}`);
+});
+worker.on('failed', (job, e) => {
   const attempts = job?.attemptsMade ?? '?';
   const max = job?.opts?.attempts ?? 3;
   err(`Job ${job?.id} FAILED (${attempts}/${max}) — ${attempts < max ? 'will retry' : 'EXHAUSTED'}: ${e.message}`);
+  sysLog.error('EMAIL', `Job ${job?.id} failed (${attempts}/${max}) — ${e.message}`, { willRetry: attempts < max });
   if (attempts < max) log(`   Next retry in ~${(2000 * Math.pow(2, attempts - 1)) / 1000}s`);
 });
-worker.on('stalled',   (id)      => { log(`⚠  Job ${id} stalled — will be requeued`); });
-worker.on('error',     (e)       => { err('Worker error:', e.message); });
+worker.on('stalled', (id) => {
+  log(`⚠  Job ${id} stalled — will be requeued`);
+  sysLog.warn('QUEUE', `Job ${id} stalled — will be requeued`);
+});
+worker.on('error', (e) => {
+  err('Worker error:', e.message);
+  sysLog.error('WORKER', `Worker error: ${e.message}`);
+});
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────
 const shutdown = async (sig) => {

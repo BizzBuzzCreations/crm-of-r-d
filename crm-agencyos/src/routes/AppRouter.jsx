@@ -15,6 +15,8 @@ import MeetingsPage    from '../pages/MeetingsPage';
 import CalendarPage    from '../pages/CalendarPage';
 import TeamPage        from '../pages/TeamPage';
 import SettingsPage    from '../pages/SettingsPage';
+import LogsPage        from '../pages/LogsPage';
+import SystemLogsPage  from '../pages/SystemLogsPage';
 
 // ── Guards ────────────────────────────────────────────────────
 function RequireAuth({ children }) {
@@ -80,6 +82,22 @@ export default function AppRouter() {
             }
           />
           <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="logs"
+            element={
+              <RequireRole roles={['admin']}>
+                <LogsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="system-logs"
+            element={
+              <RequireRole roles={['admin']}>
+                <SystemLogsPage />
+              </RequireRole>
+            }
+          />
         </Route>
 
         {/* Fallback */}

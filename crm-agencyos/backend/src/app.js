@@ -65,6 +65,8 @@ app.use('/api/channels',       require('./routes/channels'));
 app.use('/api/projects',       require('./routes/projects'));
 app.use('/api/leads',          require('./routes/leads'));
 app.use('/api/settings',       require('./routes/settings'));
+app.use('/api/audit',          require('./routes/audit'));
+app.use('/api/admin/logs',     require('./routes/adminLogs'));
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {

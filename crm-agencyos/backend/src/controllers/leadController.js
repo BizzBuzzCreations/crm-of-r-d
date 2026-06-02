@@ -3,6 +3,7 @@ const User = require('../models/User');
 const EmailLog = require('../models/EmailLog');
 const notifService = require('../services/notificationService');
 const { addEmailToQueue, EMAIL_TYPES } = require('../queues/emailQueue');
+const audit = require('../services/auditService');
 
 // Helper to calculate Lead Health Score dynamically
 const calculateHealthScore = (lead) => {
@@ -161,6 +162,14 @@ exports.createLead = async (req, res, next) => {
     // Broadcast socket creation
     const io = req.app.get('io');
     io?.emit('lead:created', enriched);
+
+    audit.log(req, {
+      action: 'create', category: 'lead',
+      targetId: lead._id, targetModel: 'Lead',
+      targetTitle: companyName,
+      targetRef: enriched.leadId || '',
+      metadata: { status: lead.status, assignedTo: assignedTo ? String(assignedTo) : null, dealValue: lead.dealValue },
+    });
 
     // Notify assigned user if specified
     if (assignedTo && String(assignedTo) !== String(req.user?._id)) {
@@ -402,6 +411,23 @@ exports.updateLead = async (req, res, next) => {
     // Broadcast update
     io?.emit('lead:updated', enriched);
 
+    // Determine the most specific audit action
+    const leadAction = (() => {
+      if (status !== undefined && status !== oldStatus) return 'status_change';
+      if (assignedTo !== undefined && String(assignedTo) !== String(oldAssigned)) return 'assign';
+      return 'update';
+    })();
+    audit.log(req, {
+      action: leadAction, category: 'lead',
+      targetId: lead._id, targetModel: 'Lead',
+      targetTitle: lead.companyName,
+      targetRef: enriched.leadId || '',
+      metadata: {
+        ...(leadAction === 'status_change' ? { statusFrom: oldStatus, statusTo: status } : {}),
+        ...(leadAction === 'assign' ? { assignedTo: assignedTo || null } : {}),
+      },
+    });
+
     res.json({ success: true, data: enriched });
   } catch (err) { next(err); }
 };
@@ -450,6 +476,13 @@ exports.sendLeadEmail = async (req, res, next) => {
     const io = req.app.get('io');
     io?.emit('lead:updated', lead.toObject());
 
+    audit.log(req, {
+      action: 'email_sent', category: 'lead',
+      targetId: lead._id, targetModel: 'Lead',
+      targetTitle: lead.companyName,
+      metadata: { to: recipientEmail, subject: subject.trim(), jobId },
+    });
+
     res.json({ success: true, message: `Email queued for delivery to ${recipientEmail}`, jobId });
   } catch (err) { next(err); }
 };
@@ -460,10 +493,17 @@ exports.deleteLead = async (req, res, next) => {
     const lead = await Lead.findById(req.params.id);
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
+    const leadRef = `LD-${String(lead._id).slice(-4).toUpperCase()}`;
     await Lead.findByIdAndDelete(req.params.id);
 
     const io = req.app.get('io');
     io?.emit('lead:deleted', req.params.id);
+
+    audit.log(req, {
+      action: 'delete', category: 'lead',
+      targetId: req.params.id, targetModel: 'Lead',
+      targetTitle: lead.companyName, targetRef: leadRef,
+    });
 
     res.json({ success: true, message: 'Lead deleted from database.' });
   } catch (err) { next(err); }

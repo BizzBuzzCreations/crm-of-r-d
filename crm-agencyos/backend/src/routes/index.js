@@ -128,3 +128,23 @@ leadsRouter.post('/:id/email',  leadCtrl.sendLeadEmail);
 leadsRouter.get('/:id/emails',  leadCtrl.getLeadEmails);     // email history log
 leadsRouter.delete('/:id',      authorize('admin','manager'), leadCtrl.deleteLead);
 module.exports.leads = leadsRouter;
+
+// ── Audit Log routes ──────────────────────────────────────────
+const auditCtrl = require('../controllers/auditController');
+const auditRouter = express.Router();
+auditRouter.use(protect);
+auditRouter.use(authorize('admin'));
+auditRouter.get('/',       auditCtrl.getLogs);
+auditRouter.get('/stats',  auditCtrl.getStats);
+module.exports.audit = auditRouter;
+
+// ── System / Server Logs routes (admin only) ──────────────────
+const sysCtrl = require('../controllers/systemLogsController');
+const adminLogsRouter = express.Router();
+adminLogsRouter.use(protect);
+adminLogsRouter.use(authorize('admin'));
+adminLogsRouter.get('/status',              sysCtrl.getSystemStatus);
+adminLogsRouter.get('/sources',             sysCtrl.listSources);
+adminLogsRouter.get('/:source/download',    sysCtrl.downloadLog);
+adminLogsRouter.get('/:source',             sysCtrl.getLogs);
+module.exports.adminLogs = adminLogsRouter;

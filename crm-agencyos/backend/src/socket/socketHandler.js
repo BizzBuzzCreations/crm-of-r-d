@@ -39,6 +39,18 @@ module.exports = (io) => {
     if (socket.user.role === 'admin') {
       socket.join('admin');
     }
+
+    // ── System log streaming (admin only) ─────────────────────
+    socket.on('system:logs:subscribe', () => {
+      if (socket.user.role !== 'admin') return;
+      socket.join('admin:syslog');
+      // Deliver the last ~200 lines from every available source as the initial snapshot
+      if (io._logWatcher) io._logWatcher.sendAllInitial(socket, 200);
+    });
+
+    socket.on('system:logs:unsubscribe', () => {
+      socket.leave('admin:syslog');
+    });
  
     // ── Auto-join channels and DM rooms ───────────────────
     try {

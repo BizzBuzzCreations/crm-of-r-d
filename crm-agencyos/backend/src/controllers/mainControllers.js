@@ -1,6 +1,7 @@
 const User            = require('../models/User');
 const { Client, Task, Todo, Meeting, Project } = require('../models/index');
 const notifService    = require('../services/notificationService');
+const audit           = require('../services/auditService');
 
 // ═══════════════════════════════════════════════════
 // USERS
@@ -15,6 +16,11 @@ exports.getUsers = async (req, res, next) => {
 exports.createUser = async (req, res, next) => {
   try {
     const user = await User.create(req.body);
+    audit.log(req, {
+      action: 'create', category: 'user',
+      targetId: user._id, targetModel: 'User',
+      targetTitle: user.name, metadata: { role: user.role, email: user.email },
+    });
     res.status(201).json({ success: true, data: user });
   } catch (err) { next(err); }
 };
@@ -57,6 +63,12 @@ exports.updateUser = async (req, res, next) => {
       io?.to(`user:${req.params.id}`).emit('role:changed', { role: rest.role });
     }
 
+    audit.log(req, {
+      action: rest.role ? 'update' : 'update', category: 'user',
+      targetId: user._id, targetModel: 'User', targetTitle: user.name,
+      metadata: rest.role ? { roleChanged: true, newRole: rest.role } : undefined,
+    });
+
     res.json({ success: true, data: user });
   } catch (err) { next(err); }
 };
@@ -65,7 +77,13 @@ exports.deleteUser = async (req, res, next) => {
   try {
     if (String(req.user._id) === req.params.id)
       return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
+    const target = await User.findById(req.params.id).lean();
     await User.findByIdAndDelete(req.params.id);
+    audit.log(req, {
+      action: 'delete', category: 'user',
+      targetId: req.params.id, targetModel: 'User',
+      targetTitle: target?.name ?? req.params.id,
+    });
     res.json({ success: true, message: 'User removed' });
   } catch (err) { next(err); }
 };
@@ -123,6 +141,10 @@ exports.createClient = async (req, res, next) => {
     }
 
     const populated = await client.populate('assignedTeam', 'name email color initials status position');
+    audit.log(req, {
+      action: 'create', category: 'client',
+      targetId: client._id, targetModel: 'Client', targetTitle: client.name,
+    });
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
@@ -132,13 +154,23 @@ exports.updateClient = async (req, res, next) => {
     const client = await Client.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
       .populate('assignedTeam', 'name email color initials status position');
     if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
+    audit.log(req, {
+      action: 'update', category: 'client',
+      targetId: client._id, targetModel: 'Client', targetTitle: client.name,
+    });
     res.json({ success: true, data: client });
   } catch (err) { next(err); }
 };
 
 exports.deleteClient = async (req, res, next) => {
   try {
+    const target = await Client.findById(req.params.id).lean();
     await Client.findByIdAndDelete(req.params.id);
+    audit.log(req, {
+      action: 'delete', category: 'client',
+      targetId: req.params.id, targetModel: 'Client',
+      targetTitle: target?.name ?? req.params.id,
+    });
     res.json({ success: true, message: 'Client deleted' });
   } catch (err) { next(err); }
 };
@@ -246,6 +278,13 @@ exports.createTask = async (req, res, next) => {
     const io = req.app.get('io');
     io?.emit('task:created', populated);
 
+    audit.log(req, {
+      action: 'create', category: 'task',
+      targetId: task._id, targetModel: 'Task',
+      targetTitle: task.title, targetRef: `#${task.taskNumber || ''}`,
+      metadata: { priority: task.priority, status: task.status, assignedTo: String(task.assignedTo ?? '') },
+    });
+
     const assignedToId = String(task.assignedTo?._id ?? task.assignedTo);
     if (assignedToId !== String(req.user._id)) {
       notifService.dispatch(io, {
@@ -312,6 +351,25 @@ exports.updateTask = async (req, res, next) => {
     const io = req.app.get('io');
     io?.emit('task:updated', task);
 
+    // Determine the most specific action for the audit log
+    const taskAction = (() => {
+      if (body.status === 'completed' && prev.status !== 'completed') return 'approve';
+      if (body.status === 'sent-for-approval' && prev.status !== 'sent-for-approval') return 'submit_approval';
+      if (body.status && body.status !== prev.status) return 'status_change';
+      if (body.assignedTo && String(body.assignedTo) !== String(prev.assignedTo)) return 'assign';
+      return 'update';
+    })();
+
+    audit.log(req, {
+      action: taskAction, category: 'task',
+      targetId: task._id, targetModel: 'Task',
+      targetTitle: task.title, targetRef: `#${task.taskNumber || ''}`,
+      metadata: {
+        ...(body.status && body.status !== prev.status ? { statusFrom: prev.status, statusTo: body.status } : {}),
+        ...(body.assignedTo && String(body.assignedTo) !== String(prev.assignedTo) ? { reassigned: true } : {}),
+      },
+    });
+
     // Member marked task ready for approval → notify assigner
     if (req.body.readyForApproval && !prev.readyForApproval && task.assignedBy) {
       notifService.dispatch(io, {
@@ -347,8 +405,15 @@ exports.updateTask = async (req, res, next) => {
 
 exports.deleteTask = async (req, res, next) => {
   try {
+    const target = await Task.findById(req.params.id).lean();
     await Task.findByIdAndDelete(req.params.id);
     req.app.get('io')?.emit('task:deleted', req.params.id);
+    audit.log(req, {
+      action: 'delete', category: 'task',
+      targetId: req.params.id, targetModel: 'Task',
+      targetTitle: target?.title ?? req.params.id,
+      targetRef: target?.taskNumber ? `#${target.taskNumber}` : '',
+    });
     res.json({ success: true, message: 'Task deleted' });
   } catch (err) { next(err); }
 };
@@ -441,6 +506,11 @@ exports.createTodo = async (req, res, next) => {
     const populated = await todo.populate(todoPopulate);
     const io = req.app.get('io');
     io?.emit('todo:created', populated);
+    audit.log(req, {
+      action: 'create', category: 'todo',
+      targetId: todo._id, targetModel: 'Todo', targetTitle: todo.title,
+      metadata: { priority: todo.priority, status: todo.status, assignedTo: String(todo.userId ?? '') },
+    });
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
@@ -486,6 +556,21 @@ exports.updateTodo = async (req, res, next) => {
     const todo = await Todo.findByIdAndUpdate(req.params.id, body, { new: true, runValidators: true })
       .populate(todoPopulate);
 
+    const todoAction = (() => {
+      if (body.status === 'completed' && prev.status !== 'completed') return 'approve';
+      if (body.status === 'sent-for-approval' && prev.status !== 'sent-for-approval') return 'submit_approval';
+      if (body.status && body.status !== prev.status) return 'status_change';
+      return 'update';
+    })();
+
+    audit.log(req, {
+      action: todoAction, category: 'todo',
+      targetId: todo._id, targetModel: 'Todo', targetTitle: todo.title,
+      metadata: {
+        ...(body.status && body.status !== prev.status ? { statusFrom: prev.status, statusTo: body.status } : {}),
+      },
+    });
+
     const io = req.app.get('io');
     io?.emit('todo:updated', todo);
     res.json({ success: true, data: todo });
@@ -494,9 +579,15 @@ exports.updateTodo = async (req, res, next) => {
 
 exports.deleteTodo = async (req, res, next) => {
   try {
+    const target = await Todo.findById(req.params.id).lean();
     await Todo.findByIdAndDelete(req.params.id);
     const io = req.app.get('io');
     io?.emit('todo:deleted', req.params.id);
+    audit.log(req, {
+      action: 'delete', category: 'todo',
+      targetId: req.params.id, targetModel: 'Todo',
+      targetTitle: target?.title ?? req.params.id,
+    });
     res.json({ success: true, message: 'Todo deleted' });
   } catch (err) { next(err); }
 };

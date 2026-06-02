@@ -46,6 +46,7 @@ const DEFAULT_CHANNELS = [
 
 // ── Socket singleton ──────────────────────────────────────────
 let sock = null;
+export const getSock = () => sock; // expose for admin components (System Logs, etc.)
 let _beforeUnloadFn = null;  // reference so we can remove it on disconnect
 let _focusHandler = null;
 let _visibilityHandler = null;

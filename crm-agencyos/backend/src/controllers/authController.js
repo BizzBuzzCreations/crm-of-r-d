@@ -1,5 +1,6 @@
-const jwt  = require('jsonwebtoken');
-const User = require('../models/User');
+const jwt   = require('jsonwebtoken');
+const User  = require('../models/User');
+const audit = require('../services/auditService');
 
 // Send tokens helper
 const sendTokens = (user, statusCode, res) => {
@@ -61,6 +62,11 @@ exports.login = async (req, res, next) => {
     user.status = 'online';
     await user.save({ validateBeforeSave: false });
 
+    audit.log(
+      { user: { _id: user._id, name: user.name, role: user.role }, ip: req.ip, headers: req.headers },
+      { action: 'login', category: 'auth', targetTitle: user.email, metadata: { role: user.role } }
+    );
+
     sendTokens(user, 200, res);
   } catch (err) { next(err); }
 };
@@ -89,7 +95,13 @@ exports.logout = async (req, res, next) => {
     }
 
     if (userId) {
-      await User.findByIdAndUpdate(userId, { status: 'offline' });
+      const loggedOut = await User.findByIdAndUpdate(userId, { status: 'offline' }).lean();
+      if (loggedOut) {
+        audit.log(
+          { user: { _id: loggedOut._id, name: loggedOut.name, role: loggedOut.role }, ip: req.ip, headers: req.headers },
+          { action: 'logout', category: 'auth', targetTitle: loggedOut.email }
+        );
+      }
     }
 
     res.clearCookie('refreshToken', {

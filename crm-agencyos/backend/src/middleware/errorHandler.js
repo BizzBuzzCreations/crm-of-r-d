@@ -1,4 +1,5 @@
 // errorHandler.js
+const { logger } = require('../utils/sysLogger');
 const errorHandler = (err, _req, res, _next) => {
   let statusCode = err.statusCode || 500;
   let message    = err.message    || 'Server Error';
@@ -22,6 +23,9 @@ const errorHandler = (err, _req, res, _next) => {
     statusCode = 404;
   }
 
+  if (statusCode >= 500) {
+    logger.error('API', `${statusCode} ${message}`, { stack: err.stack?.slice(0, 400) });
+  }
   if (process.env.NODE_ENV === 'development') {
     console.error(`[Error] ${statusCode} - ${message}`);
   }

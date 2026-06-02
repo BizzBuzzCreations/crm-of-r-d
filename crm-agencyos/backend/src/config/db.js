@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { logger } = require('../utils/sysLogger');
 
 const connectDB = async () => {
   try {
@@ -6,6 +7,7 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 5000,
     });
     console.log(`✅ MongoDB connected: ${conn.connection.host}`);
+    logger.info('DB', `MongoDB connected: ${conn.connection.host}`);
 
     // Self-healing: Reset all active user presence statuses and worklogs on server bootup
     try {
@@ -88,6 +90,7 @@ const connectDB = async () => {
   } catch (err) {
     console.error(`❌ MongoDB connection failed: ${err.message}`);
     console.error('   Make sure MongoDB is running or MONGO_URI is correct in .env');
+    logger.error('DB', `MongoDB connection failed: ${err.message}`);
     process.exit(1);
   }
 };

@@ -274,3 +274,21 @@ export const leadsAPI = {
   sendEmail: (id, subject, body)  => api.post(`/leads/${id}/email`, { subject, body }),
   getEmailLogs: (id)              => api.get(`/leads/${id}/emails`),
 };
+
+// ─────────────────────────────────────────────────────────────
+// ── Audit Logs (admin only)
+// ─────────────────────────────────────────────────────────────
+export const auditAPI = {
+  getLogs:  (params) => api.get('/audit',        { params }),
+  getStats: ()       => api.get('/audit/stats'),
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── System / Server Logs (admin only)
+// ─────────────────────────────────────────────────────────────
+export const systemLogsAPI = {
+  listSources:    ()                           => api.get('/admin/logs/sources'),
+  getLogs:        (source, params)             => api.get(`/admin/logs/${source}`, { params }),
+  getStatus:      ()                           => api.get('/admin/logs/status'),
+  downloadUrl:    (source)                     => `${api.defaults.baseURL}/admin/logs/${source}/download`,
+};

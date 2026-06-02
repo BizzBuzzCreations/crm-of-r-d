@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
-  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target
+  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -366,7 +366,9 @@ const NAV = [
   {
     section: 'ADMIN',
     items: [
-      { path: '/team', label: 'Team', icon: UserCircle, roles: ['admin', 'manager'] },
+      { path: '/team',        label: 'Team',          icon: UserCircle, roles: ['admin', 'manager'] },
+      { path: '/logs',        label: 'Audit Logs',    icon: Shield,     roles: ['admin'] },
+      { path: '/system-logs', label: 'System Monitor', icon: Terminal,  roles: ['admin'] },
     ],
   },
   {
