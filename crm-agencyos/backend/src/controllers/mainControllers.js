@@ -211,6 +211,8 @@ exports.getTasks = async (req, res, next) => {
 exports.createTask = async (req, res, next) => {
   try {
     const body = { ...req.body };
+    if (body.clientId === '')  body.clientId = null;
+    if (body.projectId === '') body.projectId = null;
 
     // Tags may arrive as JSON string or repeated form fields (tags[])
     if (typeof body.tags === 'string') {
@@ -265,6 +267,14 @@ exports.updateTask = async (req, res, next) => {
   try {
     const prev = await Task.findById(req.params.id).lean();
     const body = { ...req.body };
+
+    // Update assignedBy if task is reassigned to someone else
+    if (body.assignedTo && String(body.assignedTo) !== String(prev.assignedTo)) {
+      body.assignedBy = req.user._id;
+    }
+
+    if (body.clientId === '')  body.clientId = null;
+    if (body.projectId === '') body.projectId = null;
 
     // Parse tags
     if (typeof body.tags === 'string') {
@@ -351,6 +361,7 @@ exports.deleteTask = async (req, res, next) => {
 // ═══════════════════════════════════════════════════
 const todoPopulate = [
   { path: 'userId',   select: 'name email color initials status' },
+  { path: 'assignedBy', select: 'name' },
   { path: 'clientId', select: 'name' },
   { path: 'taskId',   select: 'title taskNumber' }
 ];
@@ -394,6 +405,8 @@ exports.getTodos = async (req, res, next) => {
 exports.createTodo = async (req, res, next) => {
   try {
     const body = { ...req.body };
+    if (body.clientId === '') body.clientId = null;
+    if (body.taskId === '')   body.taskId   = null;
 
     // Standard members can only self-assign
     if (req.user.role === 'member') {
@@ -421,6 +434,7 @@ exports.createTodo = async (req, res, next) => {
 
     const todo = await Todo.create({
       ...body,
+      assignedBy:  req.user._id,
       attachments: [...fileAttachments, ...linkAttachments],
     });
 
@@ -441,7 +455,12 @@ exports.updateTodo = async (req, res, next) => {
     // Standard members cannot change assignee
     if (req.user.role === 'member') {
       delete body.userId; // ensure standard member cannot change it
+    } else if (body.userId && String(body.userId) !== String(prev.userId)) {
+      body.assignedBy = req.user._id;
     }
+
+    if (body.clientId === '') body.clientId = null;
+    if (body.taskId === '')   body.taskId   = null;
 
     // Merge attachments: existing + new files + new links
     if (req.files?.length || body.links || body.existingAttachments !== undefined) {

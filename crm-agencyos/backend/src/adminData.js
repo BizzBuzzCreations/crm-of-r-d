@@ -1,41 +1,54 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const mongoose = require('mongoose');
-const User     = require('./models/User');
+const User = require('./models/User');
 const {
   Client, Task, Todo, Meeting, MeetingInvitation, Revenue, WorkLog, Message
 } = require('./models/index');
 const Notification = require('./models/Notification');
-const Service      = require('./models/Service');
+const Service = require('./models/Service');
 
 // ── Admin accounts to create ──────────────────────────────────
 // Edit these before running on the server
 const ADMINS = [
   {
-    name:       'bizzbuzzcreations',
-    email:      'dev@bizzbuzzcreations.com',
-    password:   'bbc655',
-    role:       'admin',
-    position:   'CEO & Founder',
+    name: 'bizzbuzzcreations',
+    email: 'dev@bizzbuzzcreations.com',
+    password: 'bbc655',
+    role: 'admin',
+    position: 'CEO & Founder',
     department: 'Management',
-    color:      '#7C3AED',
-    joinDate:   'May 26, 2026',
-    phone:      '+91 00000 00000',
-    bio:        'Leading the agency vision and strategy.',
-    status:     'offline',
+    color: '#7C3AED',
+    joinDate: 'May 26, 2026',
+    phone: '+91 00000 00000',
+    bio: 'Leading the agency vision and strategy.',
+    status: 'offline',
   },
   {
-    name:       'john smith',
-    email:      'john@gmail.com',
-    password:   'bbc655',
-    role:       'admin',
-    position:   'CEO & Founder',
+    name: 'john smith',
+    email: 'john@gmail.com',
+    password: 'bbc655',
+    role: 'admin',
+    position: 'CEO & Founder',
     department: 'Management',
-    color:      '#7C3AED',
-    joinDate:   'May 26, 2026',
-    phone:      '+91 00000 00000',
-    bio:        'Leading the agency vision and strategy.',
-    status:     'offline',
+    color: '#7C3AED',
+    joinDate: 'May 26, 2026',
+    phone: '+91 00000 00000',
+    bio: 'Leading the agency vision and strategy.',
+    status: 'offline',
+  },
+  {
+    name: 'Tejash Yadav',
+    email: 'tejashyadavcr7@gmail.com',
+    password: 'bbc655',
+    role: 'member',
+    position: 'CEO & Founder',
+    department: 'Management',
+    color: '#7C3AED',
+    joinDate: 'May 26, 2026',
+    phone: '+91 00000 00000',
+    bio: 'Leading the agency vision and strategy.',
+    status: 'offline',
   },
 ];
 

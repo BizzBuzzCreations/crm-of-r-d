@@ -92,7 +92,8 @@
     @apply flex flex-col gap-2.5 min-w-[272px] max-w-[272px];
   }
   .kanban-card {
-    @apply card p-3.5 cursor-pointer card-hover active:scale-[.99];
+    @apply card p-3.5 cursor-pointer card-hover active:scale-[.99] break-words;
+    word-break: break-word;
   }
 
   /* --- Chat --- */

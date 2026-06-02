@@ -146,7 +146,8 @@ function RichTextEditor({ value, onChange, placeholder = 'Detailed description o
         data-rte
         data-ph={placeholder}
         onInput={() => onChange(editorRef.current?.innerHTML || '')}
-        className="min-h-[140px] max-h-[240px] overflow-y-auto p-3.5 text-[13.5px] text-slate-700 dark:text-slate-300 outline-none leading-relaxed"
+        className="min-h-[140px] max-h-[240px] overflow-y-auto p-3.5 text-[13.5px] text-slate-700 dark:text-slate-300 outline-none leading-relaxed break-words"
+        style={{ wordBreak: 'break-word' }}
       />
     </div>
   );
@@ -478,6 +479,7 @@ function TodoCard({ todo, users, role, authUser, onMove, onApprove, onDelete, on
     .filter((c) => {
       if (isManager) return true;
       if (todo.status === 'pending' && c.id === 'in-progress') return true;
+      if (todo.status === 'sent-for-approval' && c.id === 'in-progress') return true;
       return false;
     });
 
@@ -487,12 +489,10 @@ function TodoCard({ todo, users, role, authUser, onMove, onApprove, onDelete, on
     ...(showReadyToggle ? [
       ...(targets.length ? [] : [{ separator: true }]),
       {
-        label: todo.readyForApproval ? 'Cancel Ready for Approval' : 'Mark Ready for Approval',
+        label: 'Mark Ready for Approval',
         onClick: () => {
-          const nextApproval = !todo.readyForApproval;
-          // Only toggle the flag — status stays in-progress
-          onMove(getId(todo), { readyForApproval: nextApproval });
-          toast.success(nextApproval ? 'Marked as Ready for Approval!' : 'Removed from Ready for Approval');
+          onMove(getId(todo), { status: 'sent-for-approval', readyForApproval: false });
+          toast.success('Todo submitted for approval!');
         }
       }
     ] : []),
@@ -509,7 +509,7 @@ function TodoCard({ todo, users, role, authUser, onMove, onApprove, onDelete, on
       onClick={() => onSelect(todo)}
     >
       <div className="flex items-start justify-between gap-2 mb-1.5">
-        <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1">{todo.title}</p>
+        <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1 break-words">{todo.title}</p>
         <div onClick={(e) => e.stopPropagation()}>
           <DropdownMenu trigger={<button className="btn-icon p-1 text-slate-400 flex-shrink-0"><MoreHorizontal size={14} /></button>} items={menuItems} />
         </div>
@@ -580,19 +580,12 @@ function TodoCard({ todo, users, role, authUser, onMove, onApprove, onDelete, on
         <button
           onClick={(e) => {
             e.stopPropagation();
-            const nextApproval = !todo.readyForApproval;
-            // Only toggle readyForApproval — status stays in-progress
-            onMove(getId(todo), { readyForApproval: nextApproval });
-            toast.success(nextApproval ? 'Marked as Ready for Approval!' : 'Removed from Ready for Approval');
+            onMove(getId(todo), { status: 'sent-for-approval', readyForApproval: false });
+            toast.success('Todo submitted for approval!');
           }}
-          className={cn(
-            "w-full py-1.5 rounded-lg text-[11px] font-semibold transition-all justify-center items-center flex gap-1 mt-2.5 border border-dashed select-none",
-            todo.readyForApproval
-              ? "bg-slate-50 border-slate-200 dark:bg-slate-800/30 dark:border-slate-700 text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-              : "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800/30 text-emerald-600 hover:bg-emerald-100"
-          )}
+          className="w-full py-1.5 rounded-lg text-[11px] font-semibold transition-all justify-center items-center flex gap-1 mt-2.5 border border-dashed select-none bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800/30 text-emerald-600 hover:bg-emerald-100"
         >
-          {todo.readyForApproval ? '✕ Cancel Ready for Approval' : '✓ Mark Ready for Approval'}
+          ✓ Mark Ready for Approval
         </button>
       )}
     </motion.div>
@@ -649,6 +642,8 @@ export function TodoDetailDrawer({ open, todo, onClose, users, clients, authUser
   }, [todo, open]);
 
   if (!todo) return null;
+
+  const assigner = todo.assignedBy ? users.find((u) => sameId(u, todo.assignedBy)) : null;
 
   const autoSave = async (updates) => {
     try {
@@ -766,11 +761,24 @@ export function TodoDetailDrawer({ open, todo, onClose, users, clients, authUser
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   {canEdit ? (
-                    <input value={title} onChange={(e) => setTitle(e.target.value)}
-                      className="w-full text-[20px] font-bold text-slate-900 dark:text-white bg-transparent border-0 outline-none placeholder:text-slate-300 border-b-2 border-transparent focus:border-indigo-400 transition-colors pb-1"
-                      placeholder="Todo title…" />
+                    <textarea value={title} onChange={(e) => setTitle(e.target.value)}
+                      rows={1}
+                      className="w-full text-[20px] font-bold text-slate-900 dark:text-white bg-transparent border-0 outline-none placeholder:text-slate-355 border-b-2 border-transparent focus:border-indigo-400 transition-colors pb-1 resize-none overflow-hidden break-words whitespace-pre-wrap leading-tight h-auto"
+                      style={{ wordBreak: 'break-word' }}
+                      placeholder="Todo title…"
+                      onInput={(e) => {
+                        e.target.style.height = 'auto';
+                        e.target.style.height = e.target.scrollHeight + 'px';
+                      }}
+                      ref={(el) => {
+                        if (el) {
+                          el.style.height = 'auto';
+                          el.style.height = el.scrollHeight + 'px';
+                        }
+                      }}
+                    />
                   ) : (
-                    <h2 className="text-[20px] font-bold text-slate-900 dark:text-white">{todo.title}</h2>
+                    <h2 className="text-[20px] font-bold text-slate-900 dark:text-white break-words" style={{ wordBreak: 'break-word' }}>{todo.title}</h2>
                   )}
                 </div>
                 <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 flex-shrink-0 transition-all">
@@ -835,6 +843,18 @@ export function TodoDetailDrawer({ open, todo, onClose, users, clients, authUser
                 )}
               </div>
 
+              {/* Assigned By */}
+              {assigner && (
+                <div>
+                  <label className={labelCls}>Assigned By</label>
+                  <div className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 dark:bg-slate-900/10 rounded-lg border border-slate-200 dark:border-slate-700 max-w-sm">
+                    <Avatar user={assigner} size="xs" />
+                    <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-300">{assigner.name}</span>
+                    <span className="ml-auto badge badge-neutral text-[10px]">{assigner.role}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Connected Task & Client */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -847,7 +867,7 @@ export function TodoDetailDrawer({ open, todo, onClose, users, clients, authUser
                       ))}
                     </select>
                   ) : (
-                    <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1">
+                    <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1 break-words" style={{ wordBreak: 'break-word' }}>
                       {myTasks.find(t => getId(t) === taskId) ? `Task #${myTasks.find(t => getId(t) === taskId).taskNumber}: ${myTasks.find(t => getId(t) === taskId).title}` : '—'}
                     </p>
                   )}
@@ -862,7 +882,7 @@ export function TodoDetailDrawer({ open, todo, onClose, users, clients, authUser
                       ))}
                     </select>
                   ) : (
-                    <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1">
+                    <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1 break-words" style={{ wordBreak: 'break-word' }}>
                       {clients.find(c => getId(c) === clientId)?.name || '—'}
                     </p>
                   )}
@@ -961,21 +981,27 @@ export function TodoDetailDrawer({ open, todo, onClose, users, clients, authUser
                 )}
               </div>
 
-              {/* Ready for Approval button for members — only toggles the flag, does NOT change status */}
-              {!isManager && sameId(todo.userId, authUser) && status === 'in-progress' && (
+              {/* Member: submit for approval / withdraw */}
+              {!isManager && sameId(todo.userId, authUser) && (status === 'in-progress' || status === 'sent-for-approval') && (
                 <button type="button"
                   onClick={() => {
-                    const nextVal = !todo.readyForApproval;
-                    // Only update readyForApproval — status stays in-progress
-                    autoSave({ readyForApproval: String(nextVal) });
-                    toast.success(nextVal ? 'Marked as Ready for Approval!' : 'Removed from Ready for Approval');
+                    if (status === 'in-progress') {
+                      setStatus('sent-for-approval');
+                      autoSave({ status: 'sent-for-approval', readyForApproval: 'false' });
+                      toast.success('Todo submitted for approval!');
+                    } else {
+                      setStatus('in-progress');
+                      autoSave({ status: 'in-progress', readyForApproval: 'false' });
+                      toast.success('Todo withdrawn from approval');
+                    }
+                    onClose();
                   }}
                   className={cn('w-full py-2.5 rounded-xl text-[13px] font-semibold border-2 border-dashed transition-all',
-                    todo.readyForApproval
-                      ? 'border-slate-200 bg-slate-50 dark:bg-slate-800/30 dark:border-slate-700 text-slate-500'
-                      : 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-800/40 text-emerald-600'
+                    status === 'sent-for-approval'
+                      ? 'border-slate-200 bg-slate-50 dark:bg-slate-800/30 dark:border-slate-700 text-slate-500 hover:border-slate-300'
+                      : 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-800/40 text-emerald-600 hover:bg-emerald-100'
                   )}>
-                  {todo.readyForApproval ? '✕ Cancel Ready for Approval' : '✓ Mark as Ready for Approval'}
+                  {status === 'sent-for-approval' ? '✕ Withdraw from Approval' : '✓ Mark as Ready for Approval'}
                 </button>
               )}
 
@@ -1327,21 +1353,20 @@ export default function TodosPage() {
                     .filter((c) => {
                       if (isManager) return true;
                       if (todo.status === 'pending' && c.id === 'in-progress') return true;
+                      if (todo.status === 'sent-for-approval' && c.id === 'in-progress') return true;
                       return false;
                     });
-                  
+
                   const showReadyToggle = !isManager && sameId(todo.userId, authUser) && todo.status === 'in-progress';
                   const menuItems = [
                     ...targets.map((c) => ({ label: `Move → ${c.label}`, onClick: () => updateTodo(getId(todo), { status: c.id }) })),
                     ...(showReadyToggle ? [
                       ...(targets.length ? [] : [{ separator: true }]),
-                      { 
-                        label: todo.readyForApproval ? 'Cancel Ready for Approval' : 'Mark Ready for Approval', 
+                      {
+                        label: 'Mark Ready for Approval',
                         onClick: () => {
-                          const nextApproval = !todo.readyForApproval;
-                          // Only toggle the flag — status stays in-progress
-                          updateTodo(getId(todo), { readyForApproval: nextApproval });
-                          toast.success(nextApproval ? 'Marked as Ready for Approval!' : 'Removed from Ready for Approval');
+                          updateTodo(getId(todo), { status: 'sent-for-approval', readyForApproval: false });
+                          toast.success('Todo submitted for approval!');
                         }
                       }
                     ] : []),
@@ -1446,21 +1471,20 @@ export default function TodosPage() {
                       .filter((c) => {
                         if (isManager) return true;
                         if (todo.status === 'pending' && c.id === 'in-progress') return true;
+                        if (todo.status === 'sent-for-approval' && c.id === 'in-progress') return true;
                         return false;
                       });
-                    
+
                     const showReadyToggle = !isManager && sameId(todo.userId, authUser) && todo.status === 'in-progress';
                     const menuItems = [
                       ...targets.map((c) => ({ label: `Move → ${c.label}`, onClick: () => updateTodo(getId(todo), { status: c.id }) })),
                       ...(showReadyToggle ? [
                         ...(targets.length ? [] : [{ separator: true }]),
-                        { 
-                          label: todo.readyForApproval ? 'Cancel Ready for Approval' : 'Mark Ready for Approval', 
+                        {
+                          label: 'Mark Ready for Approval',
                           onClick: () => {
-                            const nextApproval = !todo.readyForApproval;
-                            // Only toggle the flag — status stays in-progress
-                            updateTodo(getId(todo), { readyForApproval: nextApproval });
-                            toast.success(nextApproval ? 'Marked as Ready for Approval!' : 'Removed from Ready for Approval');
+                            updateTodo(getId(todo), { status: 'sent-for-approval', readyForApproval: false });
+                            toast.success('Todo submitted for approval!');
                           }
                         }
                       ] : []),

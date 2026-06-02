@@ -152,7 +152,8 @@ function RichTextEditor({ value, onChange, placeholder = 'Task description, acce
         data-rte
         data-ph={placeholder}
         onInput={() => onChange(editorRef.current?.innerHTML || '')}
-        className="min-h-[150px] max-h-[280px] overflow-y-auto p-3.5 text-[13.5px] text-slate-700 dark:text-slate-300 outline-none leading-relaxed"
+        className="min-h-[150px] max-h-[280px] overflow-y-auto p-3.5 text-[13.5px] text-slate-700 dark:text-slate-300 outline-none leading-relaxed break-words"
+        style={{ wordBreak: 'break-word' }}
       />
     </div>
   );
@@ -632,6 +633,7 @@ function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, o
     .filter((c) => {
       if (isManager) return true;
       if (task.status === 'pending' && c.id === 'in-progress') return true;
+      if (task.status === 'sent-for-approval' && c.id === 'in-progress') return true;
       return false;
     });
 
@@ -647,7 +649,7 @@ function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, o
       onClick={() => onSelect?.(task)}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1">
+        <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1 break-words">
           <span className="text-slate-400 font-mono mr-1.5 text-[12px]">#{task.taskNumber || '—'}</span>
           {task.title}
         </p>
@@ -689,15 +691,10 @@ function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, o
               {completedTodos}/{totalTodos}
             </span>
           )}
-          {task.dueDate && (
-            <span className="text-[11px] text-slate-400 flex items-center gap-0.5" title={`${task.startDate || '—'} ${task.startTime || ''} to ${task.dueDate} ${task.dueTime || ''}`}>
-              <Calendar size={10} />
-              {task.dueDate}
-              {(task.startTime || task.dueTime) && (
-                <span className="text-[10px] text-slate-350 dark:text-slate-500 pl-0.5">
-                  ({task.startTime || '—'} - {task.dueTime || '—'})
-                </span>
-              )}
+          {(task.startDate || task.dueDate) && (
+            <span className="text-[11px] text-slate-400 flex items-center gap-1">
+              <Clock size={10} className="text-slate-400" />
+              {task.startDate || '—'} ➔ {task.dueDate || '—'}
             </span>
           )}
         </div>
@@ -715,17 +712,12 @@ function KanbanCard({ task, users, clients, role, authUser, onMove, onApprove, o
         <button
           onClick={(e) => {
             e.stopPropagation();
-            useAppStore.getState().updateTask(getId(task), { readyForApproval: !task.readyForApproval });
-            toast.success(task.readyForApproval ? 'Task unmarked from Ready for Approval' : 'Task marked as Ready for Approval!');
+            useAppStore.getState().updateTask(getId(task), { status: 'sent-for-approval', readyForApproval: false });
+            toast.success('Task submitted for approval!');
           }}
-          className={cn(
-            "w-full py-1.5 rounded-lg text-[11.5px] font-semibold transition-all justify-center items-center flex gap-1 mt-2.5 border border-dashed select-none",
-            task.readyForApproval
-              ? "bg-slate-50 border-slate-200 dark:bg-slate-800/30 dark:border-slate-700 text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-              : "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800/30 text-emerald-600 hover:bg-emerald-100"
-          )}
+          className="w-full py-1.5 rounded-lg text-[11.5px] font-semibold transition-all justify-center items-center flex gap-1 mt-2.5 border border-dashed select-none bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800/30 text-emerald-600 hover:bg-emerald-100"
         >
-          {task.readyForApproval ? '✕ Cancel Ready for Approval' : '✓ Mark Ready for Approval'}
+          ✓ Mark Ready for Approval
         </button>
       )}
     </motion.div>
@@ -840,7 +832,8 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
   if (!task) return null;
 
   const taskTodos = (todos || []).filter((todo) => sameId(todo.taskId, task));
-  const labelCls = 'block text-[10.5px] font-bold uppercase tracking-widest text-slate-400 mb-1.5';
+  const assigner  = task.assignedBy ? users.find((u) => sameId(u, task.assignedBy)) : null;
+  const labelCls  = 'block text-[10.5px] font-bold uppercase tracking-widest text-slate-400 mb-1.5';
   const STATUS_OPTIONS = [
     { value: 'pending',           label: 'Pending',      color: '#f59e0b' },
     { value: 'in-progress',       label: 'In Progress',  color: '#3b82f6' },
@@ -909,10 +902,23 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   {canEdit
-                    ? <input value={title} onChange={(e) => setTitle(e.target.value)}
-                        className="w-full text-[20px] font-bold text-slate-900 dark:text-white bg-transparent border-0 outline-none placeholder:text-slate-300 border-b-2 border-transparent focus:border-indigo-400 transition-colors pb-1"
-                        placeholder="Task title…" />
-                    : <h2 className="text-[20px] font-bold text-slate-900 dark:text-white">{task.title}</h2>
+                    ? <textarea value={title} onChange={(e) => setTitle(e.target.value)}
+                        rows={1}
+                        className="w-full text-[20px] font-bold text-slate-900 dark:text-white bg-transparent border-0 outline-none placeholder:text-slate-350 border-b-2 border-transparent focus:border-indigo-400 transition-colors pb-1 resize-none overflow-hidden break-words whitespace-pre-wrap leading-tight h-auto"
+                        style={{ wordBreak: 'break-word' }}
+                        placeholder="Task title…"
+                        onInput={(e) => {
+                          e.target.style.height = 'auto';
+                          e.target.style.height = e.target.scrollHeight + 'px';
+                        }}
+                        ref={(el) => {
+                          if (el) {
+                            el.style.height = 'auto';
+                            el.style.height = el.scrollHeight + 'px';
+                          }
+                        }}
+                      />
+                    : <h2 className="text-[20px] font-bold text-slate-900 dark:text-white break-words" style={{ wordBreak: 'break-word' }}>{task.title}</h2>
                   }
                 </div>
                 <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 flex-shrink-0 transition-all">
@@ -967,6 +973,18 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
                 </div>
               </div>
 
+              {/* Assigned By */}
+              {assigner && (
+                <div>
+                  <label className={labelCls}>Assigned By</label>
+                  <div className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 dark:bg-slate-900/10 rounded-lg border border-slate-200 dark:border-slate-700 max-w-sm">
+                    <Avatar user={assigner} size="xs" />
+                    <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-300">{assigner.name}</span>
+                    <span className="ml-auto badge badge-neutral text-[10px]">{assigner.role}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Task type — managers only */}
               {isManager && (
                 <div>
@@ -998,7 +1016,7 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
                           <option value="">Select client…</option>
                           {clients.map((c) => <option key={getId(c)} value={getId(c)}>{c.name}</option>)}
                         </select>
-                      : <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1">{client?.name || '—'}</p>
+                      : <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1 break-words" style={{ wordBreak: 'break-word' }}>{client?.name || '—'}</p>
                     }
                   </div>
                   <div>
@@ -1009,7 +1027,7 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
                           <option value="">{clientId ? 'Select project…' : 'Choose client first'}</option>
                           {clientProjects.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}
                         </select>
-                      : <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1">
+                      : <p className="text-[13.5px] font-semibold text-slate-800 dark:text-slate-200 pt-1 break-words" style={{ wordBreak: 'break-word' }}>
                           {projects.find((p) => sameId(p, projectId))?.name || '—'}
                         </p>
                     }
@@ -1077,7 +1095,7 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
                 <label className={labelCls}>Description</label>
                 {canEdit
                   ? <RichTextEditor value={description} onChange={setDescription} />
-                  : <div className="min-h-[80px] p-3.5 text-[13.5px] text-slate-700 dark:text-slate-300 leading-relaxed border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900/20"
+                  : <div className="min-h-[80px] p-3.5 text-[13.5px] text-slate-700 dark:text-slate-300 leading-relaxed border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900/20 break-words" style={{ wordBreak: 'break-word' }}
                       dangerouslySetInnerHTML={{ __html: description || '<span class="text-slate-400 italic">No description</span>' }} />
                 }
               </div>
@@ -1106,9 +1124,9 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
                               {isCompleted && <Check size={10} strokeWidth={3} />}
                             </div>
                             <span className={cn(
-                              "text-[13px] font-medium truncate flex-1",
+                              "text-[13px] font-medium break-words whitespace-pre-wrap flex-1",
                               isCompleted ? "text-slate-400 line-through" : "text-slate-750 dark:text-slate-350"
-                            )}>
+                            )} style={{ wordBreak: 'break-word' }}>
                               {td.title}
                             </span>
                           </div>
@@ -1176,20 +1194,27 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
                 )}
               </div>
 
-              {/* Member: mark ready for approval */}
-              {!isManager && sameId(task.assignedTo, authUser) && status === 'in-progress' && (
+              {/* Member: submit for approval / withdraw */}
+              {!isManager && sameId(task.assignedTo, authUser) && (status === 'in-progress' || status === 'sent-for-approval') && (
                 <button type="button"
                   onClick={() => {
-                    const next = !task.readyForApproval;
-                    autoSave({ readyForApproval: next });
-                    toast.success(next ? 'Marked Ready for Approval!' : 'Unmarked from Ready for Approval');
+                    if (status === 'in-progress') {
+                      setStatus('sent-for-approval');
+                      autoSave({ status: 'sent-for-approval', readyForApproval: false });
+                      toast.success('Task submitted for approval!');
+                    } else {
+                      setStatus('in-progress');
+                      autoSave({ status: 'in-progress', readyForApproval: false });
+                      toast.success('Task withdrawn from approval');
+                    }
+                    onClose();
                   }}
                   className={cn('w-full py-2.5 rounded-xl text-[13px] font-semibold border-2 border-dashed transition-all',
-                    task.readyForApproval
-                      ? 'border-slate-200 bg-slate-50 dark:bg-slate-800/30 dark:border-slate-700 text-slate-500'
-                      : 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-800/40 text-emerald-600'
+                    status === 'sent-for-approval'
+                      ? 'border-slate-200 bg-slate-50 dark:bg-slate-800/30 dark:border-slate-700 text-slate-500 hover:border-slate-300'
+                      : 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-800/40 text-emerald-600 hover:bg-emerald-100'
                   )}>
-                  {task.readyForApproval ? '✕ Cancel Ready for Approval' : '✓ Mark as Ready for Approval'}
+                  {status === 'sent-for-approval' ? '✕ Withdraw from Approval' : '✓ Mark as Ready for Approval'}
                 </button>
               )}
 
@@ -1483,14 +1508,10 @@ export default function TasksPage() {
                           )}
                         </span>
                       )}
-                      {task.dueDate && (
+                      {(task.startDate || task.dueDate) && (
                         <span className="text-[11.5px] text-slate-400 flex items-center gap-1">
-                          <Calendar size={10} /> {task.dueDate}
-                          {(task.startTime || task.dueTime) && (
-                            <span className="text-[10.5px] text-slate-350 dark:text-slate-500 pl-0.5">
-                              ({task.startTime || '—'} to {task.dueTime || '—'})
-                            </span>
-                          )}
+                          <Clock size={10} className="text-slate-400" />
+                          {task.startDate || '—'} ➔ {task.dueDate || '—'}
                         </span>
                       )}
                       <span className="text-[11px] text-slate-400">Created: {task.createdAt?.split?.('T')?.[0] || task.createdAt}</span>
@@ -1534,7 +1555,7 @@ export default function TasksPage() {
         <div className="table-container">
           <table className="crm-table">
             <thead>
-              <tr>{['Task','Client','Assigned To','Priority','Status','Due Date','Created','Actions'].map((h) => <th key={h}>{h}</th>)}</tr>
+              <tr>{['Task','Client','Assigned To','Priority','Status','Timeline','Created','Actions'].map((h) => <th key={h}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {filtered.map((task) => {
@@ -1573,12 +1594,10 @@ export default function TasksPage() {
                     <td><PriorityBadge priority={task.priority} /></td>
                     <td><StatusBadge status={task.status} /></td>
                     <td className="text-slate-500 text-[12px]">
-                      {task.dueDate || '—'}
-                      {(task.startTime || task.dueTime) && (
-                        <div className="text-[10px] text-slate-450 font-medium mt-0.5">
-                          {task.startTime || '—'} - {task.dueTime || '—'}
-                        </div>
-                      )}
+                      <span className="flex items-center gap-1">
+                        <Clock size={10} className="text-slate-400" />
+                        {task.startDate || '—'} ➔ {task.dueDate || '—'}
+                      </span>
                     </td>
                     <td className="text-slate-500 text-[12px]">{task.createdAt?.split?.('T')?.[0] || task.createdAt || '—'}</td>
                     {/* Progress column data removed */}

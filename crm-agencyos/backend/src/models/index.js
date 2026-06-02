@@ -82,6 +82,7 @@ const TodoSchema = new mongoose.Schema({
   title:       { type: String, required: [true,'Title is required'], trim: true },
   description: { type: String, default: '' },
   userId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  assignedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
   taskId:      { type: mongoose.Schema.Types.ObjectId, ref: 'Task', default: null },
   startDate:   { type: String, default: '' },
