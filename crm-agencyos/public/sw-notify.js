@@ -1,30 +1,13 @@
 /* BBC CRM — Notification Service Worker
-   Scope: /
-   Handles OS-level notification display and click-to-navigate.
+   Handles click-to-navigate when the OS notification is clicked.
+   Notifications are created via new Notification() from the page,
+   so no show-notification postMessage handling is needed here.
 */
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
-// Show notification (called via postMessage from the app)
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'show-notification') {
-    const { title, body, icon, threadId, tag } = event.data;
-    event.waitUntil(
-      self.registration.showNotification(title, {
-        body,
-        icon: icon || '/favicon.ico',
-        badge: '/favicon.ico',
-        tag: tag || threadId,
-        data: { threadId },
-        renotify: true,
-        requireInteraction: false,
-      })
-    );
-  }
-});
-
-// When user clicks the OS notification
+// When user clicks the OS notification (handles closed-tab case)
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const threadId = event.notification.data?.threadId;
@@ -37,22 +20,21 @@ self.addEventListener('notificationclick', (event) => {
         for (const client of windowClients) {
           if (client.url.includes(self.location.origin)) {
             client.focus();
-            client.postMessage({ type: 'crm:navigate-thread', threadId });
+            if (threadId) {
+              client.postMessage({ type: 'crm:navigate-thread', threadId });
+            }
             return;
           }
         }
-        // No tab open — open a new one
-        const urlToOpen = threadId ? (self.location.origin + '/messages') : self.location.origin;
-        return self.clients
-          .openWindow(urlToOpen)
-          .then((newClient) => {
-            if (newClient && threadId) {
-              // small delay so the page has time to mount
-              setTimeout(() => {
-                newClient.postMessage({ type: 'crm:navigate-thread', threadId });
-              }, 1500);
-            }
-          });
+        // No CRM tab open — open a new one at /messages
+        const urlToOpen = self.location.origin + (threadId ? '/messages' : '/');
+        return self.clients.openWindow(urlToOpen).then((newClient) => {
+          if (newClient && threadId) {
+            setTimeout(() => {
+              newClient.postMessage({ type: 'crm:navigate-thread', threadId });
+            }, 1500);
+          }
+        });
       })
   );
 });
