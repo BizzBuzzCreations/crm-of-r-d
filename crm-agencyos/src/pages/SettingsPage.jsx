@@ -1311,10 +1311,19 @@ function PersonalNotificationSection({ user, onUpdate }) {
   }, [user]);
 
   const [prefs, setPrefs] = useState(initialPrefs);
+  const [permission, setPermission] = useState(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
+  );
 
   useEffect(() => {
     setPrefs(initialPrefs);
   }, [initialPrefs]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPermission(Notification.permission);
+    }
+  }, []);
 
   const handleToggle = (key, val) => {
     setPrefs({ ...prefs, [key]: val });
@@ -1322,6 +1331,57 @@ function PersonalNotificationSection({ user, onUpdate }) {
 
   const handleSave = () => {
     onUpdate({ notificationPrefs: prefs });
+  };
+
+  const requestPermission = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    try {
+      const res = await Notification.requestPermission();
+      setPermission(res);
+      if (res === 'granted') {
+        toast.success('System notifications successfully enabled!');
+        sendTestNotification();
+      } else if (res === 'denied') {
+        toast.error('Notification permission was denied. Please update your browser site settings.');
+      }
+    } catch {
+      toast.error('Failed to request notification permission.');
+    }
+  };
+
+  const sendTestNotification = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+      toast.error('Notifications are not permitted by your browser.');
+      return;
+    }
+    
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        reg.showNotification('CRM System Test', {
+          body: 'Hello! This is a test Windows toast notification from your CRM.',
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+          tag: 'test-notification',
+          renotify: true,
+          requireInteraction: false
+        });
+      } else {
+        new Notification('CRM System Test', {
+          body: 'Hello! This is a test Windows toast notification from your CRM.',
+          icon: '/favicon.ico',
+          tag: 'test-notification'
+        });
+      }
+      toast.success('Test notification sent!');
+    } catch (err) {
+      new Notification('CRM System Test', {
+        body: 'Hello! This is a test Windows toast notification from your CRM.',
+        icon: '/favicon.ico',
+        tag: 'test-notification'
+      });
+      toast.success('Test notification sent via fallback!');
+    }
   };
 
   const prefsList = [
@@ -1342,6 +1402,52 @@ function PersonalNotificationSection({ user, onUpdate }) {
       <h3 className="text-[16px] font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-200 dark:border-slate-700/60 flex items-center gap-2">
         <Bell size={18} className="text-indigo-500" /> Personal Notification Preferences
       </h3>
+
+      {/* OS Notification Status Card */}
+      <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-550/5 dark:bg-slate-900/30 max-w-xl space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h4 className="text-[13.5px] font-bold text-slate-850 dark:text-slate-200 flex items-center gap-1.5">
+              <Smartphone size={16} className="text-indigo-500" /> Windows / Desktop OS Notifications
+            </h4>
+            <p className="text-[12px] text-slate-500 mt-1">
+              To receive Windows-level toast notifications outside the CRM, you must grant permission in your browser.
+            </p>
+          </div>
+          <span className={cn(
+            'px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider',
+            permission === 'granted' ? 'bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400' :
+            permission === 'denied' ? 'bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400' :
+            'bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
+          )}>
+            {permission === 'granted' ? 'Active' : permission === 'denied' ? 'Blocked' : 'Not Configured'}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+          {(permission === 'default' || permission === 'unsupported') && (
+            <Button variant="primary" size="sm" onClick={requestPermission} disabled={permission === 'unsupported'}>
+              Enable OS Notifications
+            </Button>
+          )}
+          {permission === 'denied' && (
+            <div className="text-[12px] text-red-500 flex items-start gap-1 font-semibold">
+              <AlertTriangle size={14} className="flex-shrink-0 mt-0.5 text-red-500 animate-pulse" />
+              <span>Permission blocked in Brave/Chrome. Click the lock/settings icon in the URL bar and change Notifications to "Allow".</span>
+            </div>
+          )}
+          {permission === 'granted' && (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={sendTestNotification}>
+                Send Test OS Notification
+              </Button>
+              <span className="text-[12px] text-slate-400 flex items-center gap-1">
+                <Check size={13} className="text-green-500" /> OS push integration active
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="divide-y divide-slate-100 dark:divide-slate-800/80 max-w-xl">
         {prefsList.map((p) => (

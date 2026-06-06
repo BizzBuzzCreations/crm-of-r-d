@@ -1,6 +1,7 @@
 import { create }  from 'zustand';
 import { io }       from 'socket.io-client';
 import toast        from 'react-hot-toast';
+import { createElement } from 'react';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
   todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
@@ -279,21 +280,54 @@ function connectSocket(store) {
         ? (rawText.length > 60 ? rawText.slice(0, 60) + '…' : rawText)
         : (hasFile ? '📎 Attachment' : 'New message');
 
-      const toastTitle = isChannelThread ? `💬 ${senderName} in ${threadLabel}` : `💬 ${threadLabel}`;
+      const toastTitle = isChannelThread ? `${senderName} in ${threadLabel}` : threadLabel;
 
-      // ── In-app react-hot-toast ─────────────────────────────────────────
-      toast(`${toastTitle}\n${preview}`, { duration: 5000, position: 'bottom-right', icon: '💬' });
+      // ── In-app react-hot-toast (clickable — navigates to the thread) ───
+      toast.custom((t) => createElement('div', {
+        onClick: () => {
+          store.getState().setActiveThread(tid);
+          window.dispatchEvent(new CustomEvent('crm:navigate-thread', { detail: { threadId: tid } }));
+          toast.dismiss(t.id);
+        },
+        style: {
+          display: 'flex', alignItems: 'flex-start', gap: '10px',
+          background: '#0f172a', color: '#f8fafc', borderRadius: '10px',
+          padding: '12px 16px', fontSize: '13.5px', cursor: 'pointer',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.35)', maxWidth: '320px',
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          opacity: t.visible ? 1 : 0, transition: 'opacity 0.2s',
+        },
+      },
+        createElement('span', { style: { fontSize: '16px', flexShrink: 0, marginTop: '1px' } }, '💬'),
+        createElement('div', { style: { minWidth: 0 } },
+          createElement('div', { style: { fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, toastTitle),
+          createElement('div', { style: { fontSize: '12px', opacity: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, preview),
+          createElement('div', { style: { fontSize: '10px', opacity: 0.45, marginTop: '3px' } }, 'Click to open'),
+        ),
+      ), { duration: 5000, position: 'bottom-right' });
 
-      // ── Browser / OS notification (fires even when tab is minimised) ───
-      if (typeof window !== 'undefined' && 'Notification' in window && document.hidden) {
-        if (Notification.permission === 'granted') {
-          try {
-            new Notification(toastTitle, {
-              body: preview,
-              icon: '/favicon.ico',
-              tag:  tid,
+      // ── OS / Browser notification (visible from any tab, any app) ────────
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then((reg) => {
+              reg.showNotification(toastTitle, {
+                body: preview,
+                icon: '/favicon.ico',
+                badge: '/favicon.ico',
+                tag: tid,
+                data: { threadId: tid },
+                renotify: true,
+                requireInteraction: false
+              });
+            }).catch(() => {
+              new Notification(toastTitle, { body: preview, icon: '/favicon.ico', tag: tid, data: { threadId: tid } });
             });
-          } catch {}
+          } else {
+            new Notification(toastTitle, { body: preview, icon: '/favicon.ico', tag: tid, data: { threadId: tid } });
+          }
+        } catch (err) {
+          console.error('Failed to show OS notification:', err);
         }
       }
 
@@ -377,12 +411,28 @@ function connectSocket(store) {
     else if (isOk)   toast.success(msg, opts);
     else             toast(msg, { ...opts, icon: '🔔' });
 
-    // ── Browser / desktop notification (when tab is hidden) ────────────
-    if (typeof window !== 'undefined' && 'Notification' in window && document.hidden) {
-      if (Notification.permission === 'granted') {
-        try {
+    // ── Browser / desktop notification (visible from any tab, any app) ──
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then((reg) => {
+            reg.showNotification(notif.title, {
+              body: notif.message,
+              icon: '/favicon.ico',
+              badge: '/favicon.ico',
+              tag: notif._id,
+              data: { threadId: null },
+              renotify: true,
+              requireInteraction: false
+            });
+          }).catch(() => {
+            new Notification(notif.title, { body: notif.message, icon: '/favicon.ico', tag: notif._id });
+          });
+        } else {
           new Notification(notif.title, { body: notif.message, icon: '/favicon.ico', tag: notif._id });
-        } catch {}
+        }
+      } catch (err) {
+        console.error('Failed to show OS notification:', err);
       }
     }
 
@@ -1056,6 +1106,12 @@ const useAppStore = create((set, get, store) => ({
         members: c.members || [],
         unread: savedUnread[String(c._id)] || 0,
       }));
+      // Fix activeThread — 'general' in initial state won't match any real channel id
+      const currentThread = get().activeThread;
+      const isThreadValid = channels.some((c) => c.id === currentThread) || dms.some((d) => d.id === currentThread);
+      const generalChannel = channels.find((c) => c.name === 'general');
+      const resolvedThread = isThreadValid ? currentThread : (generalChannel?.id || channels[0]?.id || currentThread);
+
       set({
         users,
         clients:        cR.data.data,
@@ -1068,6 +1124,7 @@ const useAppStore = create((set, get, store) => ({
         leads:          lR.data.data || [],
         systemSettings: setR?.data?.data || null,
         messages:       { ...get().messages, dms, channels },
+        activeThread:   resolvedThread,
         loading:        false,
       });
       await get().fetchMySchedule();
