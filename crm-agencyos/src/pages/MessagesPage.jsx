@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   Hash, MessageCircle, Send, Trash2, Search, Paperclip,
-  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock, Pencil, Settings, Ban,
+  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock, Pencil, Settings, Ban, Bell, BellOff,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { getBackendUrl } from '../services/api';
@@ -179,6 +179,9 @@ export default function MessagesPage() {
   const [showNewDM,     setShowNewDM]     = useState(false);
   const [dmSearch,      setDmSearch]      = useState('');
   const [typingNames,   setTypingNames]   = useState([]);
+  const [notifPerm,     setNotifPerm]     = useState(() =>
+    (typeof Notification !== 'undefined') ? Notification.permission : 'denied'
+  );
 
   // Channel Creation / Management states
   const [showChannelModal, setShowChannelModal] = useState(false);
@@ -287,6 +290,26 @@ export default function MessagesPage() {
       if (textareaRef.current) textareaRef.current.style.height='auto';
     } catch { /* toast handled in store */ }
     finally { setSending(false); }
+  };
+
+  // ── Notification permission ───────────────────────────────
+  const handleEnableNotifications = async () => {
+    if (!('Notification' in window)) return;
+    const result = await Notification.requestPermission();
+    setNotifPerm(result);
+    if (result === 'granted') {
+      toast.success('Browser notifications enabled!');
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then((reg) =>
+          reg.showNotification('Notifications enabled! 🔔', {
+            body: "You'll now receive message alerts from any tab.",
+            icon: '/favicon.ico',
+          })
+        );
+      }
+    } else {
+      toast.error('Notifications blocked. Allow them in your browser site settings.');
+    }
   };
 
   // ── Delete (DELETE /api/messages/:id) ────────────────────
@@ -487,6 +510,21 @@ export default function MessagesPage() {
               })}
             </div>
           </div>
+          {/* Notification permission banner */}
+          {notifPerm !== 'granted' && (
+            <div className="px-3 py-2 border-t border-slate-800">
+              <button
+                onClick={handleEnableNotifications}
+                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-400 hover:text-indigo-300 transition-all text-[11.5px] font-medium"
+              >
+                {notifPerm === 'denied' ? <BellOff size={12} className="flex-shrink-0"/> : <Bell size={12} className="flex-shrink-0"/>}
+                <span>{notifPerm === 'denied' ? 'Notifications blocked' : 'Enable notifications'}</span>
+              </button>
+              {notifPerm === 'denied' && (
+                <p className="text-[10px] text-slate-600 mt-1 px-1">Allow in browser site settings</p>
+              )}
+            </div>
+          )}
           {/* Socket status */}
           <div className="px-3 py-2 border-t border-slate-800">
             <div className="flex items-center gap-1.5 text-[10.5px] text-slate-600">

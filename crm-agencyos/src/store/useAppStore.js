@@ -307,33 +307,31 @@ function connectSocket(store) {
       ), { duration: 5000, position: 'bottom-right' });
 
       // ── OS / Browser notification ─────────────────────────────────────────
-      // Uses new Notification() directly — works immediately without waiting
-      // for a SW to become active. The SW only handles clicks when the tab is closed.
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        try {
-          const osNotif = new Notification(toastTitle, {
-            body:    preview,
-            icon:    '/favicon.ico',
-            badge:   '/favicon.ico',
-            tag:     tid,
-            renotify: true,
-          });
-          osNotif.onclick = () => {
-            window.focus();
-            store.getState().setActiveThread(tid);
-            window.dispatchEvent(new CustomEvent('crm:navigate-thread', { detail: { threadId: tid } }));
-            osNotif.close();
-          };
-        } catch {
-          // Chrome on Android / older browsers — fall back to SW showNotification
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.ready
-              .then((reg) => reg.showNotification(toastTitle, {
-                body: preview, icon: '/favicon.ico', tag: tid,
-                data: { threadId: tid }, renotify: true,
-              }))
-              .catch(() => {});
-          }
+        if ('serviceWorker' in navigator) {
+          // Chrome/Brave/Edge: MUST use SW-based notification when a SW is registered.
+          // new Notification() throws in these browsers when a SW controls the page.
+          navigator.serviceWorker.ready
+            .then((reg) => reg.showNotification(toastTitle, {
+              body:    preview,
+              icon:    '/favicon.ico',
+              badge:   '/favicon.ico',
+              tag:     tid,
+              data:    { threadId: tid },
+              renotify: true,
+            }))
+            .catch((err) => console.warn('[CRM] OS notification failed:', err));
+        } else {
+          // Firefox / Safari (no SW) — direct Notification API
+          try {
+            const n = new Notification(toastTitle, { body: preview, icon: '/favicon.ico', tag: tid });
+            n.onclick = () => {
+              window.focus();
+              store.getState().setActiveThread(tid);
+              window.dispatchEvent(new CustomEvent('crm:navigate-thread', { detail: { threadId: tid } }));
+              n.close();
+            };
+          } catch (e) { console.warn('[CRM] OS notification failed:', e); }
         }
       }
 
@@ -398,43 +396,45 @@ function connectSocket(store) {
   sock.on('notification:new', (notif) => {
     store.setState((s) => ({ notifications: [notif, ...s.notifications] }));
 
-    // message_dm notifications are already handled (better) by the message:new handler
+    // message_dm type is already handled (better) by the message:new handler
     const isMessageNotif = notif.type === 'message_dm';
 
-    // ── In-app toast (skip for DMs — message:new shows the clickable toast) ──
+    // Declare outside any block so sound code below can use them too
+    const priority = notif.priority || 'info';
+    const isError  = priority === 'error' || priority === 'critical';
+    const isWarn   = priority === 'warning';
+    const isOk     = priority === 'success';
+
+    // ── In-app toast (skip for DMs — message:new shows the better clickable toast) ──
     if (!isMessageNotif) {
-      const priority = notif.priority || 'info';
-      const isError  = priority === 'error' || priority === 'critical';
-      const isWarn   = priority === 'warning';
-      const isOk     = priority === 'success';
-      const emoji    = isError ? '❌ ' : isWarn ? '⚠️ ' : isOk ? '✅ ' : '🔔 ';
-      const msg      = emoji + notif.title + (notif.message ? '\n' + notif.message : '');
-      const opts = { id: notif._id, duration: priority === 'critical' ? 10000 : 5000, position: 'bottom-right' };
+      const emoji = isError ? '❌ ' : isWarn ? '⚠️ ' : isOk ? '✅ ' : '🔔 ';
+      const msg   = emoji + notif.title + (notif.message ? '\n' + notif.message : '');
+      const opts  = { id: String(notif._id), duration: isError ? 10000 : 5000, position: 'bottom-right' };
       if (isError)     toast.error(msg, opts);
       else if (isWarn) toast(msg, { ...opts, icon: '⚠️' });
       else if (isOk)   toast.success(msg, opts);
       else             toast(msg, { ...opts, icon: '🔔' });
     }
 
-    // ── Browser / OS notification (skip DMs — already sent by message:new) ──
+    // ── OS / Browser notification — ALL non-DM notification types ─────────
+    // DMs are skipped here because message:new already sends their OS notification.
     if (!isMessageNotif && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        const osNotif = new Notification(notif.title, {
-          body:    notif.message,
-          icon:    '/favicon.ico',
-          badge:   '/favicon.ico',
-          tag:     String(notif._id),
-          renotify: true,
-        });
-        osNotif.onclick = () => { window.focus(); osNotif.close(); };
-      } catch {
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.ready
-            .then((reg) => reg.showNotification(notif.title, {
-              body: notif.message, icon: '/favicon.ico', tag: String(notif._id), renotify: true,
-            }))
-            .catch(() => {});
-        }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready
+          .then((reg) => reg.showNotification(notif.title, {
+            body:    notif.message,
+            icon:    '/favicon.ico',
+            badge:   '/favicon.ico',
+            tag:     String(notif._id),
+            renotify: true,
+            data:    { link: notif.link || null },
+          }))
+          .catch((err) => console.warn('[CRM] OS notification failed:', err));
+      } else {
+        try {
+          const n = new Notification(notif.title, { body: notif.message, icon: '/favicon.ico', tag: String(notif._id) });
+          n.onclick = () => { window.focus(); n.close(); };
+        } catch (e) { console.warn('[CRM] OS notification failed:', e); }
       }
     }
 

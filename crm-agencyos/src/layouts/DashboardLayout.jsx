@@ -29,17 +29,18 @@ export default function DashboardLayout() {
 
     // Handle click messages from the SW (OS notification clicked)
     const swMessageHandler = (event) => {
-      if (event.data?.type === 'crm:navigate-thread' && event.data.threadId) {
-        useAppStore.getState().setActiveThread(event.data.threadId);
+      const { type, path, threadId } = event.data || {};
+      if (type === 'crm:navigate' && path) {
+        if (threadId) useAppStore.getState().setActiveThread(threadId);
+        navigate(path);
+      }
+      // legacy
+      if (type === 'crm:navigate-thread' && threadId) {
+        useAppStore.getState().setActiveThread(threadId);
         navigate('/messages');
       }
     };
     navigator.serviceWorker.addEventListener('message', swMessageHandler);
-
-    // Request notification permission once (only if not yet decided)
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
 
     return () => {
       navigator.serviceWorker.removeEventListener('message', swMessageHandler);
