@@ -37,6 +37,7 @@ export const ROLE_CONFIG = {
   manager:          { label: 'Manager',          tw: 'badge-info',    color: '#0ea5e9' },
   member:           { label: 'Member',           tw: 'badge-neutral', color: '#64748b' },
   client_relations: { label: 'Client Relations', tw: 'badge-success', color: '#10b981' },
+  client:           { label: 'Client',           tw: 'badge-teal',    color: '#0d9488' },
 };
 
 // ── Payment status config ─────────────────────────────────────

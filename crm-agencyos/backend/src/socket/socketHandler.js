@@ -1,6 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
-const { WorkLog, Channel } = require('../models/index');
+const { WorkLog, Channel, Task, Project } = require('../models/index');
 
 const disconnectTimeouts = new Map();
 
@@ -55,35 +55,67 @@ module.exports = (io) => {
     // ── Auto-join channels and DM rooms ───────────────────
     try {
       let filter = { isDeleted: { $ne: true } };
-      if (socket.user.role !== 'admin') {
+      if (socket.user.role === 'client') {
+        // Clients join: dedicated channel (clientId match) OR any private channel they're a member of
+        filter = {
+          isDeleted: { $ne: true },
+          $or: [
+            { clientId: socket.user.clientId },
+            { isPrivate: true, members: userId },
+          ],
+        };
+      } else if (socket.user.role !== 'admin') {
         filter = {
           isDeleted: { $ne: true },
           $or: [
             { isPrivate: false },
-            { isPrivate: true, members: userId }
-          ]
+            { isPrivate: true, members: userId },
+          ],
         };
       }
       const dbChannels = await Channel.find(filter, '_id').exec();
       dbChannels.forEach((ch) => {
         socket.join(String(ch._id));
       });
-      // Also join legacy / old hardcoded string channels just in case some clients are in transition
-      const legacyChannels = ['general', 'design', 'dev', 'marketing', 'client-updates'];
-      legacyChannels.forEach((chId) => socket.join(chId));
+      // Legacy channels: staff and admin only — clients are never added here
+      if (socket.user.role !== 'client') {
+        const legacyChannels = ['general', 'design', 'dev', 'marketing', 'client-updates'];
+        legacyChannels.forEach((chId) => socket.join(chId));
+      }
     } catch (err) {
       console.error('Error auto-joining database channels:', err);
     }
 
     try {
-      const allUsers = await User.find({}, '_id').exec();
-      allUsers.forEach((otherUser) => {
-        const otherId = String(otherUser._id);
-        if (otherId !== userId) {
-          const sorted = [userId, otherId].sort();
-          socket.join(`dm-${sorted[0]}-${sorted[1]}`);
-        }
-      });
+      if (socket.user.role === 'client' && socket.user.clientId) {
+        // Clients only join DM rooms with admins + users assigned to their projects/tasks
+        const clientId = socket.user.clientId;
+        const [admins, projects, tasks] = await Promise.all([
+          User.find({ role: 'admin' }, '_id').lean(),
+          Project.find({ clientId }, 'assignedTeam').lean(),
+          Task.find({ clientId }, 'assignedTo').lean(),
+        ]);
+        const allowedIds = new Set(admins.map((u) => String(u._id)));
+        projects.forEach((p) => (p.assignedTeam || []).forEach((uid) => allowedIds.add(String(uid))));
+        tasks.forEach((t) => t.assignedTo && allowedIds.add(String(t.assignedTo)));
+
+        allowedIds.forEach((otherId) => {
+          if (otherId !== userId) {
+            const sorted = [userId, otherId].sort();
+            socket.join(`dm-${sorted[0]}-${sorted[1]}`);
+          }
+        });
+      } else {
+        // Staff: join DM rooms with every other user
+        const allUsers = await User.find({}, '_id').exec();
+        allUsers.forEach((otherUser) => {
+          const otherId = String(otherUser._id);
+          if (otherId !== userId) {
+            const sorted = [userId, otherId].sort();
+            socket.join(`dm-${sorted[0]}-${sorted[1]}`);
+          }
+        });
+      }
     } catch (err) {
       console.error('Error joining DM rooms on socket connection:', err);
     }
@@ -102,6 +134,10 @@ module.exports = (io) => {
     // ── Join rooms ────────────────────────────────────────
     socket.on('join:thread', (threadId) => {
       const room = getCanonicalRoom(threadId, socket.user);
+      // For clients: only join DM rooms they're already authorised for (joined at connect time)
+      if (socket.user.role === 'client' && room.startsWith('dm-') && !socket.rooms.has(room)) {
+        return; // silently reject unauthorised DM join
+      }
       socket.join(room);
     });
 

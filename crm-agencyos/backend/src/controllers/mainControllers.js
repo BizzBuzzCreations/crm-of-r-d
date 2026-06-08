@@ -1,7 +1,15 @@
+const crypto          = require('crypto');
 const User            = require('../models/User');
-const { Client, Task, Todo, Meeting, Project } = require('../models/index');
+const { Client, Task, Todo, Meeting, Project, Channel, Message, Notification } = require('../models/index');
 const notifService    = require('../services/notificationService');
 const audit           = require('../services/auditService');
+const emailService    = require('../services/emailService');
+
+// Generate a random readable password: 12 chars, alphanumeric
+function generatePassword() {
+  return crypto.randomBytes(9).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12)
+    || Math.random().toString(36).slice(2, 14);
+}
 
 // ═══════════════════════════════════════════════════
 // USERS
@@ -134,18 +142,153 @@ exports.createClient = async (req, res, next) => {
         status: 'pending',
         createdBy: req.user._id,
       });
-
-      // Update client projectCount
       client.projectCount = 1;
       await client.save();
+    }
+
+    // Auto-create a portal login for the client contact if they have an email
+    let portalCreated = false;
+    let portalEmail   = false;
+    const contactEmail = (clientData.email || '').trim().toLowerCase();
+
+    if (contactEmail) {
+      const existing = await User.findOne({ email: contactEmail }).lean();
+      if (!existing) {
+        const password = generatePassword();
+        await User.create({
+          name:       clientData.contact || client.name,
+          email:      contactEmail,
+          password,
+          role:       'client',
+          clientId:   client._id,
+          position:   'Client',
+          department: 'External',
+          color:      '#10B981',
+          status:     'offline',
+        });
+
+        const loginUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+        portalEmail = await emailService.sendClientWelcome({
+          to:          contactEmail,
+          clientName:  client.name,
+          contactName: clientData.contact || client.name,
+          password,
+          loginUrl,
+        });
+        portalCreated = true;
+      }
+    }
+
+    // ── Create dedicated private channel for this client ─────────────
+    let clientChannel = null;
+    try {
+      // Collect member IDs: all admins + assigned team + client portal user (if created)
+      const admins  = await User.find({ role: 'admin' }, '_id').lean();
+      const adminIds = admins.map((u) => String(u._id));
+
+      const teamIds = (clientData.assignedTeam || []).map(String);
+
+      const memberSet = new Set([...adminIds, ...teamIds]);
+
+      // Find the portal user we just created (or an existing one)
+      if (contactEmail) {
+        const portalUser = await User.findOne({ email: contactEmail, role: 'client' }, '_id').lean();
+        if (portalUser) memberSet.add(String(portalUser._id));
+      }
+
+      const members = Array.from(memberSet);
+
+      // Build a unique slug for the channel name
+      const baseSlug = `client-${client.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+      let channelName = baseSlug;
+      let attempt = 0;
+      while (!clientChannel) {
+        try {
+          clientChannel = await Channel.create({
+            name:        channelName,
+            description: `Client channel for ${client.name}`,
+            isPrivate:   true,
+            members,
+            createdBy:   req.user._id,
+            clientId:    client._id,
+          });
+        } catch (e) {
+          if (e.code === 11000) {
+            attempt++;
+            channelName = `${baseSlug}-${attempt + 1}`;
+          } else { throw e; }
+        }
+      }
+
+      // Notify all channel members via socket so their UI picks it up immediately
+      const io = req.app.get('io');
+      if (io && clientChannel) {
+        const populated2 = await clientChannel.populate('members', 'name color initials position status role');
+        members.forEach((uid) => io.to(`user:${uid}`).emit('channel:created', populated2));
+      }
+    } catch (chanErr) {
+      console.warn('[createClient] Failed to create client channel:', chanErr.message);
     }
 
     const populated = await client.populate('assignedTeam', 'name email color initials status position');
     audit.log(req, {
       action: 'create', category: 'client',
       targetId: client._id, targetModel: 'Client', targetTitle: client.name,
+      metadata: { portalCreated, portalEmailSent: portalEmail, channelCreated: !!clientChannel },
     });
-    res.status(201).json({ success: true, data: populated });
+
+    res.status(201).json({
+      success: true,
+      data: populated,
+      portalCreated,
+      portalEmailSent: portalEmail,
+      channelCreated: !!clientChannel,
+    });
+  } catch (err) { next(err); }
+};
+
+// POST /api/clients/:id/reset-portal-password  (admin only)
+// Generates or accepts a new password for the client's portal User account
+exports.resetPortalPassword = async (req, res, next) => {
+  try {
+    const portalUser = await User.findOne({ clientId: req.params.id, role: 'client' }).select('+password');
+    if (!portalUser) {
+      return res.status(404).json({ success: false, message: 'No portal account found for this client. Create the client account first.' });
+    }
+
+    const newPassword = (req.body.password || '').trim() || generatePassword();
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+
+    portalUser.password = newPassword;
+    await portalUser.save();
+
+    // Email the new credentials
+    const client = await Client.findById(req.params.id, 'name contact').lean();
+    const loginUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const emailSent = await emailService.sendClientWelcome({
+      to:          portalUser.email,
+      clientName:  client?.name  || portalUser.name,
+      contactName: client?.contact || portalUser.name,
+      password:    newPassword,
+      loginUrl,
+    });
+
+    audit.log(req, {
+      action: 'update', category: 'client',
+      targetId: req.params.id, targetModel: 'Client',
+      targetTitle: client?.name ?? req.params.id,
+      metadata: { action: 'portal_password_reset', emailSent },
+    });
+
+    res.json({
+      success: true,
+      message: 'Portal password reset successfully',
+      email:       portalUser.email,
+      newPassword,        // always return so admin can share it if email fails
+      emailSent,
+    });
   } catch (err) { next(err); }
 };
 
@@ -164,14 +307,52 @@ exports.updateClient = async (req, res, next) => {
 
 exports.deleteClient = async (req, res, next) => {
   try {
-    const target = await Client.findById(req.params.id).lean();
-    await Client.findByIdAndDelete(req.params.id);
+    const Notification = require('../models/Notification');
+    const clientId = req.params.id;
+    const target = await Client.findById(clientId).lean();
+    if (!target) return res.status(404).json({ success: false, message: 'Client not found' });
+
+    // 1. Find the dedicated channel(s) and delete their messages
+    const clientChannels = await Channel.find({ clientId }).lean();
+    const channelIds = clientChannels.map((c) => c._id);
+    if (channelIds.length) {
+      await Message.deleteMany({ threadId: { $in: channelIds.map(String) } });
+      await Channel.deleteMany({ _id: { $in: channelIds } });
+    }
+
+    // 2. Delete portal user (role:'client' with this clientId)
+    const portalUser = await User.findOne({ clientId, role: 'client' }).lean();
+    if (portalUser) {
+      await Notification.deleteMany({ recipient: portalUser._id });
+      await User.deleteOne({ _id: portalUser._id });
+    }
+
+    // 3. Delete all tasks, todos, meetings, projects tied to this client
+    await Task.deleteMany({ clientId });
+    await Todo.deleteMany({ clientId });
+    await Meeting.deleteMany({ clientId });
+    await Project.deleteMany({ clientId });
+
+    // 4. Delete the client record itself
+    await Client.findByIdAndDelete(clientId);
+
     audit.log(req, {
       action: 'delete', category: 'client',
-      targetId: req.params.id, targetModel: 'Client',
-      targetTitle: target?.name ?? req.params.id,
+      targetId: clientId, targetModel: 'Client',
+      targetTitle: target.name,
+      metadata: {
+        cascadeDeleted: {
+          channels: channelIds.length,
+          portalUser: !!portalUser,
+        },
+      },
     });
-    res.json({ success: true, message: 'Client deleted' });
+
+    // Notify all connected clients to remove this client from their state
+    const io = req.app.get('io');
+    io?.emit('client:deleted', clientId);
+
+    res.json({ success: true, message: `Client "${target.name}" and all associated data deleted` });
   } catch (err) { next(err); }
 };
 
@@ -207,6 +388,7 @@ exports.getTasks = async (req, res, next) => {
   try {
     let filter = {};
     if (req.user.role === 'member') filter.assignedTo = req.user._id;
+    if (req.user.role === 'client') filter.clientId   = req.user.clientId;
 
     // Date-range filtering: include tasks that overlap [startDate, endDate]
     const { startDate, endDate } = req.query;
@@ -434,7 +616,8 @@ const todoPopulate = [
 exports.getTodos = async (req, res, next) => {
   try {
     let filter = {};
-    if (req.user.role === 'member') filter.userId = req.user._id;
+    if (req.user.role === 'member') filter.userId   = req.user._id;
+    if (req.user.role === 'client') filter.clientId = req.user.clientId;
 
     // Date-range filtering: include todos that overlap [startDate, endDate]
     const { startDate, endDate } = req.query;
@@ -602,7 +785,8 @@ const meetPopulate = [
 
 exports.getMeetings = async (req, res, next) => {
   try {
-    const meetings = await Meeting.find().populate(meetPopulate).sort({ date: 1, time: 1 });
+    const filter = req.user.role === 'client' ? { clientId: req.user.clientId } : {};
+    const meetings = await Meeting.find(filter).populate(meetPopulate).sort({ date: 1, time: 1 });
     res.json({ success: true, data: meetings });
   } catch (err) { next(err); }
 };

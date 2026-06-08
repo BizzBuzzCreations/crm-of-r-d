@@ -186,7 +186,8 @@ const ChannelSchema = new mongoose.Schema({
   isPrivate:   { type: Boolean, default: false },
   members:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  isDeleted:   { type: Boolean, default: false }, // Soft deletion support
+  isDeleted:   { type: Boolean, default: false },
+  clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
 }, { timestamps: true });
 
 const ProjectSchema = new mongoose.Schema({

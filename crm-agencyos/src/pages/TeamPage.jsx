@@ -842,7 +842,10 @@ export default function TeamPage() {
     return () => { clearInterval(intervalId); clearInterval(refreshId); };
   }, [users.length]);
 
-  const filtered = users.filter((u) => {
+  // Client-role users are managed via the Clients page, not Team
+  const staffUsers = users.filter((u) => u.role !== 'client');
+
+  const filtered = staffUsers.filter((u) => {
     const matchSearch = !search
       || u.name.toLowerCase().includes(search.toLowerCase())
       || (u.position || '').toLowerCase().includes(search.toLowerCase())
@@ -909,7 +912,7 @@ export default function TeamPage() {
         <div>
           <h1 className="page-title">Team Members</h1>
           <p className="page-sub">
-            {users.length} members · {users.filter((u) => u.status === 'online').length} online
+            {staffUsers.length} members · {staffUsers.filter((u) => u.status === 'online').length} online
           </p>
         </div>
         <div className="flex items-center gap-2">

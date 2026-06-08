@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
-  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal
+  Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal,
+  Building2,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -350,31 +351,37 @@ function MemberTimer({ open }) {
 // ── Nav ───────────────────────────────────────────────────────
 const NAV = [
   {
+    section: 'PORTAL',
+    items: [
+      { path: '/portal', label: 'My Portal', icon: Building2, roles: ['client'] },
+    ],
+  },
+  {
     section: 'MENU',
     items: [
-      { path: '/dashboard', label: 'Dashboard',         icon: LayoutDashboard, roles: ['admin','manager','member','client_relations'] },
-      { path: '/todos',     label: 'Todos',        icon: ListTodo,        roles: ['admin','manager','member','client_relations'] },
-      { path: '/tasks',     label: 'Tasks',        icon: CheckSquare,     roles: ['admin','manager','member','client_relations'] },
-      { path: '/clients',   label: 'Clients & Projects', icon: Users,           roles: ['admin','manager','client_relations'] },
-      { path: '/leads',     label: 'Leads Pipeline',     icon: Target,          roles: ['admin','manager','client_relations','member'] },
-      { path: '/messages',  label: 'Messages',           icon: MessageSquare,   roles: ['admin','manager','member','client_relations'], badge: true },
-      { path: '/meetings',  label: 'Meetings',           icon: Video,           roles: ['admin','manager','member','client_relations'] },
-      { path: '/reports',   label: 'Reports',            icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },
-      { path: '/calendar',  label: 'Calendar',           icon: Calendar,        roles: ['admin','manager','member','client_relations'] },
+      { path: '/dashboard', label: 'Dashboard',            icon: LayoutDashboard, roles: ['admin','manager','member','client_relations'] },
+      { path: '/todos',     label: 'Todos',                icon: ListTodo,        roles: ['admin','manager','member','client_relations'] },
+      { path: '/tasks',     label: 'Tasks',                icon: CheckSquare,     roles: ['admin','manager','member','client_relations'] },
+      { path: '/clients',   label: 'Clients & Projects',   icon: Users,           roles: ['admin','manager','client_relations'] },
+      { path: '/leads',     label: 'Leads Pipeline',       icon: Target,          roles: ['admin','manager','client_relations','member'] },
+      { path: '/messages',  label: 'Messages',             icon: MessageSquare,   roles: ['admin','manager','member','client_relations','client'], badge: true },
+      { path: '/meetings',  label: 'Meetings',             icon: Video,           roles: ['admin','manager','member','client_relations'] },
+      { path: '/reports',   label: 'Reports',              icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },
+      { path: '/calendar',  label: 'Calendar',             icon: Calendar,        roles: ['admin','manager','member','client_relations'] },
     ],
   },
   {
     section: 'ADMIN',
     items: [
-      { path: '/team',        label: 'Team',          icon: UserCircle, roles: ['admin', 'manager'] },
-      { path: '/logs',        label: 'Audit Logs',    icon: Shield,     roles: ['admin'] },
-      { path: '/system-logs', label: 'System Monitor', icon: Terminal,  roles: ['admin'] },
+      { path: '/team',        label: 'Team',           icon: UserCircle, roles: ['admin', 'manager'] },
+      { path: '/logs',        label: 'Audit Logs',     icon: Shield,     roles: ['admin'] },
+      { path: '/system-logs', label: 'System Monitor', icon: Terminal,   roles: ['admin'] },
     ],
   },
   {
     section: 'ACCOUNT',
     items: [
-      { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin','manager','member','client_relations'] },
+      { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin','manager','member','client_relations','client'] },
     ],
   },
 ];
@@ -388,6 +395,7 @@ export default function Sidebar() {
 
   const role        = authUser?.role;
   const isMember    = role === 'member';
+  const isClient    = role === 'client';
   const totalUnread = [...messages.channels, ...messages.dms].reduce((a, c) => a + (c.unread || 0), 0);
 
   return (
@@ -418,8 +426,8 @@ export default function Sidebar() {
         </AnimatePresence>
       </div>
 
-      {/* ── Timer — members only ── */}
-      {isMember && <MemberTimer open={sidebarOpen} />}
+      {/* ── Timer — members only (not clients) ── */}
+      {isMember && !isClient && <MemberTimer open={sidebarOpen} />}
 
       {/* ── Nav ── */}
       <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">

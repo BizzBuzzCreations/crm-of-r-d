@@ -121,12 +121,13 @@ export const usersAPI = {
 // ── Clients  (Section 4)
 // ─────────────────────────────────────────────────────────────
 export const clientsAPI = {
-  getAll:  ()          => api.get('/clients'),
-  getOne:  (id)        => api.get(`/clients/${id}`),
-  create:  (body)      => api.post('/clients',      body),
-  update:  (id, body)  => api.put(`/clients/${id}`, body),
-  delete:  (id)        => api.delete(`/clients/${id}`),
-  addNote: (id, text)  => api.post(`/clients/${id}/notes`, { text }),
+  getAll:               ()             => api.get('/clients'),
+  getOne:               (id)           => api.get(`/clients/${id}`),
+  create:               (body)         => api.post('/clients',      body),
+  update:               (id, body)     => api.put(`/clients/${id}`, body),
+  delete:               (id)           => api.delete(`/clients/${id}`),
+  addNote:              (id, text)     => api.post(`/clients/${id}/notes`, { text }),
+  resetPortalPassword:  (id, password) => api.post(`/clients/${id}/reset-portal-password`, { password }),
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -292,4 +293,13 @@ export const systemLogsAPI = {
   getLogs:        (source, params)             => api.get(`/admin/logs/${source}`, { params }),
   getStatus:      ()                           => api.get('/admin/logs/status'),
   downloadUrl:    (source)                     => `${api.defaults.baseURL}/admin/logs/${source}/download`,
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Client Portal (role: client only)
+// ─────────────────────────────────────────────────────────────
+export const portalAPI = {
+  overview: () => api.get('/portal/overview'),
+  me:       () => api.get('/portal/me'),
+  contacts: () => api.get('/portal/contacts'),
 };

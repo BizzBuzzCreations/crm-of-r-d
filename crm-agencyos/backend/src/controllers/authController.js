@@ -1,5 +1,6 @@
 const jwt   = require('jsonwebtoken');
 const User  = require('../models/User');
+const { Client } = require('../models/index');
 const audit = require('../services/auditService');
 
 // Send tokens helper
@@ -57,6 +58,17 @@ exports.login = async (req, res, next) => {
     const match = await user.matchPassword(password);
     if (!match)
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
+
+    // Block client users whose Client record has been set to inactive
+    if (user.role === 'client' && user.clientId) {
+      const clientRec = await Client.findById(user.clientId, 'status name').lean();
+      if (!clientRec || clientRec.status === 'inactive') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your portal access has been deactivated. Please contact your account manager.',
+        });
+      }
+    }
 
     // Mark online
     user.status = 'online';
@@ -122,6 +134,18 @@ exports.refresh = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const user    = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ success: false, message: 'User not found' });
+
+    // Revoke refresh for deactivated client accounts
+    if (user.role === 'client' && user.clientId) {
+      const clientRec = await Client.findById(user.clientId, 'status').lean();
+      if (!clientRec || clientRec.status === 'inactive') {
+        res.clearCookie('refreshToken');
+        return res.status(403).json({
+          success: false,
+          message: 'Portal access has been deactivated. Please contact your account manager.',
+        });
+      }
+    }
 
     sendTokens(user, 200, res);
   } catch (err) {

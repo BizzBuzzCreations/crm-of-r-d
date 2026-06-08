@@ -1283,7 +1283,7 @@ function EmailCalendarSyncSection({ user, onUpdate }) {
 }
 
 // 13. Personal Notification preferences (All Members)
-function PersonalNotificationSection({ user, onUpdate }) {
+function PersonalNotificationSection({ user, onUpdate, role }) {
   const initialPrefs = useMemo(() => {
     // Convert Map or Object to clean keys
     const raw = user?.notificationPrefs;
@@ -1384,18 +1384,22 @@ function PersonalNotificationSection({ user, onUpdate }) {
     }
   };
 
-  const prefsList = [
-    { key: 'task_assigned',    label: 'New Task Assigned',   desc: 'Get notified immediately when a client or inhouse task is assigned to you.' },
-    { key: 'task_approved',    label: 'Submissions Approved', desc: 'Alert when a task you submitted for review is marked as completed.' },
-    { key: 'meeting_reminder', label: '15-Min Meeting Alert', desc: 'Pre-meeting alerts 15 minutes before an internal or client meeting starts.' },
-    { key: 'client_update',    label: 'Client Profile updates', desc: 'Get updates when client budget, contract or onboarding terms are modified.' },
-    { key: 'message_dm',       label: 'Direct Channel Messages', desc: 'Notifications on receiving direct chat thread communications.' },
-    { key: 'new_comment',      label: 'Comments & Activity', desc: 'Get alerts on task feedback or client timeline notes.' },
-    { key: 'deal_closed',      label: 'Closed Deal summary', desc: 'Admin summary alerts when sales deals are closed won/lost.' },
-    { key: 'weekly_report',    label: 'Weekly Digest summary', desc: 'Receive Monday performance stats in a summary email.' },
-    { key: 'lead_assigned',    label: 'Lead Reassignments',  desc: 'Get notified immediately when a B2B sales lead is assigned to you.' },
-    { key: 'lead_mentioned',   label: 'Lead Note @Mentions', desc: 'Alert when other sales reps or admins tag you in internal lead activity streams.' }
+  const allPrefsList = [
+    { key: 'task_assigned',    label: 'New Task Assigned',       desc: 'Get notified immediately when a task is assigned to you.' },
+    { key: 'task_approved',    label: 'Task Completed',          desc: 'Alert when a task you submitted for review is marked as completed.' },
+    { key: 'meeting_reminder', label: '15-Min Meeting Alert',    desc: 'Pre-meeting alerts 15 minutes before a meeting starts.' },
+    { key: 'message_dm',       label: 'Channel Messages',        desc: 'Notifications on receiving direct chat thread communications.' },
+    { key: 'new_comment',      label: 'Comments & Activity',     desc: 'Get alerts on task feedback or activity notes.' },
+    // staff-only below
+    { key: 'client_update',    label: 'Client Profile updates',  desc: 'Get updates when client budget, contract or onboarding terms are modified.', staffOnly: true },
+    { key: 'deal_closed',      label: 'Closed Deal summary',     desc: 'Admin summary alerts when sales deals are closed won/lost.', staffOnly: true },
+    { key: 'weekly_report',    label: 'Weekly Digest summary',   desc: 'Receive Monday performance stats in a summary email.', staffOnly: true },
+    { key: 'lead_assigned',    label: 'Lead Reassignments',      desc: 'Get notified immediately when a B2B sales lead is assigned to you.', staffOnly: true },
+    { key: 'lead_mentioned',   label: 'Lead Note @Mentions',     desc: 'Alert when other sales reps or admins tag you in internal lead activity streams.', staffOnly: true },
   ];
+  const prefsList = role === 'client'
+    ? allPrefsList.filter((p) => !p.staffOnly)
+    : allPrefsList;
 
   return (
     <div className="space-y-6">
@@ -1540,13 +1544,24 @@ export default function SettingsPage() {
   );
 
   const role = authUser?.role;
+  const isClient = role === 'client';
   const isManager = canManage(role);
   const isAdmin = canAdmin(role);
 
   // Group tabs dynamically
   const tabsList = useMemo(() => {
     const list = [];
-    
+
+    if (isClient) {
+      // Clients only see profile, notifications, and password change
+      list.push({ group: 'My Account', items: [
+        { id: 'profile',       label: 'My Profile',   icon: User },
+        { id: 'notifications', label: 'Notifications', icon: Bell },
+        { id: 'security',      label: 'Change Password', icon: Lock },
+      ]});
+      return list;
+    }
+
     // Tier 3: Personal Settings (All Members)
     list.push({ group: 'Personal Setup', items: [
       { id: 'profile',       label: 'My Profile',      icon: User },
@@ -1648,8 +1663,8 @@ export default function SettingsPage() {
   return (
     <Page>
       <div className="mb-6">
-        <h1 className="page-title">General Settings Dashboard</h1>
-        <p className="page-sub">Configure dynamic workspace setups, lead distributions, templates, and agent sync accounts</p>
+        <h1 className="page-title">{isClient ? 'Account Settings' : 'General Settings Dashboard'}</h1>
+        <p className="page-sub">{isClient ? 'Manage your profile, notifications, and portal password' : 'Configure dynamic workspace setups, lead distributions, templates, and agent sync accounts'}</p>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -1689,7 +1704,7 @@ export default function SettingsPage() {
             <EmailCalendarSyncSection user={authUser} onUpdate={handleUpdateProfile} />
           )}
           {activeTab === 'notifications' && (
-            <PersonalNotificationSection user={authUser} onUpdate={handleUpdateProfile} />
+            <PersonalNotificationSection user={authUser} onUpdate={handleUpdateProfile} role={role} />
           )}
           {activeTab === 'signature' && (
             <SignaturePreferencesSection user={authUser} onUpdate={handleUpdateProfile} />

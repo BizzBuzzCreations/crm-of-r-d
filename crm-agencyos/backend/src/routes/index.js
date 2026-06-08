@@ -3,7 +3,7 @@
 // The app.js imports these.
 
 const express = require('express');
-const { protect, authorize, authorizeRoles } = require('../middleware/auth');
+const { protect, authorize, authorizeRoles, denyClientWrites } = require('../middleware/auth');
 const upload  = require('../middleware/upload');
 
 const auth = require('../controllers/authController');
@@ -40,12 +40,14 @@ clientsRouter.get('/:id',          ctrl.getClient);
 clientsRouter.post('/',            authorize('admin','manager'), ctrl.createClient);
 clientsRouter.put('/:id',          authorize('admin','manager'), ctrl.updateClient);
 clientsRouter.delete('/:id',       authorize('admin','manager'), ctrl.deleteClient);
-clientsRouter.post('/:id/notes',   ctrl.addClientNote);
+clientsRouter.post('/:id/notes',              ctrl.addClientNote);
+clientsRouter.post('/:id/reset-portal-password', authorize('admin'), ctrl.resetPortalPassword);
 module.exports.clients = clientsRouter;
 
 // ── Tasks routes ──────────────────────────────────────────────
 const tasksRouter = express.Router();
 tasksRouter.use(protect);
+tasksRouter.use(denyClientWrites); // clients are read-only
 tasksRouter.get('/',    ctrl.getTasks);
 tasksRouter.post('/',   upload.array('files', 10), ctrl.createTask);
 tasksRouter.put('/:id', upload.array('files', 10), ctrl.updateTask);
@@ -64,6 +66,7 @@ module.exports.todos = todosRouter;
 // ── Meetings routes ───────────────────────────────────────────
 const meetingsRouter = express.Router();
 meetingsRouter.use(protect);
+meetingsRouter.use(denyClientWrites); // clients are read-only
 meetingsRouter.get('/',    ctrl.getMeetings);
 meetingsRouter.post('/',   authorize('admin','manager'), ctrl.createMeeting);
 meetingsRouter.put('/:id', authorize('admin','manager'), ctrl.updateMeeting);
@@ -128,6 +131,16 @@ leadsRouter.post('/:id/email',  leadCtrl.sendLeadEmail);
 leadsRouter.get('/:id/emails',  leadCtrl.getLeadEmails);     // email history log
 leadsRouter.delete('/:id',      authorize('admin','manager'), leadCtrl.deleteLead);
 module.exports.leads = leadsRouter;
+
+// ── Client Portal routes (role: client only) ──────────────────
+const portalCtrl = require('../controllers/portalController');
+const portalRouter = express.Router();
+portalRouter.use(protect);
+portalRouter.use(authorize('client'));
+portalRouter.get('/overview', portalCtrl.getOverview);
+portalRouter.get('/contacts', portalCtrl.getContacts);
+portalRouter.get('/me',       portalCtrl.getMyClient);
+module.exports.portal = portalRouter;
 
 // ── Audit Log routes ──────────────────────────────────────────
 const auditCtrl = require('../controllers/auditController');

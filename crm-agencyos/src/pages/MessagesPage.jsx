@@ -235,6 +235,7 @@ export default function MessagesPage() {
 
   // ── Load thread on switch ────────────────────────────────
   useEffect(() => {
+    if (!activeThread) return;
     if (prevThread.current) leaveThread(prevThread.current);
     prevThread.current = activeThread;
     setTypingNames([]);
@@ -536,8 +537,20 @@ export default function MessagesPage() {
 
         {/* Chat */}
         <div className="flex flex-col flex-1 bg-white dark:bg-slate-900 overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
+
+          {/* Empty state — no thread selected yet */}
+          {!isChannel && !activeDM && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400 select-none">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center mb-4">
+                <MessageCircle size={28} className="text-indigo-400 dark:text-indigo-500 opacity-70"/>
+              </div>
+              <p className="text-[15px] font-semibold text-slate-600 dark:text-slate-300">No conversation selected</p>
+              <p className="text-[12.5px] mt-1 text-slate-400">Pick a channel or start a direct message from the sidebar</p>
+            </div>
+          )}
+
+          {/* Header + messages + input — only when a real thread is selected */}
+          {(isChannel || activeDM) && (<><div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
             <div className="flex items-center gap-2.5">
               {isChannel
                 ? <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center"><Hash size={15} className="text-indigo-600 dark:text-indigo-400"/></div>
@@ -820,6 +833,7 @@ export default function MessagesPage() {
               <span className="flex items-center gap-1"><Paperclip size={10}/> Click 📎 to attach files</span>
             </p>
           </div>
+          </>)}
         </div>
       </div>
 

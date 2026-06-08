@@ -746,6 +746,7 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
   const [newAtts,      setNewAtts]      = useState([]);
   const [saving,      setSaving]      = useState(false);
   const [confirmDel,  setConfirmDel]  = useState(false);
+  const [editUserSearch, setEditUserSearch] = useState('');
 
   useEffect(() => {
     if (task && open) {
@@ -947,24 +948,56 @@ function TaskDetailDrawer({ task, open, onClose, users, clients, authUser, role,
 
               {/* Assignee */}
               <div>
-                <label className={labelCls}>Assigned To</label>
-                <div className="flex flex-wrap gap-2">
-                  {[...memberUsers, ...(isManager ? [authUser] : [])].filter((u, i, arr) => u && arr.findIndex((x) => x && sameId(x, u)) === i).map((u) => (
-                    <button key={getId(u)} type="button" disabled={!isManager}
-                      onClick={() => isManager && setAssignedTo(getId(u))}
-                      className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 text-[12.5px] font-medium transition-all',
-                        assignedTo === getId(u)
-                          ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-                          : cn('border-transparent bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400', isManager && 'hover:border-slate-300 dark:hover:border-slate-600'),
-                        !isManager && 'cursor-default'
-                      )}>
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: u.color || '#6366f1' }}>
-                        {u.initials || u.name?.[0]}
-                      </div>
-                      {u.name.split(' ')[0]}
-                      {sameId(u, authUser) && <span className="text-[10px] opacity-50">(you)</span>}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between mb-2">
+                  <label className={labelCls}>Assigned To</label>
+                  {isManager && (
+                    <div className="relative w-44">
+                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-450 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search member…"
+                        value={editUserSearch}
+                        onChange={(e) => setEditUserSearch(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-2 py-1 text-[11.5px] outline-none focus:border-indigo-400 dark:focus:border-indigo-500 text-slate-700 dark:text-slate-300 transition-colors"
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-[140px] overflow-y-auto p-1.5 border border-slate-200 dark:border-slate-700/50 rounded-xl bg-slate-50/20 dark:bg-slate-900/10">
+                  {[...memberUsers, ...(isManager ? [authUser] : [])]
+                    .filter((u, i, arr) => u && arr.findIndex((x) => x && sameId(x, u)) === i)
+                    .filter((u) =>
+                      !editUserSearch ||
+                      u.name?.toLowerCase().includes(editUserSearch.toLowerCase()) ||
+                      u.email?.toLowerCase().includes(editUserSearch.toLowerCase()) ||
+                      u.position?.toLowerCase().includes(editUserSearch.toLowerCase())
+                    )
+                    .map((u) => (
+                      <button key={getId(u)} type="button" disabled={!isManager}
+                        onClick={() => isManager && setAssignedTo(getId(u))}
+                        className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 text-[12.5px] font-medium transition-all',
+                          assignedTo === getId(u)
+                            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                            : cn('border-transparent bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400', isManager && 'hover:border-slate-300 dark:hover:border-slate-600'),
+                          !isManager && 'cursor-default'
+                        )}>
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: u.color || '#6366f1' }}>
+                          {u.initials || u.name?.[0]}
+                        </div>
+                        {u.name.split(' ')[0]}
+                        {sameId(u, authUser) && <span className="text-[10px] opacity-50">(you)</span>}
+                      </button>
+                    ))}
+                  {[...memberUsers, ...(isManager ? [authUser] : [])]
+                    .filter((u, i, arr) => u && arr.findIndex((x) => x && sameId(x, u)) === i)
+                    .filter((u) =>
+                      !editUserSearch ||
+                      u.name?.toLowerCase().includes(editUserSearch.toLowerCase()) ||
+                      u.email?.toLowerCase().includes(editUserSearch.toLowerCase()) ||
+                      u.position?.toLowerCase().includes(editUserSearch.toLowerCase())
+                    ).length === 0 && (
+                      <p className="text-[11.5px] text-slate-400 dark:text-slate-500 py-1.5 px-2">No members found matching "{editUserSearch}"</p>
+                    )}
                 </div>
               </div>
 

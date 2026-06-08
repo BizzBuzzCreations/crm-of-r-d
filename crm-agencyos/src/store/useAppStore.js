@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
   todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
-  settingsAPI, leadsAPI,
+  settingsAPI, leadsAPI, portalAPI,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -159,6 +159,18 @@ function connectSocket(store) {
   sock.on('task:updated', (t) => store.setState((s) => ({ tasks: s.tasks.map((x) => getId(x) === getId(t) ? t : x) })));
   sock.on('task:deleted', (id)=> store.setState((s) => ({ tasks: s.tasks.filter((x) => getId(x) !== String(id)) })));
 
+  // Client deleted — cascade-remove all related state for all connected users
+  sock.on('client:deleted', (id) => {
+    const cid = String(id);
+    store.setState((s) => ({
+      clients:  s.clients.filter((c) => getId(c) !== cid),
+      tasks:    s.tasks.filter((t) => String(t.clientId) !== cid),
+      todos:    s.todos.filter((t) => String(t.clientId) !== cid),
+      projects: s.projects.filter((p) => String(p.clientId) !== cid),
+      meetings: s.meetings.filter((m) => String(m.clientId) !== cid),
+    }));
+  });
+
   // Leads
   sock.on('lead:created', (l) => store.setState((s) => {
     const already = s.leads.some((x) => sameId(x, l));
@@ -198,6 +210,9 @@ function connectSocket(store) {
 
   // Messages
   sock.on('message:new', (msg) => {
+    // Ignore events that arrive after logout (orphaned socket defence)
+    if (!store.getState().authUser) return;
+
     // Read state first so we can use it for both the state update and the toast.
     // Using getState() + setState(obj) instead of setState(fn) so we can run
     // side-effects (toast, sound) after the state change without putting them
@@ -394,6 +409,8 @@ function connectSocket(store) {
 
   // Notifications — prepend to store, show toast, trigger browser notif + sound
   sock.on('notification:new', (notif) => {
+    // Ignore events that arrive after logout (orphaned socket defence)
+    if (!store.getState().authUser) return;
     store.setState((s) => ({ notifications: [notif, ...s.notifications] }));
 
     // message_dm type is already handled (better) by the message:new handler
@@ -510,7 +527,7 @@ function connectSocket(store) {
     const newChannels = s.messages.channels.filter((c) => c.id !== String(id));
     let activeThread = s.activeThread;
     if (activeThread === String(id)) {
-      activeThread = newChannels[0]?.id || 'general';
+      activeThread = newChannels[0]?.id || null;
     }
     return {
       activeThread,
@@ -616,10 +633,16 @@ function connectSocket(store) {
 }
 
 function disconnectSocket() {
+  // Remove window handlers FIRST — prevent focus/visibility from triggering sock.connect() mid-logout
   if (_beforeUnloadFn) { window.removeEventListener('beforeunload', _beforeUnloadFn); _beforeUnloadFn = null; }
   if (_focusHandler) { window.removeEventListener('focus', _focusHandler); _focusHandler = null; }
   if (_visibilityHandler) { window.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
-  if (sock) { sock.disconnect(); sock = null; }
+  if (sock) {
+    try { sock.io.reconnection(false); } catch {} // disable auto-reconnect before anything else
+    sock.removeAllListeners();                     // strip all handlers — orphaned socket cannot fire toasts
+    sock.disconnect();
+    sock = null;
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -641,7 +664,7 @@ const useAppStore = create((set, get, store) => ({
   leads:      [],
   systemSettings: null,
   timer:      initialTimer(),
-  activeThread:'general',
+  activeThread: null,
   sidebarOpen:true,
   darkMode:   false,
   loading:    false,
@@ -1084,8 +1107,63 @@ const useAppStore = create((set, get, store) => ({
   // LOAD ALL DATA
   // ══════════════════════════════════════════════════════════
   loadAllData: async () => {
-    set({ loading:true });
+    set({ loading: true });
+    const me = get().authUser;
     try {
+      // ── Client portal: only load data relevant to this client ──────────
+      if (me?.role === 'client') {
+        const [tR, pR, mR, nR, dR, chR, coR] = await Promise.all([
+          tasksAPI.getAll(),
+          projectsAPI.getAll(),
+          meetingsAPI.getAll(),
+          notificationsAPI.getAll(),
+          todosAPI.getAll(),
+          channelsAPI.getAll(),
+          portalAPI.contacts().catch(() => ({ data: { data: [] } })),
+        ]);
+
+        const savedUnread = loadUnreadLS(getId(me));
+
+        // Channels (the dedicated private client channel + any public channels)
+        const clientChannels = (chR.data.data || []).map((c) => ({
+          id:          c._id,
+          name:        c.name,
+          type:        'channel',
+          description: c.description || '',
+          isPrivate:   !!c.isPrivate,
+          members:     c.members || [],
+          clientId:    c.clientId || null,
+          unread:      savedUnread[String(c._id)] || 0,
+        }));
+
+        // DMs — only with allowed contacts (admins + assigned team)
+        const allowedContacts = coR.data.data || [];
+        const clientDms = allowedContacts.map((u) => ({
+          id:     `dm-${getId(u)}`,
+          userId: getId(u),
+          unread: savedUnread[`dm-${getId(u)}`] || 0,
+        }));
+
+        // Also put allowed contacts in the users array so the Messages page
+        // can resolve names/avatars for DM threads
+        const dedicatedChannel = clientChannels.find((c) => c.clientId);
+        const resolvedThread   = dedicatedChannel?.id || clientChannels[0]?.id || get().activeThread;
+
+        set({
+          tasks:         tR.data.data || [],
+          projects:      pR.data.data || [],
+          meetings:      mR.data.data || [],
+          notifications: nR.data.data || [],
+          todos:         dR.data.data || [],
+          users:         allowedContacts,          // only allowed contacts visible to client
+          messages:      { ...get().messages, channels: clientChannels, dms: clientDms },
+          activeThread:  resolvedThread,
+          loading:       false,
+        });
+        return;
+      }
+
+      // ── Staff (admin / manager / member / client_relations) ────────────
       const [uR, cR, tR, dR, mR, nR, chR, svR, pR, lR, setR] = await Promise.all([
         usersAPI.getAll(), clientsAPI.getAll(), tasksAPI.getAll(), todosAPI.getAll(), meetingsAPI.getAll(),
         notificationsAPI.getAll(), channelsAPI.getAll(), servicesAPI.getAll(), projectsAPI.getAll(),
@@ -1093,7 +1171,6 @@ const useAppStore = create((set, get, store) => ({
         settingsAPI.get().catch(() => ({ data: { data: null } }))
       ]);
       const users = uR.data.data;
-      const me    = get().authUser;
       // Restore persisted unread counts — prevents the badge vanishing on reload
       const savedUnread = loadUnreadLS(getId(me));
       const dms   = users
@@ -1108,11 +1185,10 @@ const useAppStore = create((set, get, store) => ({
         members: c.members || [],
         unread: savedUnread[String(c._id)] || 0,
       }));
-      // Fix activeThread — 'general' in initial state won't match any real channel id
+      // Keep active thread only if it's still valid after loading; otherwise show empty state
       const currentThread = get().activeThread;
-      const isThreadValid = channels.some((c) => c.id === currentThread) || dms.some((d) => d.id === currentThread);
-      const generalChannel = channels.find((c) => c.name === 'general');
-      const resolvedThread = isThreadValid ? currentThread : (generalChannel?.id || channels[0]?.id || currentThread);
+      const isThreadValid = currentThread && (channels.some((c) => c.id === currentThread) || dms.some((d) => d.id === currentThread));
+      const resolvedThread = isThreadValid ? currentThread : null;
 
       set({
         users,
@@ -1134,11 +1210,10 @@ const useAppStore = create((set, get, store) => ({
         await get().fetchRevenueSummary();
       }
       // Hydrate team timer states from DB now that users are loaded
-      // This ensures admin/manager sees accurate real-time work data
       get().fetchTeamTimerStates?.();
     } catch (err) {
       console.error('loadAllData error:', err.message);
-      set({ loading:false });
+      set({ loading: false });
     }
   },
 
@@ -1220,8 +1295,16 @@ const useAppStore = create((set, get, store) => ({
   },
   deleteClient: async (id) => {
     try {
-      await clientsAPI.delete(id);
-      set((s) => ({ clients: s.clients.filter((c) => getId(c)!==id) }));
+      const { data } = await clientsAPI.delete(id);
+      // Cascade-remove all associated local state so UI is consistent immediately
+      set((s) => ({
+        clients:  s.clients.filter((c) => getId(c) !== id),
+        tasks:    s.tasks.filter((t) => String(t.clientId) !== id),
+        todos:    s.todos.filter((t) => String(t.clientId) !== id),
+        projects: s.projects.filter((p) => String(p.clientId) !== id),
+        meetings: s.meetings.filter((m) => String(m.clientId) !== id),
+      }));
+      toast.success(data?.message || 'Client and all associated data deleted');
     } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete client'); throw err; }
   },
   addClientNote: async (clientId, text) => {

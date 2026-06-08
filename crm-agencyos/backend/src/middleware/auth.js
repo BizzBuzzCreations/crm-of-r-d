@@ -50,3 +50,16 @@ exports.authorizeRoles = (...allowedRoles) => (req, res, next) => {
   next();
 };
 
+// Block all write operations (POST/PUT/PATCH/DELETE) for client role
+// Attach to any router to make it read-only for client users
+exports.denyClientWrites = (req, res, next) => {
+  const writeMethods = ['POST', 'PUT', 'PATCH', 'DELETE'];
+  if (req.user?.role === 'client' && writeMethods.includes(req.method)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Client portal is read-only. Please contact your account manager to make changes.',
+    });
+  }
+  next();
+};
+

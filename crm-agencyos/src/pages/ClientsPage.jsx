@@ -6,8 +6,9 @@ import {
   Plus, Search, Grid, List, ArrowLeft, Building2, Mail, Phone,
   Globe, Calendar, Users, FileText, ChevronLeft, ChevronRight,
   CheckSquare, ListTodo, Clock, TrendingUp, Briefcase,
-  Edit2, X, Save, Trash2,
+  Edit2, X, Save, Trash2, KeyRound, ShieldOff, ShieldCheck, Copy, RefreshCw,
 } from 'lucide-react';
+import { clientsAPI } from '../services/api';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -527,6 +528,8 @@ function EditClientModal({ open, onClose, client, users, services = [], industri
   const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const [form, setForm]                   = useState({});
   const [selectedServices, setSelectedServices] = useState([]);
+  const [clientTeam,       setClientTeam]       = useState([]);
+  const [clientTeamSearch, setClientTeamSearch] = useState('');
   const [saving, setSaving]               = useState(false);
 
   useEffect(() => {
@@ -545,6 +548,8 @@ function EditClientModal({ open, onClose, client, users, services = [], industri
         paymentStatus:    client.paymentStatus    || 'pending',
       });
       setSelectedServices(client.services || []);
+      setClientTeam((client.assignedTeam || []).map((m) => typeof m === 'object' ? String(m._id) : String(m)));
+      setClientTeamSearch('');
     }
   }, [client, open]);
 
@@ -554,13 +559,17 @@ function EditClientModal({ open, onClose, client, users, services = [], industri
     prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
   );
 
+  const handleToggleClientTeam = (id) => setClientTeam((prev) =>
+    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+  );
+
   const handleSave = async () => {
     if (!form.name?.trim())    { toast.error('Company name is required'); return; }
     if (!form.contact?.trim()) { toast.error('Contact person is required'); return; }
     if (selectedServices.length === 0) { toast.error('Select at least one service'); return; }
     setSaving(true);
     try {
-      await onSave({ ...form, services: selectedServices });
+      await onSave({ ...form, services: selectedServices, assignedTeam: clientTeam });
       onClose();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update client');
@@ -677,8 +686,185 @@ function EditClientModal({ open, onClose, client, users, services = [], industri
             </div>
           )}
         </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className={labelCls}>Assign Team Members</label>
+            <div className="relative w-44">
+              <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-450 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search member…"
+                value={clientTeamSearch}
+                onChange={(e) => setClientTeamSearch(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-2 py-1 text-[11.5px] outline-none focus:border-indigo-400 dark:focus:border-indigo-500 text-slate-700 dark:text-slate-300 transition-colors"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 min-h-[40px] max-h-[120px] overflow-y-auto p-1.5 border border-slate-200 dark:border-slate-700/50 rounded-xl bg-slate-50/20 dark:bg-slate-900/10">
+            {memberUsers
+              .filter((u) =>
+                !clientTeamSearch ||
+                u.name?.toLowerCase().includes(clientTeamSearch.toLowerCase()) ||
+                u.position?.toLowerCase().includes(clientTeamSearch.toLowerCase())
+              )
+              .map((u) => {
+                const uid = getId(u);
+                const selected = clientTeam.includes(uid);
+                return (
+                  <button key={uid} type="button" onClick={() => handleToggleClientTeam(uid)}
+                    className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 text-[12.5px] font-medium transition-all',
+                      selected
+                        ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                        : 'border-transparent bg-slate-100 dark:bg-slate-800/40 text-slate-650 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
+                    )}>
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
+                      style={{ background: u.color || '#6366f1' }}>
+                      {u.initials || u.name?.[0]}
+                    </div>
+                    {u.name.split(' ')[0]}
+                  </button>
+                );
+              })}
+            {memberUsers.filter((u) =>
+              !clientTeamSearch ||
+              u.name?.toLowerCase().includes(clientTeamSearch.toLowerCase()) ||
+              u.position?.toLowerCase().includes(clientTeamSearch.toLowerCase())
+            ).length === 0 && (
+              <p className="text-[11.5px] text-slate-400 dark:text-slate-500 py-1.5 px-2">No members found</p>
+            )}
+          </div>
+        </div>
       </div>
     </Modal>
+  );
+}
+
+// ── Portal Access Card ────────────────────────────────────────
+// Lets admins see the portal login email, reset the password,
+// and understand that inactive status blocks login.
+function PortalAccessCard({ client, role }) {
+  const [newPwd,   setNewPwd]   = useState('');
+  const [result,   setResult]   = useState(null);   // { email, newPassword, emailSent }
+  const [saving,   setSaving]   = useState(false);
+  const [copied,   setCopied]   = useState(false);
+
+  const isInactive  = client.status === 'inactive';
+  const portalEmail = client.email;
+  const isAdmin     = role === 'admin';
+
+  const handleReset = async () => {
+    if (saving) return;
+    setSaving(true);
+    setResult(null);
+    try {
+      const { data } = await clientsAPI.resetPortalPassword(getId(client), newPwd.trim() || undefined);
+      setResult(data);
+      setNewPwd('');
+      toast.success('Portal password reset successfully');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reset portal password');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copy = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  if (!portalEmail) {
+    return (
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <KeyRound size={15} className="text-slate-400" />
+          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200">Portal Access</h3>
+        </div>
+        <p className="text-[13px] text-slate-400 italic">No email on file — portal account cannot be created.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <KeyRound size={15} className="text-slate-400" />
+          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200">Portal Access</h3>
+        </div>
+        {isInactive ? (
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-red-500 bg-red-50 dark:bg-red-900/20 px-2.5 py-1 rounded-full">
+            <ShieldOff size={11} /> Login Blocked
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 rounded-full">
+            <ShieldCheck size={11} /> Active
+          </span>
+        )}
+      </div>
+
+      {/* Login email */}
+      <div className="flex items-center gap-3 py-2 border-b border-slate-100 dark:border-slate-700/50 mb-3">
+        <Mail size={13} className="text-slate-400 flex-shrink-0" />
+        <span className="text-[13px] text-slate-500 min-w-[80px]">Login email</span>
+        <span className="text-[13.5px] font-medium text-slate-800 dark:text-slate-200 truncate">{portalEmail}</span>
+      </div>
+
+      {isInactive && (
+        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-[12px] rounded-lg px-3 py-2 mb-3">
+          Client status is <strong>inactive</strong> — the portal user cannot log in until the status is changed back to <em>active</em>.
+        </div>
+      )}
+
+      {/* Result panel after successful reset */}
+      {result && (
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 mb-3">
+          <p className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-400 mb-1.5">Password reset — share with client:</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-[13px] font-mono bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 text-slate-800 dark:text-slate-200 select-all">
+              {result.newPassword}
+            </code>
+            <button
+              onClick={() => copy(result.newPassword)}
+              className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+            >
+              <Copy size={11} />{copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          {result.emailSent
+            ? <p className="text-[11px] text-emerald-600 dark:text-emerald-500 mt-1.5">Email with new credentials sent to {result.email}</p>
+            : <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">Email could not be sent — share the password manually.</p>
+          }
+        </div>
+      )}
+
+      {/* Reset form (admin only) */}
+      {isAdmin && (
+        <div className="space-y-2">
+          <p className="text-[11.5px] text-slate-400">Leave blank to auto-generate a secure password.</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="New password (optional)"
+              value={newPwd}
+              onChange={(e) => setNewPwd(e.target.value)}
+              className="form-input text-[13px] py-1.5 flex-1"
+            />
+            <button
+              onClick={handleReset}
+              disabled={saving}
+              className="flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white transition-colors flex-shrink-0"
+            >
+              {saving ? <RefreshCw size={12} className="animate-spin" /> : <KeyRound size={12} />}
+              {saving ? 'Resetting…' : 'Reset Password'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -833,6 +1019,8 @@ function AddClientModal({ open, onClose, users, services = [], industries = DEFA
 
   const memberUsers = users.filter((u) => u.role === 'member' || u.role === 'client_relations');
   const [selectedServices, setSelectedServices] = useState([]);
+  const [clientTeam,       setClientTeam]       = useState([]);
+  const [clientTeamSearch, setClientTeamSearch] = useState('');
   const [selectedTeam, setSelectedTeam] = useState([]);
   const [createInitialProject, setCreateInitialProject] = useState(false);
 
@@ -840,6 +1028,10 @@ function AddClientModal({ open, onClose, users, services = [], industries = DEFA
     setSelectedServices((prev) =>
       prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
     );
+  };
+
+  const handleToggleClientTeam = (id) => {
+    setClientTeam((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
 
   const handleToggleTeam = (id) => {
@@ -865,7 +1057,7 @@ function AddClientModal({ open, onClose, users, services = [], industries = DEFA
     }
     const newClient = {
       ...data,
-      assignedTeam:  data.assignedTeam ? [data.assignedTeam] : [],
+      assignedTeam:  clientTeam,
       services:      selectedServices,
       onboardingDate: data.onboardingDate || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       projectCount:  createInitialProject ? 1 : 0,
@@ -880,6 +1072,8 @@ function AddClientModal({ open, onClose, users, services = [], industries = DEFA
     };
     onSave(newClient);
     setSelectedServices([]);
+    setClientTeam([]);
+    setClientTeamSearch('');
     setSelectedTeam([]);
     setCreateInitialProject(false);
     reset();
@@ -990,12 +1184,54 @@ function AddClientModal({ open, onClose, users, services = [], industries = DEFA
           </Select>
         </div>
 
-        <Select label="Assign Team Member" {...register('assignedTeam')}>
-          <option value="">None (assign later)</option>
-          {memberUsers.map((u) => (
-            <option key={getId(u)} value={getId(u)}>{u.name} — {u.position}</option>
-          ))}
-        </Select>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-[12.5px] font-semibold text-slate-750 dark:text-slate-350">Assign Team Members</label>
+            <div className="relative w-44">
+              <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-450 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search member…"
+                value={clientTeamSearch}
+                onChange={(e) => setClientTeamSearch(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-2 py-1 text-[11.5px] outline-none focus:border-indigo-400 dark:focus:border-indigo-500 text-slate-700 dark:text-slate-300 transition-colors"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 min-h-[40px] max-h-[120px] overflow-y-auto p-1.5 border border-slate-200 dark:border-slate-700/50 rounded-xl bg-slate-50/20 dark:bg-slate-900/10">
+            {memberUsers
+              .filter((u) =>
+                !clientTeamSearch ||
+                u.name?.toLowerCase().includes(clientTeamSearch.toLowerCase()) ||
+                u.position?.toLowerCase().includes(clientTeamSearch.toLowerCase())
+              )
+              .map((u) => {
+                const uid = getId(u);
+                const selected = clientTeam.includes(uid);
+                return (
+                  <button key={uid} type="button" onClick={() => handleToggleClientTeam(uid)}
+                    className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 text-[12.5px] font-medium transition-all',
+                      selected
+                        ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                        : 'border-transparent bg-slate-100 dark:bg-slate-800/40 text-slate-650 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
+                    )}>
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
+                      style={{ background: u.color || '#6366f1' }}>
+                      {u.initials || u.name?.[0]}
+                    </div>
+                    {u.name.split(' ')[0]}
+                  </button>
+                );
+              })}
+            {memberUsers.filter((u) =>
+              !clientTeamSearch ||
+              u.name?.toLowerCase().includes(clientTeamSearch.toLowerCase()) ||
+              u.position?.toLowerCase().includes(clientTeamSearch.toLowerCase())
+            ).length === 0 && (
+              <p className="text-[11.5px] text-slate-400 dark:text-slate-500 py-1.5 px-2">No members found</p>
+            )}
+          </div>
+        </div>
 
         {/* ── Create Initial Project Section ── */}
         <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-2">
@@ -1188,13 +1424,14 @@ function AddProjectModal({ open, onClose, users, onSave, clientId }) {
 
 // ── Main ClientsPage ──────────────────────────────────────────
 export default function ClientsPage() {
-  const { authUser, clients, tasks, todos, addClientNote, addClient, projects, addProject, deleteProject, updateProject, updateClient } = useAppStore(useShallow((s) => ({
+  const { authUser, clients, tasks, todos, addClientNote, addClient, deleteClient, projects, addProject, deleteProject, updateProject, updateClient } = useAppStore(useShallow((s) => ({
     authUser:       s.authUser,
     clients:        s.clients,
     tasks:          s.tasks,
     todos:          s.todos,
     addClientNote:  s.addClientNote,
     addClient:      s.addClient,
+    deleteClient:   s.deleteClient,
     projects:       s.projects,
     addProject:     s.addProject,
     deleteProject:  s.deleteProject,
@@ -1217,7 +1454,21 @@ export default function ClientsPage() {
   const [showEditProject, setShowEditProject] = useState(null);
   const [showEditClient, setShowEditClient] = useState(false);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(null);
+  const [confirmDeleteClient,  setConfirmDeleteClient]  = useState(null);
+  const [deletingClient,       setDeletingClient]       = useState(false);
   const role = authUser?.role;
+
+  const handleDeleteClient = async () => {
+    if (!confirmDeleteClient || deletingClient) return;
+    setDeletingClient(true);
+    try {
+      await deleteClient(getId(confirmDeleteClient));
+      setConfirmDeleteClient(null);
+      setSelected(null);
+    } catch {} finally {
+      setDeletingClient(false);
+    }
+  };
 
   const filtered = clients.filter((c) =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.contact.toLowerCase().includes(search.toLowerCase())
@@ -1263,12 +1514,22 @@ export default function ClientsPage() {
                 <div className="text-slate-400 text-[12.5px] mt-1 font-medium">{fmtContractDuration(client.contractDuration)}</div>
               </div>
               {canManage(role) && (
+                <div className="flex items-center gap-2">
+                {role === 'admin' && (
+                  <button
+                    onClick={() => setConfirmDeleteClient(client)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/40 text-red-300 hover:text-red-200 text-[12px] font-medium transition-all backdrop-blur-sm border border-red-500/30"
+                  >
+                    <Trash2 size={12} /> Delete Client
+                  </button>
+                )}
                 <button
                   onClick={() => setShowEditClient(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-[12px] font-medium transition-all backdrop-blur-sm border border-white/10"
                 >
                   <Edit2 size={12} /> Edit Client
                 </button>
+                </div>
               )}
             </div>
           </div>
@@ -1360,6 +1621,13 @@ export default function ClientsPage() {
                 </div>
               </div>
             </div>
+
+            {/* Portal Access — admin only */}
+            {(role === 'admin') && (
+              <div className="mb-4">
+                <PortalAccessCard client={client} role={role} />
+              </div>
+            )}
 
             {/* Projects Card */}
             <div className="card p-5 mb-4">
@@ -1566,6 +1834,17 @@ export default function ClientsPage() {
             setConfirmDeleteProject(null);
           }}
           onClose={() => setConfirmDeleteProject(null)}
+        />
+
+        {/* Confirm Delete Client Dialog */}
+        <ConfirmDialog
+          open={!!confirmDeleteClient}
+          title="Delete Client & All Data"
+          message={`Permanently delete "${confirmDeleteClient?.name || ''}"? This will also delete the portal user, dedicated channel, all tasks, todos, meetings, and projects. This cannot be undone.`}
+          confirmLabel={deletingClient ? 'Deleting…' : 'Delete Everything'}
+          variant="danger"
+          onConfirm={handleDeleteClient}
+          onClose={() => setConfirmDeleteClient(null)}
         />
       </Page>
     );

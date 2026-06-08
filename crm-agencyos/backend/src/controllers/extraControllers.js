@@ -34,6 +34,18 @@ exports.sendMessage = async (req, res, next) => {
     const canonicalId = getCanonicalThreadId(threadId, req.user);
     const { text } = req.body;
 
+    // Clients can only post in private channels where they are a member (enforced at socket + API layer)
+    if (req.user.role === 'client') {
+      if (!canonicalId.startsWith('dm-')) {
+        const ch = await Channel.findById(canonicalId, 'clientId isPrivate members').lean();
+        const isMember = ch?.members?.some((m) => String(m) === String(req.user._id));
+        const isDedicated = ch?.clientId && String(ch.clientId) === String(req.user.clientId);
+        if (!ch || !(isDedicated || (ch.isPrivate && isMember))) {
+          return res.status(403).json({ success: false, message: 'You do not have access to this channel.' });
+        }
+      }
+    }
+
     // Handle file attachments
     const attachments = (req.files || []).map((f) => ({
       name:     f.originalname,
@@ -58,10 +70,11 @@ exports.sendMessage = async (req, res, next) => {
     const io = req.app.get('io');
     io?.to(canonicalId).emit('message:new', populated);
 
-    // Notify DM recipient (not channel messages)
+    const myId = String(req.user._id);
+
     if (canonicalId.startsWith('dm-')) {
+      // Notify DM recipient
       const [, id1, id2] = canonicalId.split('-');
-      const myId = String(req.user._id);
       const recipientId = id1 === myId ? id2 : id1;
       notifService.dispatch(io, {
         recipient: recipientId,
@@ -72,6 +85,28 @@ exports.sendMessage = async (req, res, next) => {
         link:      '/messages',
         metadata:  { threadId: canonicalId, senderId: myId },
       });
+    } else {
+      // For client-dedicated private channels, notify all other members
+      // so the client sees staff replies and staff see client messages
+      try {
+        const ch = await Channel.findById(canonicalId, 'clientId isPrivate members name').lean();
+        if (ch?.clientId && ch.isPrivate && ch.members?.length) {
+          for (const memberId of ch.members) {
+            const mid = String(memberId);
+            if (mid !== myId) {
+              notifService.dispatch(io, {
+                recipient: memberId,
+                sender:    req.user._id,
+                type:      'message_dm',
+                title:     `New message in #${ch.name}`,
+                message:   msg.text || '📎 Sent an attachment',
+                link:      '/messages',
+                metadata:  { threadId: canonicalId, senderId: myId },
+              });
+            }
+          }
+        }
+      } catch { /* non-fatal — message was already sent */ }
     }
 
     res.status(201).json({ success: true, data: populated });
@@ -241,15 +276,26 @@ exports.toggleReaction = async (req, res, next) => {
 exports.getChannels = async (req, res, next) => {
   try {
     let filter = { isDeleted: { $ne: true } };
-    if (req.user.role !== 'admin') {
+
+    if (req.user.role === 'client') {
+      // Clients see: their dedicated channel (clientId match) OR any private channel they're a member of
+      filter = {
+        isDeleted: { $ne: true },
+        $or: [
+          { clientId: req.user.clientId },
+          { isPrivate: true, members: req.user._id },
+        ],
+      };
+    } else if (req.user.role !== 'admin') {
       filter = {
         isDeleted: { $ne: true },
         $or: [
           { isPrivate: false },
-          { isPrivate: true, members: req.user._id }
-        ]
+          { isPrivate: true, members: req.user._id },
+        ],
       };
     }
+
     const channels = await Channel.find(filter)
       .populate('members', 'name color initials position status role')
       .sort({ name: 1 });
@@ -423,7 +469,8 @@ exports.deleteChannel = async (req, res, next) => {
 // ═══════════════════════════════════════════════════
 exports.getProjects = async (req, res, next) => {
   try {
-    const projects = await Project.find()
+    const filter = req.user.role === 'client' ? { clientId: req.user.clientId } : {};
+    const projects = await Project.find(filter)
       .populate('clientId', 'name')
       .populate('assignedTeam', 'name email color initials status position');
     res.json({ success: true, data: projects });
