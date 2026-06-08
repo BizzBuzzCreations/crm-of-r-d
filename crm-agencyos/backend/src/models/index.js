@@ -187,7 +187,8 @@ const ChannelSchema = new mongoose.Schema({
   members:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   isDeleted:   { type: Boolean, default: false },
-  clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
+  clientId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Client',  default: null },
+  projectId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Project', default: null },
 }, { timestamps: true });
 
 const ProjectSchema = new mongoose.Schema({

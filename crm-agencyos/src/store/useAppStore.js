@@ -485,14 +485,16 @@ function connectSocket(store) {
 
   // Dynamic channels
   sock.on('channel:created', (ch) => store.setState((s) => {
-    const formatted = { 
-      id: ch._id, 
-      name: ch.name, 
-      type: 'channel', 
-      description: ch.description || '', 
-      isPrivate: !!ch.isPrivate, 
+    const formatted = {
+      id: ch._id,
+      name: ch.name,
+      type: 'channel',
+      description: ch.description || '',
+      isPrivate: !!ch.isPrivate,
       members: ch.members || [],
-      unread: 0 
+      clientId:  ch.clientId  || null,
+      projectId: ch.projectId || null,
+      unread: 0
     };
     if (s.messages.channels.some((c) => c.id === ch._id)) return {};
     sock?.emit('join:thread', ch._id);
@@ -510,12 +512,14 @@ function connectSocket(store) {
         ...s.messages,
         channels: s.messages.channels.map((c) =>
           c.id === ch._id
-            ? { 
-                ...c, 
-                name: ch.name, 
+            ? {
+                ...c,
+                name: ch.name,
                 description: ch.description || '',
                 isPrivate: !!ch.isPrivate,
-                members: ch.members || []
+                members: ch.members || [],
+                clientId:  ch.clientId  ?? c.clientId,
+                projectId: ch.projectId ?? c.projectId,
               }
             : c
         )
@@ -1177,13 +1181,15 @@ const useAppStore = create((set, get, store) => ({
         .filter((u) => getId(u) !== getId(me))
         .map((u)   => ({ id:`dm-${getId(u)}`, userId:getId(u), unread: savedUnread[`dm-${getId(u)}`] || 0 }));
       const channels = (chR.data.data || []).map((c) => ({
-        id: c._id,
-        name: c.name,
-        type: 'channel',
+        id:          c._id,
+        name:        c.name,
+        type:        'channel',
         description: c.description || '',
-        isPrivate: !!c.isPrivate,
-        members: c.members || [],
-        unread: savedUnread[String(c._id)] || 0,
+        isPrivate:   !!c.isPrivate,
+        members:     c.members || [],
+        clientId:    c.clientId  || null,
+        projectId:   c.projectId || null,
+        unread:      savedUnread[String(c._id)] || 0,
       }));
       // Keep active thread only if it's still valid after loading; otherwise show empty state
       const currentThread = get().activeThread;

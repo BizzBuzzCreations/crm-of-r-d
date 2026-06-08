@@ -1,6 +1,68 @@
 const path    = require('path');
+const User    = require('../models/User');
 const { Message, Task, Todo, WorkLog, Channel, Project, Client } = require('../models/index');
 const notifService = require('../services/notificationService');
+
+// ── Shared helper: create a private channel for a project ────────
+// Called both from createProject (API route) and createClient (initial project)
+async function createProjectChannel(project, createdBy, io) {
+  const [admins, client] = await Promise.all([
+    User.find({ role: 'admin' }, '_id').lean(),
+    Client.findById(project.clientId, 'name').lean(),
+  ]);
+
+  const adminIds  = admins.map((u) => String(u._id));
+  const teamIds   = (project.assignedTeam || []).map(String);
+
+  // Include the client portal user if one exists
+  const portalUser = await User.findOne({ clientId: project.clientId, role: 'client' }, '_id').lean();
+  const memberSet  = new Set([...adminIds, ...teamIds]);
+  if (portalUser) memberSet.add(String(portalUser._id));
+  const members = Array.from(memberSet);
+
+  // Build a URL-safe channel name: {client-slug}-{project-slug}
+  const slug = (str) => str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const baseSlug  = `${slug(client?.name || 'client')}-${slug(project.name)}`;
+  let channelName = baseSlug;
+  let attempt     = 0;
+  let channel     = null;
+
+  while (!channel) {
+    try {
+      channel = await Channel.create({
+        name:        channelName,
+        description: `Project channel for ${project.name}`,
+        isPrivate:   true,
+        members,
+        createdBy,
+        clientId:    project.clientId,
+        projectId:   project._id,
+      });
+    } catch (e) {
+      if (e.code === 11000) { attempt++; channelName = `${baseSlug}-${attempt + 1}`; }
+      else throw e;
+    }
+  }
+
+  if (io && channel) {
+    const populated = await channel.populate('members', 'name color initials position status role');
+    // Notify members so their sidebar updates immediately
+    members.forEach((uid) => io.to(`user:${uid}`).emit('channel:created', populated));
+    // Make all active sockets for each member join the new room
+    members.forEach((uid) => {
+      const room = io.sockets.adapter.rooms.get(`user:${uid}`);
+      if (room) {
+        room.forEach((socketId) => {
+          const sock = io.sockets.sockets.get(socketId);
+          if (sock) sock.join(String(channel._id));
+        });
+      }
+    });
+  }
+
+  return channel;
+}
+exports.createProjectChannel = createProjectChannel;
 
 // ═══════════════════════════════════════════════════
 // MESSAGES
@@ -480,9 +542,18 @@ exports.getProjects = async (req, res, next) => {
 exports.createProject = async (req, res, next) => {
   try {
     const project = await Project.create({ ...req.body, createdBy: req.user._id });
-    
+
     // Increment project count for Client
     await Client.findByIdAndUpdate(project.clientId, { $inc: { projectCount: 1 } });
+
+    // Auto-create a private channel for this project
+    if (project.clientId) {
+      try {
+        await createProjectChannel(project, req.user._id, req.app.get('io'));
+      } catch (chanErr) {
+        console.warn('[createProject] Failed to create project channel:', chanErr.message);
+      }
+    }
 
     const populated = await Project.findById(project._id)
       .populate('clientId', 'name')
@@ -505,9 +576,18 @@ exports.deleteProject = async (req, res, next) => {
   try {
     const project = await Project.findByIdAndDelete(req.params.id);
     if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
-    
+
     // Decrement project count for Client
     await Client.findByIdAndUpdate(project.clientId, { $inc: { projectCount: -1 } });
+
+    // Delete the project's dedicated channel and its messages
+    const projectChannel = await Channel.findOne({ projectId: project._id }).lean();
+    if (projectChannel) {
+      await Message.deleteMany({ threadId: String(projectChannel._id) });
+      await Channel.deleteOne({ _id: projectChannel._id });
+      const io = req.app.get('io');
+      io?.emit('channel:deleted', String(projectChannel._id));
+    }
 
     res.json({ success: true, message: 'Project deleted' });
   } catch (err) { next(err); }

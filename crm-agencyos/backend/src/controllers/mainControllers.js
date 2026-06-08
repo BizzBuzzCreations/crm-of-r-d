@@ -131,8 +131,9 @@ exports.createClient = async (req, res, next) => {
     const client = await Client.create({ ...clientData, createdBy: req.user._id });
 
     // Create associated project if name is provided
+    let initialProject = null;
     if (projectName) {
-      await Project.create({
+      initialProject = await Project.create({
         name: projectName,
         description: projectDesc || '',
         clientId: client._id,
@@ -228,6 +229,16 @@ exports.createClient = async (req, res, next) => {
       }
     } catch (chanErr) {
       console.warn('[createClient] Failed to create client channel:', chanErr.message);
+    }
+
+    // Create a dedicated project channel for the initial project (after portal user exists)
+    if (initialProject) {
+      try {
+        const { createProjectChannel } = require('./extraControllers');
+        await createProjectChannel(initialProject, req.user._id, req.app.get('io'));
+      } catch (projChanErr) {
+        console.warn('[createClient] Failed to create project channel:', projChanErr.message);
+      }
     }
 
     const populated = await client.populate('assignedTeam', 'name email color initials status position');

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   Hash, MessageCircle, Send, Trash2, Search, Paperclip,
-  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock, Pencil, Settings, Ban, Bell, BellOff,
+  X, FileText, ImageIcon, Film, File, Download, Loader2, Plus, Lock, Pencil, Settings, Ban, Bell, BellOff, Check,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { getBackendUrl } from '../services/api';
@@ -167,6 +167,7 @@ export default function MessagesPage() {
     deleteChannel:  s.deleteChannel,
   })));
   const users = useAppStore((s) => s.users);
+  const clients = useAppStore((s) => s.clients);
   const socketConnected = useAppStore((s) => s.socketConnected);
 
   const [loadingMsgs,   setLoadingMsgs]   = useState(false);
@@ -1088,32 +1089,56 @@ export default function MessagesPage() {
                 )}
 
                 {/* Members multi-select checklist */}
-                {isPrivate && (
-                  <div className="space-y-2">
-                    <label className="block text-[11.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-                      Select Group Members ({selectedMembers.filter(id => id !== getId(authUser)).length} teammates added)
-                    </label>
-                    <div className="relative">
-                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
-                      <input
-                        type="text"
-                        placeholder="Search team members…"
-                        value={memberSearch}
-                        onChange={(e) => setMemberSearch(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-700/40 text-slate-800 dark:text-slate-200 placeholder-slate-400 text-[12px] rounded-lg pl-7 pr-3 py-1.5 outline-none border border-slate-200 dark:border-slate-700"
-                      />
-                    </div>
-                    <div className="max-h-[140px] overflow-y-auto border border-slate-100 dark:border-slate-700/60 rounded-xl p-2 space-y-1.5 bg-slate-50/20 dark:bg-slate-900/10">
-                      {users
-                        .filter((u) => getId(u) !== getId(authUser))
-                        .filter((u) => {
-                          if (!memberSearch.trim()) return true;
-                          const q = memberSearch.toLowerCase();
-                          return u.name.toLowerCase().includes(q) || (u.position || '').toLowerCase().includes(q);
-                        })
-                        .map((u) => {
+                {isPrivate && (() => {
+                  // If this channel was auto-created for a client/project, surface the portal user
+                  const chClientId = editingChannel?.clientId || null;
+                  const portalUser = chClientId
+                    ? users.find((u) => u.role === 'client' && String(u.clientId || u.clientId?._id || '') === String(chClientId))
+                    : null;
+                  const portalUid  = portalUser ? getId(portalUser) : null;
+
+                  // Non-client users only in the editable list
+                  const editableUsers = users
+                    .filter((u) => u.role !== 'client')
+                    .filter((u) => getId(u) !== getId(authUser))
+                    .filter((u) => {
+                      if (!memberSearch.trim()) return true;
+                      const q = memberSearch.toLowerCase();
+                      return u.name.toLowerCase().includes(q) || (u.position || '').toLowerCase().includes(q);
+                    });
+
+                  return (
+                    <div className="space-y-2">
+                      <label className="block text-[11.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                        Select Group Members ({selectedMembers.filter(id => id !== getId(authUser) && id !== portalUid).length} teammates added)
+                      </label>
+
+                      {/* Client portal user — auto-included, locked */}
+                      {portalUser && (
+                        <div className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/60 dark:bg-emerald-900/10">
+                          <Check size={13} className="text-emerald-500 flex-shrink-0" />
+                          <Avatar user={portalUser} size="xs" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-slate-800 dark:text-slate-200 leading-none mb-0.5 text-[12px] font-medium">{portalUser.name}</p>
+                            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 truncate leading-none">Client · auto-included</p>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="relative">
+                        <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                        <input
+                          type="text"
+                          placeholder="Search team members…"
+                          value={memberSearch}
+                          onChange={(e) => setMemberSearch(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-slate-700/40 text-slate-800 dark:text-slate-200 placeholder-slate-400 text-[12px] rounded-lg pl-7 pr-3 py-1.5 outline-none border border-slate-200 dark:border-slate-700"
+                        />
+                      </div>
+                      <div className="max-h-[140px] overflow-y-auto border border-slate-100 dark:border-slate-700/60 rounded-xl p-2 space-y-1.5 bg-slate-50/20 dark:bg-slate-900/10">
+                        {editableUsers.map((u) => {
                           const uid = getId(u);
-                          const isChecked = selectedMembers.includes(uid);
+                          const isChecked = selectedMembers.some((id) => String(id) === String(uid));
                           return (
                             <label key={uid} className="flex items-center gap-2.5 px-2.5 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-lg cursor-pointer text-[12px] font-medium text-slate-700 dark:text-slate-350">
                               <input
@@ -1121,7 +1146,7 @@ export default function MessagesPage() {
                                 checked={isChecked}
                                 onChange={() => {
                                   if (isChecked) {
-                                    setSelectedMembers((prev) => prev.filter((id) => id !== uid));
+                                    setSelectedMembers((prev) => prev.filter((id) => String(id) !== String(uid)));
                                   } else {
                                     setSelectedMembers((prev) => [...prev, uid]);
                                   }
@@ -1136,9 +1161,13 @@ export default function MessagesPage() {
                             </label>
                           );
                         })}
+                        {editableUsers.length === 0 && memberSearch.trim() && (
+                          <p className="text-[11.5px] text-slate-400 py-2 px-2">No teammates match "{memberSearch}"</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Modal footer */}
