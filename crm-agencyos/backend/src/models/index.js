@@ -25,6 +25,8 @@ const ClientSchema = new mongoose.Schema({
   assignedTeam:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   notes:            [NoteSchema],
   createdBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  isDeleted:        { type: Boolean, default: false },
+  deletedAt:        { type: Date, default: null },
 }, { timestamps: true });
 
 // ── Task ──────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ const TaskSchema = new mongoose.Schema({
   tags:        [{ type: String }],
   attachments: { type: [TaskAttachmentSchema], default: [] },
   readyForApproval: { type: Boolean, default: false },
+  isDeleted:        { type: Boolean, default: false },
 }, { timestamps: true });
 
 TaskSchema.pre('save', async function (next) {
@@ -94,6 +97,7 @@ const TodoSchema = new mongoose.Schema({
   status:      { type: String, enum: ['pending','in-progress','sent-for-approval','completed'], default: 'pending' },
   readyForApproval: { type: Boolean, default: false },
   attachments: { type: [TaskAttachmentSchema], default: [] },
+  isDeleted:   { type: Boolean, default: false },
 }, { timestamps: true });
 
 // ── Meeting ───────────────────────────────────────────────────

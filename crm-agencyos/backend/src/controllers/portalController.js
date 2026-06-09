@@ -11,12 +11,14 @@ exports.getOverview = async (req, res, next) => {
     }
 
     const [tasks, projects, meetings, todos, client] = await Promise.all([
-      Task.find({ clientId }).lean(),
+      Task.find({ clientId, isDeleted: { $ne: true } }).lean(),
       Project.find({ clientId }).populate('assignedTeam', 'name color initials').lean(),
       Meeting.find({ clientId }).lean(),
-      Todo.find({ clientId }).lean(),
-      Client.findById(clientId).lean(),
+      Todo.find({ clientId, isDeleted: { $ne: true } }).lean(),
+      Client.findOne({ _id: clientId, isDeleted: { $ne: true } }).lean(),
     ]);
+
+    if (!client) return res.status(403).json({ success: false, message: 'Portal access has been deactivated.' });
 
     const taskStats = {
       total:         tasks.length,
@@ -102,8 +104,8 @@ exports.getMyClient = async (req, res, next) => {
     if (!clientId) {
       return res.status(403).json({ success: false, message: 'No client account linked' });
     }
-    const client = await Client.findById(clientId).lean();
-    if (!client) return res.status(404).json({ success: false, message: 'Client record not found' });
+    const client = await Client.findOne({ _id: clientId, isDeleted: { $ne: true } }).lean();
+    if (!client) return res.status(403).json({ success: false, message: 'Portal access has been deactivated.' });
     res.json({ success: true, data: client });
   } catch (err) { next(err); }
 };

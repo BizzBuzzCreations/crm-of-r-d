@@ -101,7 +101,7 @@ exports.deleteUser = async (req, res, next) => {
 // ═══════════════════════════════════════════════════
 exports.getClients = async (req, res, next) => {
   try {
-    const clients = await Client.find()
+    const clients = await Client.find({ isDeleted: { $ne: true } })
       .populate('assignedTeam', 'name email color initials status position')
       .sort({ createdAt: -1 });
     res.json({ success: true, data: clients });
@@ -110,7 +110,7 @@ exports.getClients = async (req, res, next) => {
 
 exports.getClient = async (req, res, next) => {
   try {
-    const client = await Client.findById(req.params.id)
+    const client = await Client.findOne({ _id: req.params.id, isDeleted: { $ne: true } })
       .populate('assignedTeam', 'name email color initials status position');
     if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
     res.json({ success: true, data: client });
@@ -262,6 +262,8 @@ exports.createClient = async (req, res, next) => {
 // Generates or accepts a new password for the client's portal User account
 exports.resetPortalPassword = async (req, res, next) => {
   try {
+    const clientRecord = await Client.findOne({ _id: req.params.id, isDeleted: { $ne: true } }).lean();
+    if (!clientRecord) return res.status(404).json({ success: false, message: 'Client not found' });
     const portalUser = await User.findOne({ clientId: req.params.id, role: 'client' }).select('+password');
     if (!portalUser) {
       return res.status(404).json({ success: false, message: 'No portal account found for this client. Create the client account first.' });
@@ -305,9 +307,10 @@ exports.resetPortalPassword = async (req, res, next) => {
 
 exports.updateClient = async (req, res, next) => {
   try {
+    const existing = await Client.findOne({ _id: req.params.id, isDeleted: { $ne: true } }).lean();
+    if (!existing) return res.status(404).json({ success: false, message: 'Client not found' });
     const client = await Client.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
       .populate('assignedTeam', 'name email color initials status position');
-    if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
     audit.log(req, {
       action: 'update', category: 'client',
       targetId: client._id, targetModel: 'Client', targetTitle: client.name,
@@ -318,57 +321,32 @@ exports.updateClient = async (req, res, next) => {
 
 exports.deleteClient = async (req, res, next) => {
   try {
-    const Notification = require('../models/Notification');
     const clientId = req.params.id;
-    const target = await Client.findById(clientId).lean();
+    const target = await Client.findOne({ _id: clientId, isDeleted: { $ne: true } }).lean();
     if (!target) return res.status(404).json({ success: false, message: 'Client not found' });
 
-    // 1. Find the dedicated channel(s) and delete their messages
-    const clientChannels = await Channel.find({ clientId }).lean();
-    const channelIds = clientChannels.map((c) => c._id);
-    if (channelIds.length) {
-      await Message.deleteMany({ threadId: { $in: channelIds.map(String) } });
-      await Channel.deleteMany({ _id: { $in: channelIds } });
-    }
-
-    // 2. Delete portal user (role:'client' with this clientId)
-    const portalUser = await User.findOne({ clientId, role: 'client' }).lean();
-    if (portalUser) {
-      await Notification.deleteMany({ recipient: portalUser._id });
-      await User.deleteOne({ _id: portalUser._id });
-    }
-
-    // 3. Delete all tasks, todos, meetings, projects tied to this client
-    await Task.deleteMany({ clientId });
-    await Todo.deleteMany({ clientId });
-    await Meeting.deleteMany({ clientId });
-    await Project.deleteMany({ clientId });
-
-    // 4. Delete the client record itself
-    await Client.findByIdAndDelete(clientId);
+    // Soft-delete the client record — all associated data is preserved in the DB
+    await Client.findByIdAndUpdate(clientId, { isDeleted: true, deletedAt: new Date() });
 
     audit.log(req, {
       action: 'delete', category: 'client',
       targetId: clientId, targetModel: 'Client',
       targetTitle: target.name,
-      metadata: {
-        cascadeDeleted: {
-          channels: channelIds.length,
-          portalUser: !!portalUser,
-        },
-      },
+      metadata: { softDelete: true },
     });
 
-    // Notify all connected clients to remove this client from their state
+    // Notify all connected staff to remove this client from their local state
     const io = req.app.get('io');
     io?.emit('client:deleted', clientId);
 
-    res.json({ success: true, message: `Client "${target.name}" and all associated data deleted` });
+    res.json({ success: true, message: `Client "${target.name}" has been removed` });
   } catch (err) { next(err); }
 };
 
 exports.addClientNote = async (req, res, next) => {
   try {
+    const existing = await Client.findOne({ _id: req.params.id, isDeleted: { $ne: true } }).lean();
+    if (!existing) return res.status(404).json({ success: false, message: 'Client not found' });
     const { text } = req.body;
     const note = {
       text,
@@ -380,7 +358,6 @@ exports.addClientNote = async (req, res, next) => {
       { $push: { notes: note } },
       { new: true }
     ).populate('assignedTeam', 'name email color initials status position');
-    if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
     res.json({ success: true, data: client });
   } catch (err) { next(err); }
 };
@@ -428,6 +405,7 @@ exports.getTasks = async (req, res, next) => {
       filter.$or = orClauses;
     }
 
+    filter.isDeleted = { $ne: true };
     const tasks = await Task.find(filter).populate(taskPopulate).sort({ createdAt: -1 });
     res.json({ success: true, data: tasks });
   } catch (err) { next(err); }
@@ -598,8 +576,8 @@ exports.updateTask = async (req, res, next) => {
 
 exports.deleteTask = async (req, res, next) => {
   try {
-    const target = await Task.findById(req.params.id).lean();
-    await Task.findByIdAndDelete(req.params.id);
+    const target = await Task.findByIdAndUpdate(req.params.id, { isDeleted: true }, { new: false }).lean();
+    if (!target) return res.status(404).json({ success: false, message: 'Task not found' });
     req.app.get('io')?.emit('task:deleted', req.params.id);
     audit.log(req, {
       action: 'delete', category: 'task',
@@ -654,6 +632,7 @@ exports.getTodos = async (req, res, next) => {
       filter.$or = orClauses;
     }
 
+    filter.isDeleted = { $ne: true };
     const todos = await Todo.find(filter)
       .populate(todoPopulate)
       .sort({ createdAt: -1 });
@@ -773,8 +752,8 @@ exports.updateTodo = async (req, res, next) => {
 
 exports.deleteTodo = async (req, res, next) => {
   try {
-    const target = await Todo.findById(req.params.id).lean();
-    await Todo.findByIdAndDelete(req.params.id);
+    const target = await Todo.findByIdAndUpdate(req.params.id, { isDeleted: true }, { new: false }).lean();
+    if (!target) return res.status(404).json({ success: false, message: 'Todo not found' });
     const io = req.app.get('io');
     io?.emit('todo:deleted', req.params.id);
     audit.log(req, {

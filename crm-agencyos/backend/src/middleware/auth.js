@@ -1,5 +1,6 @@
-const jwt  = require('jsonwebtoken');
-const User = require('../models/User');
+const jwt    = require('jsonwebtoken');
+const User   = require('../models/User');
+const { Client } = require('../models/index');
 
 // Verify access token
 exports.protect = async (req, res, next) => {
@@ -22,6 +23,19 @@ exports.protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user    = await User.findById(decoded.id).select('-password');
     if (!user) return res.status(401).json({ success: false, message: 'User not found' });
+
+    // Immediately revoke access for client portal users whose client has been soft-deleted
+    // This fires on every request so deletion takes effect within one request, not one token lifetime
+    if (user.role === 'client' && user.clientId) {
+      const clientRec = await Client.findById(user.clientId, 'isDeleted status').lean();
+      if (!clientRec || clientRec.isDeleted || clientRec.status === 'inactive') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your portal access has been deactivated. Please contact your account manager.',
+        });
+      }
+    }
+
     req.user = user;
     next();
   } catch (err) {

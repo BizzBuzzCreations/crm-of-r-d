@@ -59,10 +59,10 @@ exports.login = async (req, res, next) => {
     if (!match)
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
 
-    // Block client users whose Client record has been set to inactive
+    // Block client users whose Client record has been deactivated or soft-deleted
     if (user.role === 'client' && user.clientId) {
-      const clientRec = await Client.findById(user.clientId, 'status name').lean();
-      if (!clientRec || clientRec.status === 'inactive') {
+      const clientRec = await Client.findById(user.clientId, 'status isDeleted name').lean();
+      if (!clientRec || clientRec.isDeleted || clientRec.status === 'inactive') {
         return res.status(403).json({
           success: false,
           message: 'Your portal access has been deactivated. Please contact your account manager.',
@@ -135,10 +135,10 @@ exports.refresh = async (req, res, next) => {
     const user    = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ success: false, message: 'User not found' });
 
-    // Revoke refresh for deactivated client accounts
+    // Revoke refresh for deactivated or soft-deleted client accounts
     if (user.role === 'client' && user.clientId) {
-      const clientRec = await Client.findById(user.clientId, 'status').lean();
-      if (!clientRec || clientRec.status === 'inactive') {
+      const clientRec = await Client.findById(user.clientId, 'status isDeleted').lean();
+      if (!clientRec || clientRec.isDeleted || clientRec.status === 'inactive') {
         res.clearCookie('refreshToken');
         return res.status(403).json({
           success: false,
