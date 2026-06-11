@@ -68,6 +68,7 @@ app.use('/api/settings',       require('./routes/settings'));
 app.use('/api/audit',          require('./routes/audit'));
 app.use('/api/admin/logs',     require('./routes/adminLogs'));
 app.use('/api/portal',         require('./routes/portal'));
+app.use('/api/billing',        require('./routes/billing'));
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {

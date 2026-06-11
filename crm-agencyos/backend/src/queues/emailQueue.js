@@ -40,12 +40,13 @@ const addEmailToQueue = async (recipientEmail, emailType, templateData = {}, tri
 
 // Named constants so callers never use raw strings
 const EMAIL_TYPES = {
-  WELCOME:        'WELCOME_EMAIL',
-  LEAD_WON:       'LEAD_WON',
-  LEAD_ASSIGNED:  'LEAD_ASSIGNED',
-  LEAD_MENTIONED: 'LEAD_MENTIONED',
-  TASK_ASSIGNED:  'TASK_ASSIGNMENT',
-  OUTBOUND_EMAIL: 'OUTBOUND_EMAIL',
+  WELCOME:          'WELCOME_EMAIL',
+  LEAD_WON:         'LEAD_WON',
+  LEAD_ASSIGNED:    'LEAD_ASSIGNED',
+  LEAD_MENTIONED:   'LEAD_MENTIONED',
+  TASK_ASSIGNED:    'TASK_ASSIGNMENT',
+  OUTBOUND_EMAIL:   'OUTBOUND_EMAIL',
+  INVOICE_REMINDER: 'INVOICE_REMINDER',
 };
 
 module.exports = { emailQueue, addEmailToQueue, EMAIL_TYPES };

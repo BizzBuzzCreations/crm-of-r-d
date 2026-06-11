@@ -12,6 +12,7 @@ const xtra = require('../controllers/extraControllers');
 const revenue = require('../controllers/revenueController');
 const meetingScheduler = require('../controllers/meetingSchedulerController');
 const serviceCtr = require('../controllers/serviceController');
+const billing = require('../controllers/billingController');
 
 // ── Auth routes ───────────────────────────────────────────────
 const authRouter = express.Router();
@@ -140,6 +141,9 @@ portalRouter.use(authorize('client'));
 portalRouter.get('/overview', portalCtrl.getOverview);
 portalRouter.get('/contacts', portalCtrl.getContacts);
 portalRouter.get('/me',       portalCtrl.getMyClient);
+portalRouter.get('/invoices', portalCtrl.getInvoices);
+portalRouter.get('/invoices/:id', portalCtrl.getInvoice);
+portalRouter.get('/invoices/:id/pdf', portalCtrl.downloadPDF);
 module.exports.portal = portalRouter;
 
 // ── Audit Log routes ──────────────────────────────────────────
@@ -161,3 +165,21 @@ adminLogsRouter.get('/sources',             sysCtrl.listSources);
 adminLogsRouter.get('/:source/download',    sysCtrl.downloadLog);
 adminLogsRouter.get('/:source',             sysCtrl.getLogs);
 module.exports.adminLogs = adminLogsRouter;
+
+// ── Billing routes (admin + manager only) ─────────────────────
+const billingRouter = express.Router();
+billingRouter.use(protect);
+billingRouter.use(authorize('admin', 'manager'));
+billingRouter.get('/collections',                         billing.getCollections);
+billingRouter.get('/invoices',                            billing.getInvoices);
+billingRouter.post('/invoices',                           billing.createInvoice);
+billingRouter.get('/invoices/:id',                        billing.getInvoice);
+billingRouter.put('/invoices/:id',                        billing.updateInvoice);
+billingRouter.delete('/invoices/:id',                     billing.deleteInvoice);
+billingRouter.get('/invoices/:id/pdf',                    billing.downloadPDF);
+billingRouter.get('/invoices/:invoiceId/payments',        billing.getPayments);
+billingRouter.post('/invoices/:invoiceId/payments',       upload.single('attachment'), billing.recordPayment);
+billingRouter.put('/payments/:id',                        upload.single('attachment'), billing.updatePayment);
+billingRouter.delete('/payments/:id',                     billing.deletePayment);
+billingRouter.put('/clients/:clientId/billing-profile',   billing.updateBillingProfile);
+module.exports.billing = billingRouter;

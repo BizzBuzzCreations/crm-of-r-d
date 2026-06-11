@@ -376,6 +376,61 @@ const templates = {
     return { subject, html, text };
   },
 
+  INVOICE_REMINDER: ({ clientName, contactName, invoiceNumber, dueDate, balanceDue, currency, daysLate, portalUrl, type }) => {
+    const isOverdue = type === 'overdue';
+    const sym = (currency || 'INR') === 'INR' ? '₹' : currency;
+    const fmtAmt = `${sym}${Number(balanceDue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    const subject = isOverdue
+      ? `Payment overdue — ${invoiceNumber} (${daysLate || 0} days)`
+      : `Payment reminder — ${invoiceNumber} due in 7 days`;
+    const accentColor = isOverdue ? '#ef4444' : '#f59e0b';
+    const headline    = isOverdue ? 'Invoice Overdue' : 'Payment Due Soon';
+    const bodyLine    = isOverdue
+      ? `Your invoice ${invoiceNumber} is <strong>${daysLate || 0} days overdue</strong>. Please arrange payment at your earliest convenience to avoid service interruption.`
+      : `Your invoice ${invoiceNumber} is due in <strong>7 days</strong>. Please ensure payment is arranged before the due date.`;
+    const url = portalUrl || `${process.env.CLIENT_URL}/portal`;
+
+    const html = wrapHtml(headline, `
+      <p style="font-size:15px;color:#334155;margin:0 0 20px;font-family:Arial,sans-serif;">
+        Hi <strong>${contactName || clientName || 'there'}</strong>,<br />
+        ${bodyLine}
+      </p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+             style="background-color:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid ${accentColor};border-radius:0 10px 10px 0;margin-bottom:24px;">
+        <tr><td style="padding:20px 24px;">
+          <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="font-size:13.5px;color:#475569;font-family:Arial,sans-serif;">
+            <tr><td width="40%" style="font-weight:700;color:#0f172a;">Invoice</td><td>${invoiceNumber}</td></tr>
+            <tr style="background-color:#f1f5f9;"><td style="font-weight:700;color:#0f172a;">Due Date</td><td>${dueDate || '—'}</td></tr>
+            <tr><td style="font-weight:700;color:#0f172a;">Amount Due</td><td><strong style="font-size:16px;color:${accentColor};">${fmtAmt}</strong></td></tr>
+          </table>
+        </td></tr>
+      </table>
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr><td style="border-radius:8px;background-color:${accentColor};">
+          <a href="${url}" style="display:inline-block;padding:12px 28px;font-family:Arial,sans-serif;font-size:13.5px;font-weight:700;color:#ffffff;text-decoration:none;">View Invoice in Portal</a>
+        </td></tr>
+      </table>
+      <p style="margin:20px 0 0;font-size:12px;color:#94a3b8;font-family:Arial,sans-serif;">
+        If you have already made this payment, please disregard this notice.
+      </p>`);
+
+    const text = [
+      `Hi ${contactName || clientName || 'there'},`,
+      '',
+      isOverdue
+        ? `Your invoice ${invoiceNumber} is ${daysLate || 0} days overdue.`
+        : `Your invoice ${invoiceNumber} is due in 7 days.`,
+      '',
+      `Invoice : ${invoiceNumber}`,
+      `Due     : ${dueDate || '—'}`,
+      `Amount  : ${fmtAmt}`,
+      '',
+      `View your portal: ${url}`,
+    ].join('\n');
+
+    return { subject, html, text };
+  },
+
   TASK_ASSIGNMENT: ({ assigneeName, assignerName, taskTitle, projectName, dueDate, tasksUrl }) => {
     const subject = `Task Assigned: ${taskTitle}`;
     const fmtDate = dueDate

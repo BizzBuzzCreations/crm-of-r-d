@@ -109,3 +109,51 @@ exports.getMyClient = async (req, res, next) => {
     res.json({ success: true, data: client });
   } catch (err) { next(err); }
 };
+
+// GET /api/portal/invoices
+exports.getInvoices = async (req, res, next) => {
+  try {
+    const { Invoice } = require('../models/Invoice');
+    const invoices = await Invoice.find({
+      clientId: req.user.clientId,
+      isDeleted: { $ne: true },
+      status: { $ne: 'draft' }, // Hide drafts from portal clients
+    })
+    .sort({ createdAt: -1 })
+    .lean();
+    res.json({ success: true, data: invoices });
+  } catch (err) { next(err); }
+};
+
+// GET /api/portal/invoices/:id/pdf
+exports.downloadPDF = async (req, res, next) => {
+  try {
+    const { Invoice } = require('../models/Invoice');
+    const billingCtrl = require('./billingController');
+    const invoice = await Invoice.findOne({ _id: req.params.id, isDeleted: { $ne: true } }).lean();
+    if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
+    if (String(invoice.clientId) !== String(req.user.clientId)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    return billingCtrl.downloadPDF(req, res, next);
+  } catch (err) { next(err); }
+};
+
+// GET /api/portal/invoices/:id
+exports.getInvoice = async (req, res, next) => {
+  try {
+    const { Invoice, Payment } = require('../models/Invoice');
+    const invoice = await Invoice.findOne({ _id: req.params.id, clientId: req.user.clientId, isDeleted: { $ne: true } })
+      .populate('clientId', 'name email contact phone address billingProfile')
+      .lean();
+    if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
+
+    const payments = await Payment.find({ invoiceId: req.params.id })
+      .sort({ paymentDate: -1, createdAt: -1 })
+      .lean();
+
+    res.json({ success: true, data: invoice, payments });
+  } catch (err) { next(err); }
+};
+
+

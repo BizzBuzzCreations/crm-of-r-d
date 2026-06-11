@@ -72,7 +72,7 @@ export default function LoginPage() {
         <motion.div className="relative z-10 max-w-lg w-full" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div className="backdrop-blur-md bg-white/[0.06] border border-white/10 rounded-2xl p-10">
             <div className="flex items-center gap-3 mb-8">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-lg">BBC</div>
+              <img src="/Tab_logo.png" alt="BBC Logo" className="w-12 h-12 rounded-xl object-cover bg-white flex-shrink-0" />
               <div>
                 <div className="text-white font-bold text-xl">Bizz Buzz Creations</div>
                 <div className="text-slate-400 text-[12px] mt-0.5">Premium CRM Platform</div>
@@ -98,9 +98,8 @@ export default function LoginPage() {
       {/* ── Right form panel ── */}
       <div className="flex flex-col justify-center items-center w-full lg:w-[480px] lg:flex-shrink-0 bg-white dark:bg-slate-900 px-8 py-10">
         <motion.div className="w-full max-w-[360px]" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4 }}>
-          {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm">AO</div>
+            <img src="/Tab_logo.png" alt="BBC Logo" className="w-9 h-9 rounded-xl object-cover bg-white flex-shrink-0" />
             <div className="font-bold text-slate-900 dark:text-white text-lg">BBC CRM</div>
           </div>
 
@@ -153,7 +152,7 @@ export default function LoginPage() {
             <Input label="Password" type="password" placeholder="••••••••" error={errors.password?.message}
               {...register('password', { required: 'Password is required' })} />
             <Button variant="primary" size="lg" loading={loading} className="w-full justify-center mt-2" type="submit">
-              Sign in to AgencyOS
+              Sign in to BBC CRM
             </Button>
           </form>
 

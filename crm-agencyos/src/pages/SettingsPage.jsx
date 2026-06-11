@@ -1656,7 +1656,7 @@ export default function SettingsPage() {
   };
 
   const handleFullBackup = () => {
-    downloadJSON({ tasks, todos, clients, systemSettings, exported: today }, `agencyos-backup-${today}.json`);
+    downloadJSON({ tasks, todos, clients, systemSettings, exported: today }, `bbc-crm-backup-${today}.json`);
     toast.success('Full database backup downloaded!');
   };
 

@@ -13,6 +13,8 @@ exports.protect = async (req, res, next) => {
   } else if (req.query?._token) {
     // sendBeacon cannot set headers, so the beforeunload flush passes token via query string
     token = req.query._token;
+  } else if (req.query?.token) {
+    token = req.query.token;
   }
 
   if (!token) {

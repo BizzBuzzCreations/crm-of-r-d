@@ -27,7 +27,7 @@ exports.sendClientWelcome = async ({ to, clientName, contactName, password, logi
     return false;
   }
 
-  const from = process.env.EMAIL_FROM || `"BBC Creations" <hello@agencyos.com>`;
+  const from = process.env.EMAIL_FROM || `"BBC Creations" <hello@bizzbuzzcreations.com>`;
 
   const html = `<!DOCTYPE html>
 <html lang="en">

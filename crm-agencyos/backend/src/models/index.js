@@ -27,6 +27,17 @@ const ClientSchema = new mongoose.Schema({
   createdBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   isDeleted:        { type: Boolean, default: false },
   deletedAt:        { type: Date, default: null },
+  billingProfile: {
+    gstNumber:      { type: String, default: '' },
+    currency:       { type: String, default: 'INR' },
+    paymentTerms:   { type: String, default: 'Net 30' },
+    billingAddress: { type: String, default: '' },
+    billingContact: { type: String, default: '' },
+    billingEmail:   { type: String, default: '' },
+    billingPhone:   { type: String, default: '' },
+    creditLimit:    { type: Number, default: 0 },
+    billingNotes:   { type: String, default: '' },
+  },
 }, { timestamps: true });
 
 // ── Task ──────────────────────────────────────────────────────

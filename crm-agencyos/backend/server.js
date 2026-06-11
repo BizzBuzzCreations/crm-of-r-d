@@ -10,6 +10,7 @@ const { logger }   = require('./src/utils/sysLogger');
 const { LogWatcher } = require('./src/utils/logWatcher');
 const notifService = require('./src/services/notificationService');
 
+const { startBillingCron } = require('./src/cron/billingReminders');
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB
@@ -117,8 +118,10 @@ emailQueueEvents.on('failed', async ({ jobId, failedReason }) => {
   } catch {}
 });
 
+startBillingCron();
+
 server.listen(PORT, '0.0.0.0', () => {
-  const msg = `AgencyOS Backend running on port ${PORT} (${process.env.NODE_ENV || 'production'})`;
+  const msg = `BBC CRM Backend running on port ${PORT} (${process.env.NODE_ENV || 'production'})`;
   console.log(`\n🚀 ${msg}`);
   console.log(`📡 API:    http://0.0.0.0:${PORT}/api`);
   console.log(`🔌 Socket: ws://0.0.0.0:${PORT}`);

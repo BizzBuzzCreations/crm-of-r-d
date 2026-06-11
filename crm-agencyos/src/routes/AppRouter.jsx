@@ -18,6 +18,7 @@ import SettingsPage       from '../pages/SettingsPage';
 import LogsPage           from '../pages/LogsPage';
 import SystemLogsPage     from '../pages/SystemLogsPage';
 import ClientPortalPage   from '../pages/portal/ClientPortalPage';
+import BillingPage        from '../pages/BillingPage';
 
 // ── Guards ────────────────────────────────────────────────────
 function RequireAuth({ children }) {
@@ -101,6 +102,14 @@ export default function AppRouter() {
           <Route path="reports"   element={<RequireStaff><ReportsPage /></RequireStaff>} />
           <Route path="meetings"  element={<RequireStaff><MeetingsPage /></RequireStaff>} />
           <Route path="calendar"  element={<RequireStaff><CalendarPage /></RequireStaff>} />
+          <Route
+            path="billing"
+            element={
+              <RequireRole roles={['admin', 'manager']}>
+                <BillingPage />
+              </RequireRole>
+            }
+          />
           <Route
             path="team"
             element={

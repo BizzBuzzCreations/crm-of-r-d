@@ -296,10 +296,38 @@ export const systemLogsAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── Billing & Invoicing (admin + manager only)
+// ─────────────────────────────────────────────────────────────
+export const billingAPI = {
+  getInvoices:  (params)            => api.get('/billing/invoices', { params }),
+  getInvoice:   (id)                => api.get(`/billing/invoices/${id}`),
+  createInvoice:(body)              => api.post('/billing/invoices', body),
+  updateInvoice:(id, body)          => api.put(`/billing/invoices/${id}`, body),
+  deleteInvoice:(id)                => api.delete(`/billing/invoices/${id}`),
+  pdfUrl:       (id)                => `${api.defaults.baseURL}/billing/invoices/${id}/pdf`,
+  getPayments:    (invoiceId)       => api.get(`/billing/invoices/${invoiceId}/payments`),
+  recordPayment:  (invoiceId, body) => body instanceof FormData
+    ? api.post(`/billing/invoices/${invoiceId}/payments`, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+    : api.post(`/billing/invoices/${invoiceId}/payments`, body),
+  updatePayment:  (id, body) => body instanceof FormData
+    ? api.put(`/billing/payments/${id}`, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+    : api.put(`/billing/payments/${id}`, body),
+  deletePayment:  (id)              => api.delete(`/billing/payments/${id}`),
+  attachmentUrl:  (filePath)        => filePath
+    ? api.defaults.baseURL.replace(/\/api$/, '') + filePath
+    : null,
+  getCollections: ()                => api.get('/billing/collections'),
+  updateBillingProfile: (clientId, body) => api.put(`/billing/clients/${clientId}/billing-profile`, body),
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Client Portal (role: client only)
 // ─────────────────────────────────────────────────────────────
 export const portalAPI = {
   overview: () => api.get('/portal/overview'),
   me:       () => api.get('/portal/me'),
   contacts: () => api.get('/portal/contacts'),
+  invoices: () => api.get('/portal/invoices'),
+  invoice:  (id) => api.get(`/portal/invoices/${id}`),
+  pdfUrl:   (id) => `${api.defaults.baseURL}/portal/invoices/${id}/pdf`,
 };

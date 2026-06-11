@@ -5,7 +5,7 @@ import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
   Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal,
-  Building2,
+  Building2, Receipt,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -373,6 +373,7 @@ const NAV = [
   {
     section: 'ADMIN',
     items: [
+      { path: '/billing',     label: 'Billing',        icon: Receipt,    roles: ['admin', 'manager'] },
       { path: '/team',        label: 'Team',           icon: UserCircle, roles: ['admin', 'manager'] },
       { path: '/logs',        label: 'Audit Logs',     icon: Shield,     roles: ['admin'] },
       { path: '/system-logs', label: 'System Monitor', icon: Terminal,   roles: ['admin'] },
@@ -410,9 +411,11 @@ export default function Sidebar() {
         'flex items-center gap-2.5 px-3 py-4 border-b border-sidebar-border flex-shrink-0',
         !sidebarOpen && 'justify-center px-0'
       )}>
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-[13px] flex-shrink-0">
-          BBC
-        </div>
+        <img
+          src="/sidebar_bbcCRM.png"
+          alt="BBC"
+          className="w-8 h-8 rounded-lg object-cover bg-white flex-shrink-0"
+        />
         <AnimatePresence>
           {sidebarOpen && (
             <motion.div

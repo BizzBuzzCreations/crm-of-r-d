@@ -1,6 +1,7 @@
 const crypto          = require('crypto');
 const User            = require('../models/User');
 const { Client, Task, Todo, Meeting, Project, Channel, Message, Notification } = require('../models/index');
+const { Invoice }     = require('../models/Invoice');
 const notifService    = require('../services/notificationService');
 const audit           = require('../services/auditService');
 const emailService    = require('../services/emailService');
@@ -241,11 +242,48 @@ exports.createClient = async (req, res, next) => {
       }
     }
 
+    // Auto-create a draft invoice if the client has a parseable budget
+    let autoInvoice = false;
+    try {
+      const budgetStr = String(clientData.budget || '');
+      const budgetNum = parseFloat(budgetStr.replace(/[^0-9.]/g, ''));
+      if (budgetNum > 0) {
+        const issueDate = new Date().toISOString().split('T')[0];
+        const due       = new Date();
+        due.setDate(due.getDate() + 30);
+        const dueDate   = due.toISOString().split('T')[0];
+        const desc      = (clientData.services || []).length
+          ? (clientData.services).join(', ')
+          : 'Professional Services';
+        await Invoice.create({
+          clientId:    client._id,
+          title:       `${client.name} — Retainer Invoice`,
+          lineItems:   [{ description: desc, quantity: 1, rate: budgetNum, amount: budgetNum }],
+          subtotal:    budgetNum,
+          taxRate:     0,
+          taxAmount:   0,
+          discount:    0,
+          total:       budgetNum,
+          balanceDue:  budgetNum,
+          paidAmount:  0,
+          issueDate,
+          dueDate,
+          currency:    'INR',
+          status:      'draft',
+          terms:       'Payment due within 30 days.',
+          createdBy:   req.user._id,
+        });
+        autoInvoice = true;
+      }
+    } catch (invErr) {
+      console.warn('[createClient] Auto-invoice skipped:', invErr.message);
+    }
+
     const populated = await client.populate('assignedTeam', 'name email color initials status position');
     audit.log(req, {
       action: 'create', category: 'client',
       targetId: client._id, targetModel: 'Client', targetTitle: client.name,
-      metadata: { portalCreated, portalEmailSent: portalEmail, channelCreated: !!clientChannel },
+      metadata: { portalCreated, portalEmailSent: portalEmail, channelCreated: !!clientChannel, autoInvoice },
     });
 
     res.status(201).json({

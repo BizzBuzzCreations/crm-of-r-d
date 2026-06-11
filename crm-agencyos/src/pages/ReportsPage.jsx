@@ -68,7 +68,7 @@ function downloadCSV(rows, filename) {
 function printReport(content) {
   const win = window.open('', '_blank', 'width=900,height=700');
   win.document.write(`
-    <html><head><title>AgencyOS Report</title>
+    <html><head><title>BBC CRM Report</title>
     <style>
       body { font-family: 'DM Sans', system-ui, sans-serif; color:#1e293b; padding:32px; background:#fff; }
       h1   { font-size:22px; font-weight:700; margin-bottom:4px; }
@@ -295,7 +295,7 @@ export default function ReportsPage() {
     ];
     downloadCSV(
       [['=== MEMBER SUMMARY ==='], header, ...rows, [], ['=== TASK DETAIL ==='], ...taskRows],
-      `AgencyOS-Report-${period}-${todayStr()}.csv`
+      `BBC-CRM-Report-${period}-${todayStr()}.csv`
     );
     toast.success('CSV downloaded!');
   };
@@ -329,7 +329,7 @@ export default function ReportsPage() {
     const filterInfo = selectedMember ? `Member: ${selectedMember.name}` : 'All Members';
 
     const html = `
-      <h1>AgencyOS Performance Report</h1>
+      <h1>BBC CRM Performance Report</h1>
       <p class="sub">Period: <strong>${periodLabel}</strong> &nbsp;·&nbsp; ${filterInfo} &nbsp;·&nbsp; Generated: ${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}</p>
 
       <div>
