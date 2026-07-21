@@ -5,9 +5,22 @@
 # .github/workflows/deploy.yml on every push to main.
 set -euo pipefail
 
-REPO_DIR="$HOME/rndCRM/crm-of-r-d/crm-agencyos"
+GIT_ROOT="$HOME/rndCRM/crm-of-r-d"
+REPO_DIR="$GIT_ROOT/crm-agencyos"
 FRONTEND_TARGET="/var/www/rndCRM/frontend"
 BACKEND_PORT=5000
+
+# This script pulls a fresh copy of itself from git. If we kept running
+# after that, bash would finish executing the stale in-memory version
+# instead of picking up the change. So: pull, then re-exec the file from
+# disk (now updated) and let the fresh copy do the actual deploy.
+if [[ "${RNDCRM_DEPLOY_REEXEC:-}" != "1" ]]; then
+  cd "$GIT_ROOT"
+  echo "Pulling latest main"
+  git pull origin main
+  export RNDCRM_DEPLOY_REEXEC=1
+  exec bash "$0" "$@"
+fi
 
 BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
 RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; CYAN='\033[36m'
@@ -35,9 +48,8 @@ trap on_error ERR
 
 echo -e "${BOLD}rndCRM deploy — $(date '+%Y-%m-%d %H:%M:%S %Z')${RESET}"
 
-step "Pulling latest main"
+step "Latest commit"
 cd "$REPO_DIR"
-git pull origin main
 ok "$(git log -1 --format='%h %s')"
 
 step "Installing frontend dependencies"
