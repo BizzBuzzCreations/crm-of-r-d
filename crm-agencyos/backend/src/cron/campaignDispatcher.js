@@ -1,0 +1,123 @@
+'use strict';
+// Paces bulk campaign sending. Runs every minute in the main API process
+// (does not need its own daemon — it only ever enqueues jobs, the actual
+// SMTP work happens in campaignWorker.js). For each active campaign this
+// decides *whether* it's time to release the next email, respecting:
+//   - settings.sendingHoursEnabled — only sends within the configured hours/days/timezone
+//   - settings.dailyLimit / settings.maxNewLeadsPerDay (whichever is lower)
+//   - settings.minGapMinutes + a random 0..randomGapMinutes jitter between sends
+//   - each account's warm-up-ramped daily cap, shared across ALL campaigns
+//     using that account (see utils/warmup.js)
+//   - round-robins across settings.accounts so load is spread across senders
+// One send per campaign per tick, max — the 1-minute tick interval is itself
+// a safety ceiling even if minGapMinutes is set to 0.
+
+const cron = require('node-cron');
+const Campaign     = require('../models/Campaign');
+const CampaignLead = require('../models/CampaignLead');
+const EmailAccount = require('../models/EmailAccount');
+const { addCampaignEmailToQueue } = require('../queues/campaignQueue');
+const { effectiveDailyLimit } = require('../utils/warmup');
+const { isWithinSendingWindow } = require('../utils/sendingWindow');
+
+function startCampaignDispatcher() {
+  cron.schedule('* * * * *', runDispatchTick);
+  console.log('✅ Campaign dispatcher cron scheduled (every minute)');
+}
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+async function runDispatchTick() {
+  try {
+    const campaigns = await Campaign.find({ status: 'active', isDeleted: { $ne: true } });
+    for (const campaign of campaigns) {
+      await dispatchOne(campaign).catch((e) => console.error(`[CampaignDispatcher] ${campaign._id}:`, e.message));
+    }
+  } catch (err) {
+    console.error('[CampaignDispatcher] tick error:', err.message);
+  }
+}
+
+async function dispatchOne(campaign) {
+  const settings = campaign.settings || {};
+
+  // ── Gap pacing ──────────────────────────────────────────────────────
+  if (campaign.nextEligibleAt && new Date() < campaign.nextEligibleAt) return;
+
+  // ── Sending hours window ──────────────────────────────────────────────
+  if (!isWithinSendingWindow(settings)) return; // outside allowed hours/days — retried next tick
+
+  // ── Active, verified sending accounts ──────────────────────────────
+  const accountIds = (settings.accounts || []).map(String);
+  if (!accountIds.length) return; // nothing configured — dispatcher no-ops silently, surfaced in UI instead
+
+  const accounts = await EmailAccount.find({ _id: { $in: accountIds }, isActive: true, isDeleted: { $ne: true } });
+  if (!accounts.length) return;
+
+  // ── Daily cap (lower of dailyLimit / maxNewLeadsPerDay) ─────────────
+  const cap = Math.min(
+    Number.isFinite(settings.dailyLimit) ? settings.dailyLimit : Infinity,
+    Number.isFinite(settings.maxNewLeadsPerDay) ? settings.maxNewLeadsPerDay : Infinity
+  );
+  if (Number.isFinite(cap)) {
+    const sentToday = await CampaignLead.countDocuments({
+      campaign: campaign._id,
+      status: { $ne: 'pending' },
+      updatedAt: { $gte: startOfToday() },
+    });
+    if (sentToday >= cap) return;
+  }
+
+  // ── Per-account daily cap ────────────────────────────────────────────
+  // Shared across ALL campaigns using this account, not just this one —
+  // an account's inbox reputation doesn't care which campaign sent from
+  // it, so three campaigns sharing a mailbox must not collectively blow
+  // past what's safe for that single mailbox.
+  const accountSentToday = await CampaignLead.aggregate([
+    { $match: { accountUsed: { $in: accounts.map((a) => a._id) }, status: 'sent', sentAt: { $gte: startOfToday() } } },
+    { $group: { _id: '$accountUsed', count: { $sum: 1 } } },
+  ]);
+  const sentTodayByAccount = new Map(accountSentToday.map((r) => [String(r._id), r.count]));
+  const availableAccounts = accounts.filter(
+    (a) => (sentTodayByAccount.get(String(a._id)) || 0) < (effectiveDailyLimit(a) || Infinity)
+  );
+  if (!availableAccounts.length) return; // every selected account is maxed out for today
+
+  // ── Next lead in line ────────────────────────────────────────────────
+  // Leads already known to be undeliverable (invalid MX) are flipped to
+  // 'failed' at verification time, not left 'pending' — this query only
+  // ever sees leads actually worth attempting.
+  const lead = await CampaignLead.findOne({ campaign: campaign._id, status: 'pending' }).sort({ createdAt: 1 });
+  if (!lead) {
+    // Nothing left to send — auto-complete once no in-flight leads remain either
+    const inFlight = await CampaignLead.countDocuments({ campaign: campaign._id, status: { $in: ['scheduled', 'sending'] } });
+    if (inFlight === 0) await Campaign.updateOne({ _id: campaign._id }, { status: 'completed' });
+    return;
+  }
+
+  // ── Round-robin account selection (within accounts that have headroom) ──
+  const nextIndex = (campaign.lastAccountIndex + 1) % availableAccounts.length;
+  const account = availableAccounts[nextIndex];
+
+  lead.status = 'scheduled';
+  lead.accountUsed = account._id;
+  await lead.save();
+
+  await addCampaignEmailToQueue(lead._id);
+
+  const gapMinutes = (settings.minGapMinutes || 0) + Math.random() * (settings.randomGapMinutes || 0);
+  await Campaign.updateOne(
+    { _id: campaign._id },
+    {
+      lastSentAt: new Date(),
+      nextEligibleAt: new Date(Date.now() + gapMinutes * 60000),
+      lastAccountIndex: nextIndex,
+    }
+  );
+}
+
+module.exports = { startCampaignDispatcher, runDispatchTick };

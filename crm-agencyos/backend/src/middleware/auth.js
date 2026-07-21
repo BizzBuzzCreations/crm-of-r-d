@@ -56,6 +56,17 @@ exports.authorize = (...roles) => (req, res, next) => {
   next();
 };
 
+// Role guard that also allows a specific opt-in permission flag on the user
+// doc — e.g. a solo member granted `campaignsAccess: true` without being
+// promoted to manager.
+exports.authorizeOrFlag = (roles, flagField) => (req, res, next) => {
+  if (roles.includes(req.user.role) || req.user[flagField] === true) return next();
+  return res.status(403).json({
+    success: false,
+    message: `Role '${req.user.role}' is not authorized for this action`,
+  });
+};
+
 // Strict Role Guard for corporate financial permissions
 exports.authorizeRoles = (...allowedRoles) => (req, res, next) => {
   if (!allowedRoles.includes(req.user?.role)) {

@@ -323,6 +323,60 @@ export const billingAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── Email Accounts (admin + manager — bulk campaign sending infra)
+// ─────────────────────────────────────────────────────────────
+export const emailAccountsAPI = {
+  getAll:  ()          => api.get('/email-accounts'),
+  create:  (body)      => api.post('/email-accounts', body),
+  update:  (id, body)  => api.put(`/email-accounts/${id}`, body),
+  delete:  (id)        => api.delete(`/email-accounts/${id}`),
+  test:    (id)        => api.post(`/email-accounts/${id}/test`),
+  checkDomain: (id)    => api.get(`/email-accounts/${id}/domain-check`),
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Campaigns (admin + manager — bulk email campaigns)
+// ─────────────────────────────────────────────────────────────
+export const campaignsAPI = {
+  getAll:   ()          => api.get('/campaigns'),
+  getOne:   (id)        => api.get(`/campaigns/${id}`),
+  create:   (body)      => api.post('/campaigns', body),
+  update:   (id, body)  => api.put(`/campaigns/${id}`, body),
+  delete:   (id)        => api.delete(`/campaigns/${id}`),
+  start:    (id)        => api.post(`/campaigns/${id}/start`),
+  pause:    (id)        => api.post(`/campaigns/${id}/pause`),
+
+  getLeads:      (id)              => api.get(`/campaigns/${id}/leads`),
+  importLeadsCsv: (id, file)       => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/campaigns/${id}/leads/import`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  importLeadsJson: (id, leads)     => api.post(`/campaigns/${id}/leads/import`, { leads }),
+  importLeadsSheet: (id, googleSheetUrl) => api.post(`/campaigns/${id}/leads/import`, { googleSheetUrl }),
+  deleteLead:    (id, leadId)      => api.delete(`/campaigns/${id}/leads/${leadId}`),
+  markReplied:   (id, leadId)      => api.post(`/campaigns/${id}/leads/${leadId}/mark-replied`),
+  verifyLead:    (id, leadId)      => api.post(`/campaigns/${id}/leads/${leadId}/verify`),
+  verifyAllLeads: (id)             => api.post(`/campaigns/${id}/leads/verify-all`),
+
+  uploadImage: (file) => {
+    const fd = new FormData();
+    fd.append('image', file);
+    return api.post('/campaigns/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Email Templates (shared library — reusable campaign email content)
+// ─────────────────────────────────────────────────────────────
+export const emailTemplatesAPI = {
+  getAll:  ()          => api.get('/email-templates'),
+  create:  (body)      => api.post('/email-templates', body),
+  update:  (id, body)  => api.put(`/email-templates/${id}`, body),
+  delete:  (id)        => api.delete(`/email-templates/${id}`),
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Client Portal (role: client only)
 // ─────────────────────────────────────────────────────────────
 export const portalAPI = {

@@ -1,0 +1,352 @@
+'use strict';
+const fs = require('fs');
+const { parse } = require('csv-parse/sync');
+const Campaign     = require('../models/Campaign');
+const CampaignLead = require('../models/CampaignLead');
+const EmailAccount = require('../models/EmailAccount');
+const audit = require('../services/auditService');
+const { verifyEmail, verifyBatch } = require('../utils/emailVerify');
+const { fetchGoogleSheetCsv } = require('../utils/googleSheet');
+
+const STATS_STATUSES = ['pending', 'scheduled', 'sending', 'sent', 'failed', 'bounced', 'replied', 'unsubscribed'];
+
+async function statsFor(campaignId) {
+  const rows = await CampaignLead.aggregate([
+    { $match: { campaign: campaignId } },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+  const stats = Object.fromEntries(STATS_STATUSES.map((s) => [s, 0]));
+  rows.forEach((r) => { stats[r._id] = r.count; });
+  stats.total = Object.values(stats).reduce((a, b) => a + b, 0);
+
+  const [opens, clicks] = await Promise.all([
+    CampaignLead.countDocuments({ campaign: campaignId, openCount: { $gt: 0 } }),
+    CampaignLead.countDocuments({ campaign: campaignId, clickCount: { $gt: 0 } }),
+  ]);
+  stats.opened = opens;
+  stats.clicked = clicks;
+  return stats;
+}
+
+// POST /api/campaigns/upload-image — embeds an image in the rich-text email body
+exports.uploadImage = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No image uploaded' });
+    res.status(201).json({ success: true, data: { url: `/uploads/${req.file.filename}` } });
+  } catch (err) { next(err); }
+};
+
+// GET /api/campaigns
+exports.getCampaigns = async (req, res, next) => {
+  try {
+    const campaigns = await Campaign.find({ isDeleted: { $ne: true } })
+      .populate('settings.accounts', 'name email')
+      .populate('createdBy', 'name email avatar color initials')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const withStats = await Promise.all(campaigns.map(async (c) => ({ ...c, stats: await statsFor(c._id) })));
+    res.json({ success: true, data: withStats });
+  } catch (err) { next(err); }
+};
+
+// GET /api/campaigns/:id
+exports.getCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } })
+      .populate('settings.accounts', 'name email isActive')
+      .populate('createdBy', 'name email avatar color initials');
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    const stats = await statsFor(campaign._id);
+    res.json({ success: true, data: { ...campaign.toObject(), stats } });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns
+exports.createCampaign = async (req, res, next) => {
+  try {
+    const { name, subject, bodyHtml, settings } = req.body;
+    if (!name?.trim()) return res.status(400).json({ success: false, message: 'Campaign name is required' });
+
+    const campaign = await Campaign.create({
+      name, subject: subject || '', bodyHtml: bodyHtml || '',
+      settings: settings || {},
+      createdBy: req.user?._id,
+    });
+
+    audit.log(req, { action: 'create', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: name });
+    res.status(201).json({ success: true, data: { ...campaign.toObject(), stats: Object.fromEntries(STATS_STATUSES.map((s) => [s, 0])) } });
+  } catch (err) { next(err); }
+};
+
+// PUT /api/campaigns/:id
+exports.updateCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    const { name, subject, bodyHtml, settings } = req.body;
+    if (name !== undefined) campaign.name = name;
+    if (subject !== undefined) campaign.subject = subject;
+    if (bodyHtml !== undefined) campaign.bodyHtml = bodyHtml;
+    if (settings !== undefined) campaign.settings = { ...campaign.settings.toObject(), ...settings };
+
+    await campaign.save();
+    audit.log(req, { action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name });
+
+    const populated = await Campaign.findById(campaign._id).populate('settings.accounts', 'name email isActive');
+    const stats = await statsFor(campaign._id);
+    res.json({ success: true, data: { ...populated.toObject(), stats } });
+  } catch (err) { next(err); }
+};
+
+// DELETE /api/campaigns/:id  (soft delete)
+exports.deleteCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findByIdAndUpdate(req.params.id, { isDeleted: true, status: 'paused' }, { new: true });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+    audit.log(req, { action: 'delete', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name });
+    res.json({ success: true, data: { _id: campaign._id } });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/start   (draft|paused → active)
+exports.startCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    if (!campaign.subject?.trim() || !campaign.bodyHtml?.trim()) {
+      return res.status(400).json({ success: false, message: 'Add a subject and email body before starting the campaign' });
+    }
+    if (!campaign.settings.accounts?.length) {
+      return res.status(400).json({ success: false, message: 'Select at least one sending account in campaign settings' });
+    }
+    const pendingCount = await CampaignLead.countDocuments({ campaign: campaign._id, status: 'pending' });
+    if (pendingCount === 0) {
+      return res.status(400).json({ success: false, message: 'Import at least one lead before starting the campaign' });
+    }
+
+    campaign.status = 'active';
+    campaign.nextEligibleAt = null; // send the first one on the very next dispatcher tick
+    await campaign.save();
+
+    audit.log(req, { action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name, metadata: { status: 'active' } });
+    res.json({ success: true, data: campaign });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/pause
+exports.pauseCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOneAndUpdate(
+      { _id: req.params.id, isDeleted: { $ne: true } },
+      { status: 'paused' },
+      { new: true }
+    );
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+    res.json({ success: true, data: campaign });
+  } catch (err) { next(err); }
+};
+
+// ── Leads within a campaign ──────────────────────────────────────────────
+
+// GET /api/campaigns/:id/leads
+exports.getCampaignLeads = async (req, res, next) => {
+  try {
+    const leads = await CampaignLead.find({ campaign: req.params.id })
+      .populate('accountUsed', 'name email')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ success: true, data: leads });
+  } catch (err) { next(err); }
+};
+
+const HEADER_ALIASES = {
+  email:     ['email', 'e-mail', 'emailaddress'],
+  firstName: ['first_name', 'firstname', 'first name', 'fname'],
+  lastName:  ['last_name', 'lastname', 'last name', 'lname'],
+};
+
+function normalizeHeader(h) { return String(h || '').trim().toLowerCase(); }
+
+function mapRow(row) {
+  const keys = Object.keys(row);
+  const find = (aliases) => {
+    const key = keys.find((k) => aliases.includes(normalizeHeader(k)));
+    return key ? String(row[key] || '').trim() : '';
+  };
+  return {
+    email: find(HEADER_ALIASES.email).toLowerCase(),
+    firstName: find(HEADER_ALIASES.firstName),
+    lastName: find(HEADER_ALIASES.lastName),
+  };
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// POST /api/campaigns/:id/leads/import
+// Accepts, in priority order: multipart CSV file, { googleSheetUrl }, or
+// { leads: [...] } JSON (also how "add a single lead manually" works —
+// the frontend just posts a one-item array).
+exports.importLeads = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    let rows = [];
+    if (req.file) {
+      const csvText = fs.readFileSync(req.file.path, 'utf8');
+      fs.unlink(req.file.path, () => {}); // temp upload — not needed after parsing
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      rows = records.map(mapRow);
+    } else if (req.body.googleSheetUrl) {
+      let csvText;
+      try {
+        csvText = await fetchGoogleSheetCsv(req.body.googleSheetUrl);
+      } catch (sheetErr) {
+        return res.status(400).json({ success: false, message: sheetErr.message });
+      }
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      rows = records.map(mapRow);
+    } else if (Array.isArray(req.body.leads)) {
+      rows = req.body.leads.map((l) => ({
+        email: String(l.email || '').trim().toLowerCase(),
+        firstName: String(l.firstName || l.first_name || '').trim(),
+        lastName: String(l.lastName || l.last_name || '').trim(),
+      }));
+    } else {
+      return res.status(400).json({ success: false, message: 'Upload a CSV file, a Google Sheet link, or provide a leads array' });
+    }
+
+    const seen = new Set();
+    const valid = [];
+    let invalidCount = 0;
+    for (const r of rows) {
+      if (!r.email || !EMAIL_RE.test(r.email) || seen.has(r.email)) { if (r.email) invalidCount++; continue; }
+      seen.add(r.email);
+      valid.push({ campaign: campaign._id, email: r.email, firstName: r.firstName, lastName: r.lastName });
+    }
+
+    if (!valid.length) {
+      return res.status(400).json({ success: false, message: 'No valid, unique email rows found' });
+    }
+
+    // Skip emails already present in this campaign (insertMany would throw
+    // on the unique campaign+email index otherwise).
+    const existing = await CampaignLead.find({ campaign: campaign._id, email: { $in: valid.map((v) => v.email) } }, 'email').lean();
+    const existingSet = new Set(existing.map((e) => e.email));
+    const toInsert = valid.filter((v) => !existingSet.has(v.email));
+
+    let created = [];
+    if (toInsert.length) {
+      // MX-verify + provider-detect before insert (domain-deduplicated —
+      // cheap even for large imports from a handful of companies).
+      const verifyResults = await verifyBatch(toInsert.map((v) => v.email));
+      const now = new Date();
+      const withVerification = toInsert.map((v) => {
+        const r = verifyResults.get(v.email) || {};
+        const isInvalid = r.status === 'invalid';
+        return {
+          ...v,
+          verificationStatus: r.status || 'unverified', verificationDetail: r.detail || '', provider: r.provider || '', verifiedAt: now,
+          // No mail servers = guaranteed bounce. Fail it immediately instead
+          // of leaving it "pending" forever (the dispatcher only ever picks
+          // pending leads, so it would otherwise just sit unsent, silently
+          // never resolving) — a bounce would also hurt the sending
+          // account's reputation for nothing, so better to never attempt it.
+          status: isInvalid ? 'failed' : 'pending',
+          error: isInvalid ? r.detail : '',
+        };
+      });
+      created = await CampaignLead.insertMany(withVerification, { ordered: false });
+    }
+
+    audit.log(req, {
+      action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name,
+      metadata: { imported: created.length, skippedDuplicates: valid.length - toInsert.length, invalidRows: invalidCount },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { imported: created.length, skippedDuplicates: valid.length - toInsert.length, invalidRows: invalidCount },
+    });
+  } catch (err) { next(err); }
+};
+
+// DELETE /api/campaigns/:id/leads/:leadId
+exports.deleteCampaignLead = async (req, res, next) => {
+  try {
+    const lead = await CampaignLead.findOneAndDelete({ _id: req.params.leadId, campaign: req.params.id });
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found in this campaign' });
+    res.json({ success: true, data: { _id: lead._id } });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/leads/:leadId/verify — re-run verification on one lead
+exports.verifyLead = async (req, res, next) => {
+  try {
+    const lead = await CampaignLead.findOne({ _id: req.params.leadId, campaign: req.params.id });
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found in this campaign' });
+
+    const result = await verifyEmail(lead.email);
+    lead.verificationStatus = result.status;
+    lead.verificationDetail = result.detail;
+    lead.provider = result.provider;
+    lead.verifiedAt = new Date();
+    // Only ever downgrade a still-pending lead — never touch the status of
+    // one that's already been sent/replied/etc if someone re-verifies later.
+    if (result.status === 'invalid' && lead.status === 'pending') {
+      lead.status = 'failed';
+      lead.error = result.detail;
+    }
+    await lead.save();
+
+    res.json({ success: true, data: lead });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/leads/verify-all — re-run verification on every
+// still-unverified lead in the campaign (e.g. after a transient DNS timeout)
+exports.verifyAllLeads = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    const leads = await CampaignLead.find({ campaign: campaign._id, verificationStatus: 'unverified' }, 'email status').lean();
+    if (!leads.length) return res.json({ success: true, data: { verified: 0 } });
+
+    const results = await verifyBatch(leads.map((l) => l.email));
+    const now = new Date();
+    const ops = leads.map((l) => {
+      const r = results.get(l.email) || {};
+      const isInvalid = r.status === 'invalid';
+      const update = { verificationStatus: r.status || 'unverified', verificationDetail: r.detail || '', provider: r.provider || '', verifiedAt: now };
+      if (isInvalid && l.status === 'pending') {
+        update.status = 'failed';
+        update.error = r.detail;
+      }
+      return { updateOne: { filter: { _id: l._id }, update } };
+    });
+    await CampaignLead.bulkWrite(ops);
+
+    res.json({ success: true, data: { verified: leads.length } });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/leads/:leadId/mark-replied
+// Manual reply marking for now — no IMAP/inbox polling is wired up yet, so
+// this is how "stop sending on reply" actually takes effect until an
+// automatic reply-detection integration is built.
+exports.markReplied = async (req, res, next) => {
+  try {
+    const lead = await CampaignLead.findOneAndUpdate(
+      { _id: req.params.leadId, campaign: req.params.id },
+      { status: 'replied', repliedAt: new Date() },
+      { new: true }
+    );
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found in this campaign' });
+    res.json({ success: true, data: lead });
+  } catch (err) { next(err); }
+};

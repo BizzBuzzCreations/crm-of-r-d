@@ -19,6 +19,8 @@ import LogsPage           from '../pages/LogsPage';
 import SystemLogsPage     from '../pages/SystemLogsPage';
 import ClientPortalPage   from '../pages/portal/ClientPortalPage';
 import BillingPage        from '../pages/BillingPage';
+import CampaignsPage      from '../pages/CampaignsPage';
+import CampaignDetailPage from '../pages/CampaignDetailPage';
 
 // ── Guards ────────────────────────────────────────────────────
 function RequireAuth({ children }) {
@@ -39,6 +41,16 @@ function RequireRole({ roles, children }) {
   const authUser = useAppStore((s) => s.authUser);
   if (!authUser) return <Navigate to="/login" replace />;
   if (!roles.includes(authUser?.role)) return <Navigate to="/dashboard" replace />;
+  return children;
+}
+
+// Campaigns: admin/manager always have access; anyone else needs the
+// campaignsAccess flag granted individually from the Team page.
+function RequireCampaignsAccess({ children }) {
+  const authUser = useAppStore((s) => s.authUser);
+  if (!authUser) return <Navigate to="/login" replace />;
+  const allowed = ['admin', 'manager'].includes(authUser.role) || authUser.campaignsAccess === true;
+  if (!allowed) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -116,6 +128,22 @@ export default function AppRouter() {
               <RequireRole roles={['admin', 'manager']}>
                 <TeamPage />
               </RequireRole>
+            }
+          />
+          <Route
+            path="campaigns"
+            element={
+              <RequireCampaignsAccess>
+                <CampaignsPage />
+              </RequireCampaignsAccess>
+            }
+          />
+          <Route
+            path="campaigns/:id"
+            element={
+              <RequireCampaignsAccess>
+                <CampaignDetailPage />
+              </RequireCampaignsAccess>
             }
           />
           <Route path="settings" element={<SettingsPage />} />

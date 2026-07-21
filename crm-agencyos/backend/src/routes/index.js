@@ -3,7 +3,7 @@
 // The app.js imports these.
 
 const express = require('express');
-const { protect, authorize, authorizeRoles, denyClientWrites } = require('../middleware/auth');
+const { protect, authorize, authorizeRoles, authorizeOrFlag, denyClientWrites } = require('../middleware/auth');
 const upload  = require('../middleware/upload');
 
 const auth = require('../controllers/authController');
@@ -185,3 +185,60 @@ billingRouter.put('/payments/:id',                        upload.single('attachm
 billingRouter.delete('/payments/:id',                     billing.deletePayment);
 billingRouter.put('/clients/:clientId/billing-profile',   billing.updateBillingProfile);
 module.exports.billing = billingRouter;
+
+// ── Email Accounts routes (any authenticated user — manages their OWN
+// connected mailboxes; admins/managers can additionally see/manage everyone
+// else's for building company campaigns — enforced inside the controller) ──
+const emailAccountCtrl = require('../controllers/emailAccountController');
+const emailAccountsRouter = express.Router();
+emailAccountsRouter.use(protect);
+emailAccountsRouter.get('/',           emailAccountCtrl.getAccounts);
+emailAccountsRouter.post('/',          emailAccountCtrl.createAccount);
+emailAccountsRouter.put('/:id',        emailAccountCtrl.updateAccount);
+emailAccountsRouter.delete('/:id',     emailAccountCtrl.deleteAccount);
+emailAccountsRouter.post('/:id/test',  emailAccountCtrl.testAccount);
+emailAccountsRouter.get('/:id/domain-check', emailAccountCtrl.checkDomain);
+module.exports.emailAccounts = emailAccountsRouter;
+
+// ── Campaign public tracking routes (NO auth — hit by email clients) ──
+// Mounted at the SAME /api/campaigns prefix but registered before the
+// protected campaigns router in app.js, so these specific sub-paths never
+// hit the `protect` middleware. Identity comes from the unguessable token.
+const trackCtrl = require('../controllers/trackingController');
+const campaignPublicRouter = express.Router();
+campaignPublicRouter.get('/track/open/:token',  trackCtrl.trackOpen);
+campaignPublicRouter.get('/track/click/:token', trackCtrl.trackClick);
+campaignPublicRouter.get('/unsubscribe/:token', trackCtrl.unsubscribe);
+module.exports.campaignPublic = campaignPublicRouter;
+
+// ── Campaigns routes (admin + manager only — external bulk email sending) ──
+const campaignCtrl = require('../controllers/campaignController');
+const campaignsRouter = express.Router();
+campaignsRouter.use(protect);
+campaignsRouter.use(authorizeOrFlag(['admin', 'manager'], 'campaignsAccess'));
+campaignsRouter.post('/upload-image',             upload.single('image'), campaignCtrl.uploadImage); // before /:id
+campaignsRouter.get('/',                          campaignCtrl.getCampaigns);
+campaignsRouter.post('/',                         campaignCtrl.createCampaign);
+campaignsRouter.get('/:id',                       campaignCtrl.getCampaign);
+campaignsRouter.put('/:id',                       campaignCtrl.updateCampaign);
+campaignsRouter.delete('/:id',                    campaignCtrl.deleteCampaign);
+campaignsRouter.post('/:id/start',                campaignCtrl.startCampaign);
+campaignsRouter.post('/:id/pause',                campaignCtrl.pauseCampaign);
+campaignsRouter.get('/:id/leads',                 campaignCtrl.getCampaignLeads);
+campaignsRouter.post('/:id/leads/import',         upload.single('file'), campaignCtrl.importLeads);
+campaignsRouter.post('/:id/leads/verify-all',     campaignCtrl.verifyAllLeads);   // before /:leadId routes
+campaignsRouter.delete('/:id/leads/:leadId',      campaignCtrl.deleteCampaignLead);
+campaignsRouter.post('/:id/leads/:leadId/verify', campaignCtrl.verifyLead);
+campaignsRouter.post('/:id/leads/:leadId/mark-replied', campaignCtrl.markReplied);
+module.exports.campaigns = campaignsRouter;
+
+// ── Email Templates routes (shared library, campaigns-access gated) ────
+const emailTemplateCtrl = require('../controllers/emailTemplateController');
+const emailTemplatesRouter = express.Router();
+emailTemplatesRouter.use(protect);
+emailTemplatesRouter.use(authorizeOrFlag(['admin', 'manager'], 'campaignsAccess'));
+emailTemplatesRouter.get('/',       emailTemplateCtrl.getTemplates);
+emailTemplatesRouter.post('/',      emailTemplateCtrl.createTemplate);
+emailTemplatesRouter.put('/:id',    emailTemplateCtrl.updateTemplate);
+emailTemplatesRouter.delete('/:id', emailTemplateCtrl.deleteTemplate);
+module.exports.emailTemplates = emailTemplatesRouter;
