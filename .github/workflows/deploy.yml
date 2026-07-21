@@ -7,13 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - name: SSH and run deploy.sh on VM
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          port: ${{ secrets.VM_PORT || 22 }}
-          script: bash ~/rndCRM/crm-of-r-d/deploy.sh
+      - name: Run deploy.sh on VM
+        run: bash ~/rndCRM/crm-of-r-d/deploy.sh
