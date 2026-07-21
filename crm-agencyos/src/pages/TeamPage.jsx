@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee, Edit3, Shield, ShieldCheck, Crown, AlertTriangle, Users } from 'lucide-react';
+import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee, Edit3, Shield, ShieldCheck, Crown, AlertTriangle, Users, ClipboardList } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -491,12 +491,15 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
   const userTasks = tasks.filter((t) => getId(t.assignedTo) === getId(user));
   const userTodos = todos.filter((t) => getId(t.userId) === getId(user));
 
-  const activeTasks = userTasks.filter((t) => t.status !== 'completed');
-  const completedTasks = userTasks.filter((t) => t.status === 'completed');
-  const totalTasksCount = userTasks.length;
-  
-  const avgProgress = totalTasksCount > 0 
-    ? Math.round(userTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / totalTasksCount)
+  // Summary tiles combine Tasks + Todos so members who work entirely through
+  // Todos don't show a permanently-zero overview. Avg Progress stays Task-only —
+  // Todos have no numeric progress field, only a status stage.
+  const activeTasks = [...userTasks, ...userTodos].filter((t) => t.status !== 'completed');
+  const completedTasks = [...userTasks, ...userTodos].filter((t) => t.status === 'completed');
+  const totalTasksCount = userTasks.length + userTodos.length;
+
+  const avgProgress = userTasks.length > 0
+    ? Math.round(userTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / userTasks.length)
     : 0;
 
   const totalDays = logs.length;
@@ -598,23 +601,38 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
                           <th className="py-2.5">Status</th>
                           <th className="py-2.5">Due Date</th>
                           <th className="py-2.5">Progress</th>
+                          <th className="py-2.5">Todos</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {userTasks.map((t) => (
-                          <tr key={getId(t)} className="border-t border-slate-100 dark:border-slate-700/40">
-                            <td className="font-medium py-2.5">{t.title}</td>
-                            <td className="py-2.5"><PriorityBadge priority={t.priority} /></td>
-                            <td className="py-2.5"><StatusBadge status={t.status} /></td>
-                            <td className="text-slate-500 py-2.5">{t.dueDate || '—'}</td>
-                            <td className="py-2.5 min-w-[120px]">
-                              <div className="flex items-center gap-2">
-                                <ProgressBar value={t.progress} className="flex-1" />
-                                <span className="text-[11px] font-mono">{t.progress}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                        {userTasks.map((t) => {
+                          const taskTodos = todos.filter((td) => sameId(td.taskId, t));
+                          const completedTaskTodos = taskTodos.filter((td) => td.status === 'completed').length;
+                          return (
+                            <tr key={getId(t)} className="border-t border-slate-100 dark:border-slate-700/40">
+                              <td className="font-medium py-2.5">{t.title}</td>
+                              <td className="py-2.5"><PriorityBadge priority={t.priority} /></td>
+                              <td className="py-2.5"><StatusBadge status={t.status} /></td>
+                              <td className="text-slate-500 py-2.5">{t.dueDate || '—'}</td>
+                              <td className="py-2.5 min-w-[120px]">
+                                <div className="flex items-center gap-2">
+                                  <ProgressBar value={t.progress} className="flex-1" />
+                                  <span className="text-[11px] font-mono">{t.progress}%</span>
+                                </div>
+                              </td>
+                              <td className="py-2.5">
+                                {taskTodos.length > 0 ? (
+                                  <span className="text-[11.5px] text-slate-500 font-semibold flex items-center gap-1 select-none">
+                                    <ClipboardList size={11} className="text-slate-400" />
+                                    {completedTaskTodos}/{taskTodos.length}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-350 dark:text-slate-600 text-[11.5px]">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -854,8 +872,16 @@ export default function TeamPage() {
     return matchSearch && matchRole;
   });
 
-  const getTaskCount      = (uid) => tasks.filter((t) => getId(t.assignedTo) === getId(uid) && t.status !== 'completed').length;
-  const getCompletedCount = (uid) => tasks.filter((t) => getId(t.assignedTo) === getId(uid) && t.status === 'completed').length;
+  // Combines Tasks + Todos so members who work entirely through Todos don't show
+  // permanently-zero counts on their card (same combined logic as MemberDetailModal below).
+  const getTaskCount = (uid) => (
+    tasks.filter((t) => getId(t.assignedTo) === getId(uid) && t.status !== 'completed').length +
+    todos.filter((t) => getId(t.userId) === getId(uid) && t.status !== 'completed').length
+  );
+  const getCompletedCount = (uid) => (
+    tasks.filter((t) => getId(t.assignedTo) === getId(uid) && t.status === 'completed').length +
+    todos.filter((t) => getId(t.userId) === getId(uid) && t.status === 'completed').length
+  );
 
   const handleAddMember = async (data) => {
     try {

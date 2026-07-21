@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
-import { Page, Toggle, Button } from '../components/ui';
+import { Page, Toggle, Button, ConfirmDialog } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
 
 // ── Shared Helper: CSV / JSON Downloader ───────────────────────────
@@ -1837,10 +1837,16 @@ function SecuritySection() {
 
 function WorkLogSection({ authUser, users }) {
   const isManager   = canManage(authUser?.role);
+  const isAdmin     = canAdmin(authUser?.role);
   const [filterUser, setFilterUser] = useState('all');
   const fetchWorkLog = useAppStore((s) => s.fetchWorkLog);
+  const deleteWorkLog = useAppStore((s) => s.deleteWorkLog);
+  const bulkDeleteWorkLogs = useAppStore((s) => s.bulkDeleteWorkLogs);
   const [dbLogs, setDbLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null); // { ids: string[], label: string }
+  const [deleting, setDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   useEffect(() => {
     let active = true;
@@ -1866,6 +1872,7 @@ function WorkLogSection({ authUser, users }) {
       if (!u) return;
       if (!isManager && !sameId(u, authUser)) return;
       rows.push({
+        id:            log._id,
         user:          u,
         date:          log.date,
         workSeconds:   log.workSeconds || 0,
@@ -1886,9 +1893,45 @@ function WorkLogSection({ authUser, users }) {
     return allRows.filter((r) => getId(r.user) === filterUser);
   }, [allRows, filterUser, isManager]);
 
+  // Selection is scoped to the current filter — reset it when the filter changes
+  // so a hidden/stale selection can't be bulk-deleted without the admin seeing it.
+  useEffect(() => { setSelectedIds(new Set()); }, [filterUser]);
+
   const breakTotal = (breaks, type) => {
     if (!breaks?.length) return 0;
     return breaks.filter((b) => b.type === type).reduce((a, b) => a + (b.actual || b.planned || 0), 0);
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((r) => r.id))));
+  };
+
+  const toggleSelectRow = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteConfirmed = async () => {
+    if (!confirmDelete || deleting) return;
+    setDeleting(true);
+    try {
+      const { ids } = confirmDelete;
+      if (ids.length === 1) await deleteWorkLog(ids[0]);
+      else await bulkDeleteWorkLogs(ids);
+      const idSet = new Set(ids);
+      setDbLogs((logs) => logs.filter((l) => !idSet.has(l._id)));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    } catch {} finally {
+      setDeleting(false);
+      setConfirmDelete(null);
+    }
   };
 
   return (
@@ -1905,6 +1948,28 @@ function WorkLogSection({ authUser, users }) {
         </div>
       )}
 
+      {isAdmin && selectedIds.size > 0 && (
+        <div className="flex items-center justify-between gap-2 mb-3 px-4 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/15 border border-red-200 dark:border-red-900/40">
+          <span className="text-[13px] font-semibold text-red-700 dark:text-red-300">
+            {selectedIds.size} log{selectedIds.size === 1 ? '' : 's'} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSelectedIds(new Set())} className="text-[12.5px] font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 px-2 py-1">
+              Clear
+            </button>
+            <button
+              onClick={() => setConfirmDelete({
+                ids: Array.from(selectedIds),
+                label: `${selectedIds.size} work log ${selectedIds.size === 1 ? 'entry' : 'entries'}`,
+              })}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[12.5px] font-semibold transition-colors"
+            >
+              <Trash2 size={13} /> Delete Selected
+            </button>
+          </div>
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <div className="py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
           <Clock size={32} className="mx-auto mb-3 opacity-30" />
@@ -1915,7 +1980,18 @@ function WorkLogSection({ authUser, users }) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
-                {['Member','Date','Time Worked','Lunch Used','Tea Used','Custom Break','Status'].map((h) => (
+                {isAdmin && (
+                  <th className="py-3 px-4 w-8">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size > 0 && selectedIds.size === filtered.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-slate-300 dark:border-slate-600"
+                      aria-label="Select all work log entries"
+                    />
+                  </th>
+                )}
+                {[...['Member','Date','Time Worked','Lunch Used','Tea Used','Custom Break','Status'], ...(isAdmin ? ['Actions'] : [])].map((h) => (
                   <th key={h} className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 py-3 px-4">
                     {h}
                   </th>
@@ -1933,6 +2009,17 @@ function WorkLogSection({ authUser, users }) {
 
                 return (
                   <tr key={i} className="border-b border-slate-200 dark:border-slate-800/60 last:border-b-0 hover:bg-slate-50/40 dark:hover:bg-slate-900/10">
+                    {isAdmin && (
+                      <td className="py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(row.id)}
+                          onChange={() => toggleSelectRow(row.id)}
+                          className="rounded border-slate-300 dark:border-slate-600"
+                          aria-label={`Select ${row.user.name}'s log for ${fmtDate(row.date)}`}
+                        />
+                      </td>
+                    )}
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full text-white font-bold flex items-center justify-center text-[12px]" style={{ background: row.user.color || '#6366f1' }}>
@@ -1958,6 +2045,17 @@ function WorkLogSection({ authUser, users }) {
                         {isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
+                    {isAdmin && (
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={() => setConfirmDelete({ ids: [row.id], label: `${row.user.name}'s log for ${fmtDate(row.date)}` })}
+                          className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                          title="Delete this log entry"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -1965,6 +2063,15 @@ function WorkLogSection({ authUser, users }) {
           </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={confirmDelete?.ids.length > 1 ? 'Delete work log entries?' : 'Delete work log entry?'}
+        message={`Permanently delete ${confirmDelete?.label || ''}? This cannot be undone.`}
+        confirmLabel={deleting ? 'Deleting…' : (confirmDelete?.ids.length > 1 ? 'Delete Entries' : 'Delete Entry')}
+        onConfirm={handleDeleteConfirmed}
+        onClose={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

@@ -101,6 +101,8 @@ worklogRouter.use(protect);
 worklogRouter.get('/',      xtra.getWorkLog);
 worklogRouter.post('/',     xtra.upsertWorkLog);
 worklogRouter.patch('/active', xtra.setUserActive);
+worklogRouter.delete('/bulk', authorize('admin'), xtra.bulkDeleteWorkLogs); // /bulk before /:id
+worklogRouter.delete('/:id',  authorize('admin'), xtra.deleteWorkLog);
 module.exports.worklog = worklogRouter;
 
 // ── Revenue routes ────────────────────────────────────────────

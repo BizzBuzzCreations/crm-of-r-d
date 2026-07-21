@@ -2,6 +2,7 @@ const path    = require('path');
 const User    = require('../models/User');
 const { Message, Task, Todo, WorkLog, Channel, Project, Client } = require('../models/index');
 const notifService = require('../services/notificationService');
+const audit = require('../services/auditService');
 
 // ── Shared helper: create a private channel for a project ────────
 // Called both from createProject (API route) and createClient (initial project)
@@ -301,6 +302,46 @@ exports.setUserActive = async (req, res, next) => {
       { upsert: true }
     );
     res.json({ success: true });
+  } catch (err) { next(err); }
+};
+
+exports.deleteWorkLog = async (req, res, next) => {
+  try {
+    const log = await WorkLog.findById(req.params.id).populate('userId', 'name');
+    if (!log) return res.status(404).json({ success: false, message: 'Work log entry not found' });
+
+    await log.deleteOne();
+
+    audit.log(req, {
+      action: 'delete', category: 'worklog',
+      targetId: log._id, targetModel: 'WorkLog',
+      targetTitle: `${log.userId?.name || 'Unknown'} — ${log.date}`,
+    });
+
+    res.json({ success: true, message: 'Work log entry deleted' });
+  } catch (err) { next(err); }
+};
+
+exports.bulkDeleteWorkLogs = async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ success: false, message: 'Payload must contain a non-empty ids array' });
+    }
+
+    const logs = await WorkLog.find({ _id: { $in: ids } }).populate('userId', 'name');
+    if (!logs.length) return res.status(404).json({ success: false, message: 'No matching work log entries found' });
+
+    await WorkLog.deleteMany({ _id: { $in: ids } });
+
+    audit.log(req, {
+      action: 'delete', category: 'worklog',
+      targetModel: 'WorkLog',
+      targetTitle: `${logs.length} work log ${logs.length === 1 ? 'entry' : 'entries'}`,
+      metadata: { bulk: true, entries: logs.map((l) => `${l.userId?.name || 'Unknown'} — ${l.date}`) },
+    });
+
+    res.json({ success: true, message: `${logs.length} work log ${logs.length === 1 ? 'entry' : 'entries'} deleted`, deletedCount: logs.length });
   } catch (err) { next(err); }
 };
 

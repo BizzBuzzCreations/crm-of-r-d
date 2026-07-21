@@ -1694,6 +1694,18 @@ const useAppStore = create((set, get, store) => ({
       return data.data;
     } catch { return []; }
   },
+  deleteWorkLog: async (id) => {
+    try {
+      await worklogAPI.delete(id);
+      toast.success('Work log entry deleted');
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete work log entry'); throw err; }
+  },
+  bulkDeleteWorkLogs: async (ids) => {
+    try {
+      const { data } = await worklogAPI.bulkDelete(ids);
+      toast.success(data?.message || 'Work log entries deleted');
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to delete work log entries'); throw err; }
+  },
   fetchTeamTimerStates: async () => {
     try {
       const today = todayStr();

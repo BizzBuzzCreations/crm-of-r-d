@@ -21,6 +21,7 @@ const CATEGORIES = [
   { id: 'settings', label: 'Settings', color: '#64748b', bg: '#f8fafc' },
   { id: 'meeting',  label: 'Meeting',  color: '#06b6d4', bg: '#ecfeff' },
   { id: 'revenue',  label: 'Revenue',  color: '#4f46e5', bg: '#eef2ff' },
+  { id: 'worklog',  label: 'Work Log', color: '#ec4899', bg: '#fdf2f8' },
 ];
 
 const ACTIONS = [
