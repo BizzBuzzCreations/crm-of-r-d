@@ -6,6 +6,11 @@ const CampaignSettingsSchema = new mongoose.Schema({
   stopOnReply:        { type: Boolean, default: true },
   openTracking:       { type: Boolean, default: true },
   linkTracking:       { type: Boolean, default: false },
+  // Off by choice, not by accident: commercial email is legally required to
+  // carry an opt-out mechanism in most jurisdictions (CAN-SPAM etc.), and
+  // Gmail/Yahoo increasingly penalize bulk senders that lack List-Unsubscribe.
+  // Defaults true so disabling it is always a deliberate, informed action.
+  includeUnsubscribeLink: { type: Boolean, default: true },
   textOnly:           { type: Boolean, default: false },
   firstEmailTextOnly: { type: Boolean, default: false },
   dailyLimit:         { type: Number, default: 30 },

@@ -39,7 +39,20 @@ const cfg = {
   // Receives a CC copy of every LEAD_ASSIGNED / LEAD_WON notification.
   // Set COMPANY_NOTIFICATION_EMAIL in .env; falls back to EMAIL_FROM.
   companyNotificationEmail: process.env.COMPANY_NOTIFICATION_EMAIL || process.env.EMAIL_FROM,
+  // "View Lead" / "Log In" / etc. links in every template below fall back to
+  // this. Some templates previously interpolated process.env.CLIENT_URL raw
+  // with no fallback at all — if unset, the link literally read
+  // "undefined/leads". Centralized here with the same safe fallback used by
+  // campaignWorker.js so it's at worst a dev-localhost link, never "undefined".
+  clientUrl: (process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, ''),
 };
+
+if (!process.env.CLIENT_URL) {
+  console.error(`\n🚨 CLIENT_URL is not set for the email-worker process!`);
+  console.error(`   "View Lead"/"Log In"/etc. links in outgoing emails will point at`);
+  console.error(`   ${cfg.clientUrl} — unreachable by real recipients.`);
+  console.error(`   Fix: set CLIENT_URL in backend/.env to your public domain and restart this process.\n`);
+}
 
 console.log('\n══════════════════════════════════════════════════');
 console.log('  BizzBuzz CRM — Email Worker v2.0');
@@ -223,7 +236,7 @@ const templates = {
   LEAD_WON: ({ companyName, contactPerson, dealValue, assigneeName, closedBy, clientUrl }) => {
     const subject = `Deal Won: ${companyName} — ₹${Number(dealValue || 0).toLocaleString('en-IN')}`;
     const fmtValue = `₹${Number(dealValue || 0).toLocaleString('en-IN')}`;
-    const url = clientUrl || `${process.env.CLIENT_URL}/leads`;
+    const url = clientUrl || `${cfg.clientUrl}/leads`;
 
     const html = wrapHtml('Deal Closed — Congratulations!', `
       <p style="font-size:15px;color:#334155;margin:0 0 20px;font-family:Arial,sans-serif;">
@@ -268,7 +281,7 @@ const templates = {
   LEAD_ASSIGNED: ({ assigneeName, assignerName, companyName, contactPerson, dealValue, status, leadsUrl }) => {
     const subject = `Lead Assigned to You: ${companyName}`;
     const fmtValue = `₹${Number(dealValue || 0).toLocaleString('en-IN')}`;
-    const url = leadsUrl || `${process.env.CLIENT_URL}/leads`;
+    const url = leadsUrl || `${cfg.clientUrl}/leads`;
 
     const html = wrapHtml('Lead Assigned to You', `
       <p style="font-size:15px;color:#334155;margin:0 0 20px;font-family:Arial,sans-serif;">
@@ -310,7 +323,7 @@ const templates = {
 
   LEAD_MENTIONED: ({ mentionedName, authorName, companyName, noteExcerpt, leadsUrl }) => {
     const subject = `${authorName} mentioned you in a lead note`;
-    const url = leadsUrl || `${process.env.CLIENT_URL}/leads`;
+    const url = leadsUrl || `${cfg.clientUrl}/leads`;
 
     const html = wrapHtml('You Were Mentioned', `
       <p style="font-size:15px;color:#334155;margin:0 0 20px;font-family:Arial,sans-serif;">
@@ -344,7 +357,7 @@ const templates = {
 
   WELCOME_EMAIL: ({ userName, loginUrl }) => {
     const subject = `Welcome to BizzBuzz CRM, ${userName}`;
-    const url = loginUrl || `${process.env.CLIENT_URL}/login`;
+    const url = loginUrl || `${cfg.clientUrl}/login`;
 
     const html = wrapHtml(`Welcome, ${userName}!`, `
       <p style="font-size:15px;color:#334155;margin:0 0 16px;font-family:Arial,sans-serif;">
@@ -411,7 +424,7 @@ const templates = {
     const bodyLine    = isOverdue
       ? `Your invoice ${invoiceNumber} is <strong>${daysLate || 0} days overdue</strong>. Please arrange payment at your earliest convenience to avoid service interruption.`
       : `Your invoice ${invoiceNumber} is due in <strong>7 days</strong>. Please ensure payment is arranged before the due date.`;
-    const url = portalUrl || `${process.env.CLIENT_URL}/portal`;
+    const url = portalUrl || `${cfg.clientUrl}/portal`;
 
     const html = wrapHtml(headline, `
       <p style="font-size:15px;color:#334155;margin:0 0 20px;font-family:Arial,sans-serif;">
@@ -459,7 +472,7 @@ const templates = {
     const fmtDate = dueDate
       ? new Date(dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
       : 'No due date';
-    const url = tasksUrl || `${process.env.CLIENT_URL}/tasks`;
+    const url = tasksUrl || `${cfg.clientUrl}/tasks`;
 
     const html = wrapHtml('Task Assigned to You', `
       <p style="font-size:15px;color:#334155;margin:0 0 20px;font-family:Arial,sans-serif;">

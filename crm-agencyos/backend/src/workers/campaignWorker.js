@@ -102,6 +102,20 @@ const apiBase   = process.env.CAMPAIGN_TRACK_BASE_URL
   ? process.env.CAMPAIGN_TRACK_BASE_URL.replace(/\/$/, '')
   : clientUrl; // frontend origin proxies /api to the backend in both dev + prod (see app.js SPA fallback)
 
+// This silent fallback is exactly what breaks every open-pixel/click/
+// unsubscribe link a recipient actually receives if CLIENT_URL isn't set
+// for THIS process specifically (PM2 processes each read their own env —
+// it working for the main API process doesn't guarantee it's set here
+// too). Recipients obviously can't reach a localhost URL, so make this
+// loud instead of a link that just quietly doesn't work.
+if (!process.env.CAMPAIGN_TRACK_BASE_URL && (!process.env.CLIENT_URL || apiBase.includes('localhost'))) {
+  console.error(`\n🚨 CLIENT_URL is not set (or is localhost) for the campaign-worker process!`);
+  console.error(`   Every tracking pixel, click link, and unsubscribe link in outgoing campaign`);
+  console.error(`   emails will be built as "${apiBase}/..." — unreachable by real recipients.`);
+  console.error(`   Fix: set CLIENT_URL in backend/.env to your public domain and restart this process.\n`);
+  sysLog.error('CAMPAIGN', `CLIENT_URL not set for campaign-worker — outgoing links point at ${apiBase}`);
+}
+
 function rewriteLinksForClickTracking(html, token) {
   return html.replace(/href="(https?:\/\/[^"]+)"/gi, (_m, url) => {
     const redirect = `${apiBase}/api/campaigns/track/click/${token}?url=${encodeURIComponent(url)}`;
@@ -147,8 +161,13 @@ const spamSafeHeaders = (account, unsubUrl) => ({
   'X-Priority':     '3',
   'X-Mailer':       'BizzBuzz CRM Campaign Service',
   'Importance':     'Normal',
-  'List-Unsubscribe':      `<${unsubUrl}>, <mailto:${account.smtpUser}?subject=unsubscribe>`,
-  'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  // Only advertise List-Unsubscribe when there's actually an unsubscribe
+  // link/mechanism in this send (settings.includeUnsubscribeLink) — omitted
+  // entirely otherwise rather than pointing at a link that isn't in the body.
+  ...(unsubUrl ? {
+    'List-Unsubscribe':      `<${unsubUrl}>, <mailto:${account.smtpUser}?subject=unsubscribe>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  } : {}),
   'Precedence': 'bulk',
 });
 
@@ -184,7 +203,12 @@ const worker = new Worker('campaign-queue', async (job) => {
 
   const subject = renderMergeTags(campaign.subject, lead);
   let html = renderMergeTags(campaign.bodyHtml, lead);
-  const unsubUrl = `${apiBase}/api/campaigns/unsubscribe/${lead.token}`;
+  // Opt-out toggle, defaults true — see Campaign.js for why this isn't
+  // off by default. `unsubUrl` stays null (not just an unused string) when
+  // disabled so spamSafeHeaders() below can tell there's truly no
+  // unsubscribe mechanism in this send, not just skip using it.
+  const includeUnsub = campaign.settings.includeUnsubscribeLink !== false;
+  const unsubUrl = includeUnsub ? `${apiBase}/api/campaigns/unsubscribe/${lead.token}` : null;
 
   // Campaigns here send a single email (no multi-step sequence yet), so
   // "first email" and "every email" are the same thing — both settings
@@ -192,7 +216,7 @@ const worker = new Worker('campaign-queue', async (job) => {
   const sendAsTextOnly = !!(campaign.settings.textOnly || campaign.settings.firstEmailTextOnly);
 
   if (campaign.settings.linkTracking) html = rewriteLinksForClickTracking(html, lead.token);
-  html = appendUnsubscribeFooter(html, lead.token, account);
+  if (includeUnsub) html = appendUnsubscribeFooter(html, lead.token, account);
   if (campaign.settings.openTracking && !sendAsTextOnly) html = appendOpenPixel(html, lead.token);
 
   const text = stripToPlain(html);
