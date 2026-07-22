@@ -18,6 +18,7 @@ const mongoose    = require('mongoose');
 const Campaign     = require('../models/Campaign');
 const CampaignLead = require('../models/CampaignLead');
 const EmailAccount = require('../models/EmailAccount');
+const { resolveIPv4 } = require('../utils/ipv4');
 
 mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 8000 })
   .then(() => console.log('✅ MongoDB connected (campaign worker)'))
@@ -41,18 +42,30 @@ const err = (...a) => console.error(`[${ts()}] ❌`, ...a);
 let sysLog = { info: () => {}, warn: () => {}, error: () => {} };
 try { sysLog = require('../utils/sysLogger').logger; } catch {}
 
+// `family: 4` on the transporter and the process-wide dns.setDefaultResultOrder
+// above both *ask* for IPv4, but neither actually guarantees nodemailer's
+// internal connection path honors it. `resolveIPv4` (utils/ipv4.js) resolves
+// the hostname to a literal IPv4 address ourselves and hands nodemailer that
+// IP directly — same reliable public-resolver approach already used for
+// MX/SPF/DKIM lookups elsewhere, so it doesn't depend on this host's
+// possibly-broken default resolver either.
+
 // ── Per-account transporter cache ────────────────────────────────────────
 // Pooled connections reused across sends (same deliverability rationale as
 // emailWorker.js), keyed by EmailAccount id so each sender account gets its
 // own connection pool and its own ~5msg/sec throttle.
 const transporterCache = new Map();
 
-function getTransporter(account) {
+async function getTransporter(account) {
   const key = String(account._id);
   if (transporterCache.has(key)) return transporterCache.get(key);
 
+  const ip = await resolveIPv4(account.smtpHost);
+  if (ip) log(`Resolved ${account.smtpHost} -> ${ip} (IPv4)`);
+  else log(`Could not resolve an IPv4 address for ${account.smtpHost} — connecting by hostname, may hit ENETUNREACH again if it has an AAAA record`);
+
   const transporter = nodemailer.createTransport({
-    host:   account.smtpHost,
+    host:   ip || account.smtpHost, // connect via the literal IPv4 address when we have one
     port:   account.smtpPort,
     secure: account.smtpSecure,
     auth:   { user: account.smtpUser, pass: (account.smtpPass || '').replace(/\s/g, '') },
@@ -61,15 +74,15 @@ function getTransporter(account) {
     maxMessages:    100,
     rateDelta:      1000,
     rateLimit:      5, // max 5 messages/sec per account
-    tls: { rejectUnauthorized: !account.smtpAllowInsecureTLS, minVersion: 'TLSv1.2' },
+    tls: {
+      rejectUnauthorized: !account.smtpAllowInsecureTLS,
+      minVersion: 'TLSv1.2',
+      servername: account.smtpHost, // required for correct cert validation/SNI when connecting by raw IP
+    },
     socketTimeout: 10000,
     greetingTimeout: 10000,
     connectionTimeout: 10000,
-    // Force IPv4 — some VPS/bare-metal hosts get an IPv6 address assigned
-    // without real outbound IPv6 routing, so a hostname that resolves to
-    // both A and AAAA records can get connected over IPv6 and fail with
-    // ENETUNREACH. Virtually every SMTP provider still serves IPv4.
-    family: 4,
+    family: 4, // belt-and-braces if `ip` resolution above ever falls back to the hostname
   });
   transporterCache.set(key, transporter);
   return transporter;
@@ -173,7 +186,7 @@ const worker = new Worker('campaign-queue', async (job) => {
 
   log(`📨 Job ${job.id} | campaign="${campaign.name}" → ${lead.email} via ${account.email} | attempt=${job.attemptsMade + 1}/${job.opts?.attempts || 3}`);
 
-  const transporter = getTransporter(account);
+  const transporter = await getTransporter(account);
   const mailOptions = {
     from:    `"${account.fromName || account.name}" <${account.email}>`,
     to:      lead.email,
