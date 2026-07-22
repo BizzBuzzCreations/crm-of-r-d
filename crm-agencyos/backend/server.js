@@ -1,4 +1,10 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+// Some VPS/bare-metal hosts get an IPv6 address assigned without real
+// outbound IPv6 routing — a hostname resolving to both A and AAAA records
+// can then get connected over IPv6 and fail with ENETUNREACH (seen on SMTP
+// connection tests and IMAP checks, which run in this process). Prefer
+// IPv4 resolution process-wide; virtually every mail provider still serves it.
+require('dns').setDefaultResultOrder('ipv4first');
 const http = require('http');
 const app = require('./src/app');
 const connectDB = require('./src/config/db');

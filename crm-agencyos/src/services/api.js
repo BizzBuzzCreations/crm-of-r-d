@@ -345,6 +345,8 @@ export const campaignsAPI = {
   delete:   (id)        => api.delete(`/campaigns/${id}`),
   start:    (id)        => api.post(`/campaigns/${id}/start`),
   pause:    (id)        => api.post(`/campaigns/${id}/pause`),
+  diagnose: (id)        => api.get(`/campaigns/${id}/diagnose`),
+  resolveStuck: (id)    => api.post(`/campaigns/${id}/resolve-stuck`),
 
   getLeads:      (id)              => api.get(`/campaigns/${id}/leads`),
   importLeadsCsv: (id, file)       => {

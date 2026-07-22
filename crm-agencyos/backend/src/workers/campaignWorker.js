@@ -7,6 +7,11 @@
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
+// Same ENETUNREACH cause as the `family: 4` on the SMTP transporter below,
+// but process-wide — covers ImapFlow too, which doesn't expose a direct
+// family option but does rely on Node's default DNS resolver.
+require('dns').setDefaultResultOrder('ipv4first');
+
 const { Worker } = require('bullmq');
 const nodemailer  = require('nodemailer');
 const mongoose    = require('mongoose');
@@ -60,6 +65,11 @@ function getTransporter(account) {
     socketTimeout: 10000,
     greetingTimeout: 10000,
     connectionTimeout: 10000,
+    // Force IPv4 — some VPS/bare-metal hosts get an IPv6 address assigned
+    // without real outbound IPv6 routing, so a hostname that resolves to
+    // both A and AAAA records can get connected over IPv6 and fail with
+    // ENETUNREACH. Virtually every SMTP provider still serves IPv4.
+    family: 4,
   });
   transporterCache.set(key, transporter);
   return transporter;

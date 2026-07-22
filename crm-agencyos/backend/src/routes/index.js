@@ -224,6 +224,8 @@ campaignsRouter.put('/:id',                       campaignCtrl.updateCampaign);
 campaignsRouter.delete('/:id',                    campaignCtrl.deleteCampaign);
 campaignsRouter.post('/:id/start',                campaignCtrl.startCampaign);
 campaignsRouter.post('/:id/pause',                campaignCtrl.pauseCampaign);
+campaignsRouter.get('/:id/diagnose',              campaignCtrl.diagnoseCampaign);
+campaignsRouter.post('/:id/resolve-stuck',        campaignCtrl.resolveStuckLeads);
 campaignsRouter.get('/:id/leads',                 campaignCtrl.getCampaignLeads);
 campaignsRouter.post('/:id/leads/import',         upload.single('file'), campaignCtrl.importLeads);
 campaignsRouter.post('/:id/leads/verify-all',     campaignCtrl.verifyAllLeads);   // before /:leadId routes

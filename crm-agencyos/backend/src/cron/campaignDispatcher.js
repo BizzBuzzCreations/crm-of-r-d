@@ -107,7 +107,18 @@ async function dispatchOne(campaign) {
   lead.accountUsed = account._id;
   await lead.save();
 
-  await addCampaignEmailToQueue(lead._id);
+  try {
+    await addCampaignEmailToQueue(lead._id);
+  } catch (queueErr) {
+    // Enqueueing failed (e.g. a Redis blip) — revert instead of leaving
+    // this lead stuck in "scheduled" forever with no job ever created for
+    // it, which would also block the campaign from ever auto-completing
+    // (its own in-flight check would count this lead permanently).
+    lead.status = 'pending';
+    lead.accountUsed = null;
+    await lead.save();
+    throw queueErr;
+  }
 
   const gapMinutes = (settings.minGapMinutes || 0) + Math.random() * (settings.randomGapMinutes || 0);
   await Campaign.updateOne(
