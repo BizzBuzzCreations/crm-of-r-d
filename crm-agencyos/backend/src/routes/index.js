@@ -224,6 +224,8 @@ campaignsRouter.get('/:id',                       campaignCtrl.getCampaign);
 campaignsRouter.put('/:id',                       campaignCtrl.updateCampaign);
 campaignsRouter.delete('/:id',                    campaignCtrl.deleteCampaign);
 campaignsRouter.post('/:id/start',                campaignCtrl.startCampaign);
+campaignsRouter.post('/:id/schedule',             campaignCtrl.scheduleCampaign);
+campaignsRouter.post('/:id/unschedule',           campaignCtrl.unscheduleCampaign);
 campaignsRouter.post('/:id/pause',                campaignCtrl.pauseCampaign);
 campaignsRouter.get('/:id/diagnose',              campaignCtrl.diagnoseCampaign);
 campaignsRouter.post('/:id/resolve-stuck',        campaignCtrl.resolveStuckLeads);

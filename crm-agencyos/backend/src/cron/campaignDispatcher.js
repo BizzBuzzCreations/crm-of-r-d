@@ -19,6 +19,7 @@ const EmailAccount = require('../models/EmailAccount');
 const { addCampaignEmailToQueue } = require('../queues/campaignQueue');
 const { effectiveDailyLimit } = require('../utils/warmup');
 const { isWithinSendingWindow } = require('../utils/sendingWindow');
+const { checkCampaignReady } = require('../utils/campaignReadiness');
 
 function startCampaignDispatcher() {
   cron.schedule('* * * * *', runDispatchTick);
@@ -42,6 +43,12 @@ async function runDispatchTick() {
   if (tickRunning) { console.warn('[CampaignDispatcher] previous tick still running — skipping this one'); return; }
   tickRunning = true;
   try {
+    // Promote any scheduled campaign(s) whose time has come BEFORE fetching
+    // the active list below, so a campaign that just got promoted this tick
+    // also gets its first send this same tick instead of waiting a full
+    // extra minute.
+    await promoteScheduledCampaigns();
+
     const campaigns = await Campaign.find({ status: 'active', isDeleted: { $ne: true } });
     for (const campaign of campaigns) {
       await dispatchOne(campaign).catch((e) => console.error(`[CampaignDispatcher] ${campaign._id}:`, e.message));
@@ -50,6 +57,39 @@ async function runDispatchTick() {
     console.error('[CampaignDispatcher] tick error:', err.message);
   } finally {
     tickRunning = false;
+  }
+}
+
+// Campaign.status === 'scheduled' with scheduledAt in the past → promote to
+// 'active'. Re-validates readiness with the exact same rules used at
+// schedule time (checkCampaignReady) — settings.accounts or the lead list
+// can change between when a campaign was scheduled and when it fires, and a
+// campaign that's no longer actually sendable should never just silently
+// sit stuck "scheduled" forever with its trigger time in the past. If it's
+// not ready, it's reverted to 'draft' with scheduleFailedReason set so the
+// UI can explain why instead of leaving it a silent mystery.
+async function promoteScheduledCampaigns() {
+  const due = await Campaign.find({ status: 'scheduled', scheduledAt: { $lte: new Date() }, isDeleted: { $ne: true } });
+  for (const campaign of due) {
+    try {
+      const { ready, reason } = await checkCampaignReady(campaign);
+      if (!ready) {
+        campaign.status = 'draft';
+        campaign.scheduledAt = null;
+        campaign.scheduleFailedReason = `Scheduled send did not start: ${reason}`;
+        await campaign.save();
+        console.warn(`[CampaignDispatcher] Scheduled campaign "${campaign.name}" (${campaign._id}) reverted to draft — ${reason}`);
+        continue;
+      }
+      campaign.status = 'active';
+      campaign.nextEligibleAt = null;
+      campaign.scheduledAt = null;
+      campaign.scheduleFailedReason = '';
+      await campaign.save();
+      console.log(`[CampaignDispatcher] Scheduled campaign "${campaign.name}" (${campaign._id}) promoted to active`);
+    } catch (e) {
+      console.error(`[CampaignDispatcher] Failed to promote scheduled campaign ${campaign._id}:`, e.message);
+    }
   }
 }
 
@@ -151,4 +191,4 @@ async function dispatchOne(campaign) {
   );
 }
 
-module.exports = { startCampaignDispatcher, runDispatchTick };
+module.exports = { startCampaignDispatcher, runDispatchTick, promoteScheduledCampaigns };

@@ -951,7 +951,11 @@ const useAppStore = create((set, get, store) => ({
   startCampaign: async (id) => {
     try {
       const { data } = await campaignsAPI.start(id);
-      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, status: data.data.status } : c) }));
+      // Spread the full returned campaign (not just status) — starting also
+      // clears scheduledAt/scheduleFailedReason server-side, and only
+      // merging `status` here would leave those stale in the list view
+      // until the next full reload.
+      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, ...data.data } : c) }));
       toast.success('Campaign started');
       return data.data;
     } catch (err) {
@@ -959,10 +963,32 @@ const useAppStore = create((set, get, store) => ({
       throw err;
     }
   },
+  scheduleCampaign: async (id, scheduledAt) => {
+    try {
+      const { data } = await campaignsAPI.schedule(id, scheduledAt);
+      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, ...data.data } : c) }));
+      toast.success(`Campaign scheduled for ${new Date(scheduledAt).toLocaleString()}`);
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to schedule campaign');
+      throw err;
+    }
+  },
+  unscheduleCampaign: async (id) => {
+    try {
+      const { data } = await campaignsAPI.unschedule(id);
+      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, ...data.data } : c) }));
+      toast.success('Schedule cancelled');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to cancel schedule');
+      throw err;
+    }
+  },
   pauseCampaign: async (id) => {
     try {
       const { data } = await campaignsAPI.pause(id);
-      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, status: data.data.status } : c) }));
+      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, ...data.data } : c) }));
       toast.success('Campaign paused');
       return data.data;
     } catch (err) {

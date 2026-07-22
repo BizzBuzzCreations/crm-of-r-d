@@ -9,7 +9,7 @@ import {
   ArrowLeft, Play, Pause, Trash2, Upload, Send, MailOpen, MousePointerClick,
   Users, XCircle, AlertTriangle, Ban, MessageSquareOff, Settings2, ListChecks,
   FileSpreadsheet, UserPlus, ShieldCheck, ShieldAlert, ShieldQuestion, RefreshCw, Loader2,
-  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench,
+  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Page, Button, Tabs, Input, Toggle, Select, StatCard, EmptyState, ConfirmDialog, Modal } from '../components/ui';
@@ -70,6 +70,10 @@ const VERIFICATION_BADGE = {
 // "Diagnose" button does the real, thorough check against the backend.
 function statusHint(campaign) {
   if (campaign.status === 'draft') return 'Draft — not sending. Add a subject/body, leads, and a sending account, then hit Start.';
+  if (campaign.status === 'scheduled') {
+    const when = campaign.scheduledAt ? new Date(campaign.scheduledAt).toLocaleString() : '';
+    return `Scheduled — will start automatically at ${when}.`;
+  }
   if (campaign.status === 'paused') return 'Paused — sending is stopped until you hit Start again.';
   if (campaign.status === 'completed') return 'Completed — every lead has been sent to, failed, or bounced.';
   if (campaign.status === 'active') {
@@ -168,13 +172,74 @@ function DiagnoseModal({ open, onClose, campaignId, onDiagnose, onResolveStuck }
   );
 }
 
+// Converts a Date to the value <input type="datetime-local"> expects
+// (local time, no timezone suffix) — a plain toISOString() would show UTC
+// and silently shift the displayed time from what the user actually typed.
+function toLocalDatetimeInputValue(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function ScheduleModal({ open, onClose, campaign, onSchedule }) {
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    // Default to campaign's existing schedule if it has one, else now + 1 hour.
+    const base = campaign.scheduledAt ? new Date(campaign.scheduledAt) : new Date(Date.now() + 60 * 60000);
+    setValue(toLocalDatetimeInputValue(base));
+  }, [open, campaign.scheduledAt]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!value) return;
+    const when = new Date(value); // interpreted in the browser's local timezone, same as the input's display
+    if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+      toast.error('Pick a time in the future');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSchedule(campaign._id, when.toISOString());
+      onClose();
+    } catch {
+      // toast already shown by the store action
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Schedule Campaign" size="sm">
+      <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+        <p className="text-[12.5px] text-slate-500 dark:text-slate-400">
+          The campaign will automatically switch to Active at this time and start sending on its usual pace. It's re-checked (subject/body/accounts/leads) right before it fires, so if something's missing by then it'll fall back to Draft with an explanation instead of silently failing.
+        </p>
+        <Input
+          label="Start date & time"
+          type="datetime-local"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          min={toLocalDatetimeInputValue(new Date(Date.now() + 60000))}
+          required
+        />
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" loading={saving}>Schedule</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export default function CampaignDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const {
     campaigns, campaignLeads, emailAccounts, darkMode,
     loadCampaign, loadCampaignLeads, loadEmailAccounts,
-    updateCampaign, deleteCampaign, startCampaign, pauseCampaign,
+    updateCampaign, deleteCampaign, startCampaign, pauseCampaign, scheduleCampaign, unscheduleCampaign,
     importCampaignLeadsCsv, importCampaignLeadsSheet, addCampaignLeadManual,
     deleteCampaignLead, markCampaignLeadReplied, verifyCampaignLead, verifyAllCampaignLeads,
     diagnoseCampaign, resolveStuckCampaignLeads,
@@ -190,6 +255,8 @@ export default function CampaignDetailPage() {
     deleteCampaign: s.deleteCampaign,
     startCampaign: s.startCampaign,
     pauseCampaign: s.pauseCampaign,
+    scheduleCampaign: s.scheduleCampaign,
+    unscheduleCampaign: s.unscheduleCampaign,
     importCampaignLeadsCsv: s.importCampaignLeadsCsv,
     importCampaignLeadsSheet: s.importCampaignLeadsSheet,
     addCampaignLeadManual: s.addCampaignLeadManual,
@@ -206,6 +273,8 @@ export default function CampaignDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);
   const [diagnoseOpen, setDiagnoseOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [unscheduling, setUnscheduling] = useState(false);
   const fileInputRef = useRef(null);
   const [importing, setImporting] = useState(false);
 
@@ -233,6 +302,11 @@ export default function CampaignDetailPage() {
     else await startCampaign(campaign._id);
   };
 
+  const handleUnschedule = async () => {
+    setUnscheduling(true);
+    try { await unscheduleCampaign(campaign._id); } finally { setUnscheduling(false); }
+  };
+
   const handleFileSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -256,7 +330,7 @@ export default function CampaignDetailPage() {
           <div className="flex items-center gap-2.5">
             <h1 className="page-title truncate">{campaign.name}</h1>
             <span className={cn('badge', {
-              draft: 'badge-neutral', active: 'badge-success', paused: 'badge-warning', completed: 'badge-info',
+              draft: 'badge-neutral', scheduled: 'badge-purple', active: 'badge-success', paused: 'badge-warning', completed: 'badge-info',
             }[campaign.status])}>
               {campaign.status}
             </span>
@@ -270,14 +344,34 @@ export default function CampaignDetailPage() {
           <Button variant="outline" onClick={() => setDiagnoseOpen(true)}>
             <Stethoscope size={14} /> Diagnose
           </Button>
-          {/* "completed" isn't necessarily terminal — the backend's startCampaign
-              has no status guard, so adding new leads to a completed campaign
-              and starting it again genuinely resumes sending. Only hide the
-              button once there's truly nothing left to send. */}
-          {(campaign.status !== 'completed' || (stats.pending || 0) > 0) && (
-            <Button variant={campaign.status === 'active' ? 'outline' : 'primary'} onClick={handleToggleStatus}>
-              {campaign.status === 'active' ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Start</>}
-            </Button>
+          {campaign.status === 'scheduled' ? (
+            <>
+              <Button variant="outline" onClick={handleUnschedule} loading={unscheduling}>
+                <XCircle size={14} /> Cancel schedule
+              </Button>
+              <Button variant="primary" onClick={handleToggleStatus}>
+                <Play size={14} /> Start now
+              </Button>
+            </>
+          ) : (
+            <>
+              {/* "completed" isn't necessarily terminal — the backend's startCampaign
+                  has no status guard, so adding new leads to a completed campaign
+                  and starting it again genuinely resumes sending. Only hide the
+                  button once there's truly nothing left to send. */}
+              {(campaign.status !== 'completed' || (stats.pending || 0) > 0) && (
+                <>
+                  {campaign.status !== 'active' && (
+                    <Button variant="outline" onClick={() => setScheduleOpen(true)}>
+                      <CalendarClock size={14} /> Schedule
+                    </Button>
+                  )}
+                  <Button variant={campaign.status === 'active' ? 'outline' : 'primary'} onClick={handleToggleStatus}>
+                    {campaign.status === 'active' ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Start</>}
+                  </Button>
+                </>
+              )}
+            </>
           )}
           <Button variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => setConfirmDelete(true)}>
             <Trash2 size={14} />
@@ -291,6 +385,13 @@ export default function CampaignDetailPage() {
         campaignId={campaign._id}
         onDiagnose={diagnoseCampaign}
         onResolveStuck={resolveStuckCampaignLeads}
+      />
+
+      <ScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        campaign={campaign}
+        onSchedule={scheduleCampaign}
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
@@ -403,7 +504,7 @@ function AnalyticsTab({ campaign, leads, darkMode }) {
         <div className="flex items-center gap-3">
           <span className="text-[12.5px] text-slate-500 dark:text-slate-400">Status:</span>
           <span className={cn('badge', {
-            draft: 'badge-neutral', active: 'badge-success', paused: 'badge-warning', completed: 'badge-info',
+            draft: 'badge-neutral', scheduled: 'badge-purple', active: 'badge-success', paused: 'badge-warning', completed: 'badge-info',
           }[campaign.status])}>
             {campaign.status}
           </span>

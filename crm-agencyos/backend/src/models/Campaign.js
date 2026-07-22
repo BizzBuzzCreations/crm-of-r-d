@@ -29,7 +29,7 @@ const CampaignSettingsSchema = new mongoose.Schema({
 
 const CampaignSchema = new mongoose.Schema({
   name:        { type: String, required: [true, 'Campaign name is required'], trim: true },
-  status:      { type: String, enum: ['draft', 'active', 'paused', 'completed'], default: 'draft' },
+  status:      { type: String, enum: ['draft', 'scheduled', 'active', 'paused', 'completed'], default: 'draft' },
 
   subject:     { type: String, default: '' },
   bodyHtml:    { type: String, default: '' }, // supports {{firstName}} {{lastName}} {{email}} merge tags
@@ -40,6 +40,18 @@ const CampaignSchema = new mongoose.Schema({
   lastSentAt:      { type: Date, default: null },
   nextEligibleAt:  { type: Date, default: null },
   lastAccountIndex: { type: Number, default: -1 },
+
+  // Scheduled send — see cron/campaignDispatcher.js's promoteScheduledCampaigns().
+  // Only meaningful while status === 'scheduled'; cleared whenever the
+  // campaign leaves that state (started manually, unscheduled, deleted) so
+  // it never lingers stale on a campaign that's since moved on.
+  scheduledAt: { type: Date, default: null },
+  // Set if the campaign was still 'scheduled' when its time arrived but was
+  // no longer actually sendable (e.g. its sending account was removed, or
+  // its leads were deleted, after scheduling but before trigger time) — the
+  // campaign is reverted to 'draft' rather than silently never firing, and
+  // this explains why so it's not a mystery in the UI.
+  scheduleFailedReason: { type: String, default: '' },
 
   createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   isDeleted:   { type: Boolean, default: false },
