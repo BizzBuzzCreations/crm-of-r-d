@@ -11,10 +11,17 @@ const resolver = new dns.promises.Resolver();
 resolver.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4', '1.0.0.1']);
 
 // Best-effort — DKIM selectors are provider-specific and not discoverable
-// via DNS alone. Covers the common ones (Google Workspace, generic default
-// selectors); a provider using a custom selector won't be found here, and
-// the result says so rather than falsely claiming DKIM is missing.
-const COMMON_DKIM_SELECTORS = ['google', 'selector1', 'selector2', 'k1', 'default', 'dkim', 'mail', 's1', 's2'];
+// via DNS alone. Covers the common ones (Google Workspace, Microsoft 365,
+// Hostinger, generic defaults); a provider using a selector we don't know
+// won't be found here, and the result says so rather than falsely claiming
+// DKIM is missing. Hostinger in particular publishes its DKIM as CNAMEs
+// (e.g. hostingermail-a._domainkey -> hostingermail-a.dkim.mail.hostinger.com)
+// — DNS resolves TXT queries through a CNAME transparently, so no special
+// handling is needed for that, just the right selector name.
+const COMMON_DKIM_SELECTORS = [
+  'google', 'selector1', 'selector2', 'k1', 'default', 'dkim', 'mail', 's1', 's2',
+  'hostingermail-a', 'hostingermail-b', 'hostingermail-c',
+];
 
 function withTimeout(promise, ms, fallback) {
   return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
@@ -43,7 +50,20 @@ async function checkDmarc(domain) {
     const { records, timedOut } = await resolveTxtFlat(`_dmarc.${domain}`);
     if (timedOut) return { found: false, record: '', detail: 'DNS lookup timed out' };
     const match = records.find((r) => r.toLowerCase().startsWith('v=dmarc1'));
-    return match ? { found: true, record: match } : { found: false, record: '', detail: 'No DMARC record found at _dmarc.' + domain };
+    if (!match) return { found: false, record: '', detail: 'No DMARC record found at _dmarc.' + domain };
+
+    // A record existing isn't the same as it doing anything — p=none means
+    // "report only, take no action on a spoofed/failing email". That's a
+    // real, common gap: technically "found", but close to no protection.
+    const policyMatch = match.match(/p=(\w+)/i);
+    const policy = policyMatch ? policyMatch[1].toLowerCase() : null;
+    const weak = policy === 'none';
+    return {
+      found: true, record: match, policy,
+      detail: weak
+        ? 'Policy is "p=none" — DMARC is published but not enforced (monitoring only). Consider tightening to p=quarantine or p=reject once you\'ve confirmed legitimate mail passes.'
+        : undefined,
+    };
   } catch (e) {
     const notFound = e.code === 'ENOTFOUND' || e.code === 'ENODATA';
     return { found: false, record: '', detail: notFound ? 'No DMARC record found at _dmarc.' + domain : `Lookup failed (${e.code || e.message})` };
