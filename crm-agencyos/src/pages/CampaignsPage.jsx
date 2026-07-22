@@ -111,7 +111,10 @@ export default function CampaignsPage() {
                 </div>
 
                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  {(c.status === 'draft' || c.status === 'paused') && (
+                  {/* "completed" isn't necessarily terminal — the backend allows
+                      restarting once new leads exist (no status guard there),
+                      so show Start again if there's actually something pending. */}
+                  {(c.status === 'draft' || c.status === 'paused' || (c.status === 'completed' && (stats.pending || 0) > 0)) && (
                     <Button variant="outline" size="sm" onClick={() => handleToggleStatus(c)}>
                       <Play size={13} /> Start
                     </Button>
