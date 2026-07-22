@@ -128,6 +128,15 @@ function appendUnsubscribeFooter(html, token, account) {
 function stripToPlain(html) {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, '')
+    // Stripping tags below would otherwise throw away every href along with
+    // its <a> tag, leaving only the visible link text — for text-only sends
+    // (settings.textOnly), this is the ONLY copy of the email that goes out,
+    // so a "click here" link would silently lose its URL entirely. Inline
+    // the URL next to the link text before the generic tag strip runs.
+    .replace(/<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, url, inner) => {
+      const label = inner.replace(/<[^>]+>/g, '').trim();
+      return label && label !== url ? `${label} (${url})` : url;
+    })
     .replace(/<[^>]+>/g, ' ')
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
     .replace(/\s{2,}/g, ' ')
@@ -162,8 +171,12 @@ const worker = new Worker('campaign-queue', async (job) => {
 
   const account = await EmailAccount.findById(lead.accountUsed).select('+smtpPassEncrypted');
   if (!account) {
+    // Don't throw here — throwing would make BullMQ retry, but a retry can
+    // never succeed (the account is gone, not temporarily unreachable), and
+    // the lead is already 'failed' so the status guard above would just
+    // skip it anyway, wasting 2 retries with backoff for nothing.
     lead.status = 'failed'; lead.error = 'Sending account not found'; await lead.save();
-    throw new Error('Sending account not found');
+    return { skipped: true, reason: 'account_not_found' };
   }
 
   lead.status = 'sending';
@@ -214,7 +227,24 @@ const worker = new Worker('campaign-queue', async (job) => {
     // else (4xx, connection errors, timeouts) is transient — throw to retry.
     const code = smtpErr.responseCode;
     const isHardBounce = typeof code === 'number' && code >= 500 && code < 600;
-    lead.status = isHardBounce ? 'bounced' : 'failed';
+    const maxAttempts = job.opts?.attempts || 3;
+    const isLastAttempt = job.attemptsMade + 1 >= maxAttempts;
+
+    // Connection-level failures (timeout, refused, unreachable — as opposed
+    // to an SMTP protocol response) can mean the pooled connection latched
+    // onto an unreachable address (e.g. one bad edge IP behind an anycast
+    // host). Drop the cached transporter so the retry re-resolves DNS and
+    // gets a fresh connection — possibly to a different, reachable address.
+    if (!isHardBounce && ['ETIMEDOUT', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ESOCKET'].includes(smtpErr.code)) {
+      transporterCache.delete(String(account._id));
+    }
+
+    // Only mark the lead terminally 'failed' once BullMQ has exhausted all
+    // retries — a lead left in 'failed' after the first of 3 attempts would
+    // never actually be retried, since the status guard above skips any
+    // lead that isn't 'scheduled'/'sending'. Keep it 'sending' in between so
+    // the next retry attempt is allowed to run.
+    lead.status = isHardBounce ? 'bounced' : (isLastAttempt ? 'failed' : 'sending');
     lead.error = smtpErr.message?.slice(0, 500) || 'Unknown SMTP error';
     await lead.save();
     err(`SMTP send failed — job ${job.id} | ${lead.email}: ${smtpErr.message}${isHardBounce ? ' (hard bounce, not retrying)' : ''}`);

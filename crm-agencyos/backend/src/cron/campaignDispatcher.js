@@ -31,7 +31,16 @@ function startOfToday() {
   return d;
 }
 
+// node-cron does not skip overlapping runs on its own — if a tick ever took
+// longer than a minute (slow DB, many active campaigns), the next scheduled
+// tick would start concurrently and could double-process the same campaign
+// (two ticks racing to pick the same "next pending lead"). This flag makes
+// a slow tick just get skipped rather than overlap.
+let tickRunning = false;
+
 async function runDispatchTick() {
+  if (tickRunning) { console.warn('[CampaignDispatcher] previous tick still running — skipping this one'); return; }
+  tickRunning = true;
   try {
     const campaigns = await Campaign.find({ status: 'active', isDeleted: { $ne: true } });
     for (const campaign of campaigns) {
@@ -39,6 +48,8 @@ async function runDispatchTick() {
     }
   } catch (err) {
     console.error('[CampaignDispatcher] tick error:', err.message);
+  } finally {
+    tickRunning = false;
   }
 }
 
@@ -64,10 +75,19 @@ async function dispatchOne(campaign) {
     Number.isFinite(settings.maxNewLeadsPerDay) ? settings.maxNewLeadsPerDay : Infinity
   );
   if (Number.isFinite(cap)) {
+    // `updatedAt` alone is unsafe here: opens/clicks push events onto an
+    // already-`sent` lead (bumping its updatedAt) and a recipient can
+    // unsubscribe/reply days after the actual send — none of that is a
+    // send that happened *today*. Use `sentAt` for delivered mail (set once,
+    // at send time, never touched again) and fall back to `updatedAt` only
+    // for statuses that don't have a `sentAt` (failed/bounced/in-flight),
+    // whose updatedAt is exactly their one-time send-attempt timestamp.
     const sentToday = await CampaignLead.countDocuments({
       campaign: campaign._id,
-      status: { $ne: 'pending' },
-      updatedAt: { $gte: startOfToday() },
+      $or: [
+        { sentAt: { $gte: startOfToday() } },
+        { status: { $in: ['scheduled', 'sending', 'failed', 'bounced'] }, sentAt: null, updatedAt: { $gte: startOfToday() } },
+      ],
     });
     if (sentToday >= cap) return;
   }

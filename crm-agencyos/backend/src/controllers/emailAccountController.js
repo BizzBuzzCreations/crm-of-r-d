@@ -86,6 +86,24 @@ exports.updateAccount = async (req, res, next) => {
       dailySendLimit, isActive, warmupEnabled, warmupDays, warmupStartLimit,
     } = req.body;
 
+    // Detect whether anything that actually affects the SMTP/IMAP connection
+    // changed, so a stale "last test passed" doesn't survive an edit that
+    // was never re-tested — diagnoseCampaign and the UI both trust
+    // lastSmtpVerifiedAt/lastSmtpVerifyError to mean "this exact config was
+    // confirmed working", not just "some config once was".
+    const smtpChanged = [
+      [smtpHost, account.smtpHost], [smtpUser, account.smtpUser],
+      [smtpPort !== undefined ? Number(smtpPort) : undefined, account.smtpPort],
+      [smtpSecure !== undefined ? !!smtpSecure : undefined, account.smtpSecure],
+      [smtpAllowInsecureTLS !== undefined ? !!smtpAllowInsecureTLS : undefined, account.smtpAllowInsecureTLS],
+    ].some(([next, cur]) => next !== undefined && next !== cur) || !!smtpPass;
+    const imapChanged = [
+      [imapHost, account.imapHost], [imapUser, account.imapUser],
+      [imapPort !== undefined ? Number(imapPort) : undefined, account.imapPort],
+      [imapSecure !== undefined ? !!imapSecure : undefined, account.imapSecure],
+      [imapAllowInsecureTLS !== undefined ? !!imapAllowInsecureTLS : undefined, account.imapAllowInsecureTLS],
+    ].some(([next, cur]) => next !== undefined && next !== cur) || !!imapPass;
+
     if (name !== undefined) account.name = name;
     if (email !== undefined) account.email = email;
     if (fromName !== undefined) account.fromName = fromName;
@@ -98,6 +116,7 @@ exports.updateAccount = async (req, res, next) => {
     if (dailySendLimit !== undefined) account.dailySendLimit = Number(dailySendLimit);
     if (isActive !== undefined) account.isActive = !!isActive;
     if (smtpPass) account.smtpPass = smtpPass; // only overwrite if a new password was actually provided
+    if (smtpChanged) { account.lastSmtpVerifiedAt = null; account.lastSmtpVerifyError = ''; }
 
     if (warmupDays !== undefined) account.warmupDays = Number(warmupDays);
     if (warmupStartLimit !== undefined) account.warmupStartLimit = Number(warmupStartLimit);
@@ -115,6 +134,7 @@ exports.updateAccount = async (req, res, next) => {
     if (imapUser !== undefined) account.imapUser = imapUser;
     if (imapAllowInsecureTLS !== undefined) account.imapAllowInsecureTLS = !!imapAllowInsecureTLS;
     if (imapPass) account.imapPass = imapPass;
+    if (imapChanged) { account.lastImapVerifiedAt = null; account.lastImapVerifyError = ''; }
 
     if (account.imapEnabled && (!account.imapHost || !account.imapUser)) {
       return res.status(400).json({ success: false, message: 'imapHost and imapUser are required when IMAP is enabled' });

@@ -99,7 +99,14 @@ exports.updateCampaign = async (req, res, next) => {
     if (name !== undefined) campaign.name = name;
     if (subject !== undefined) campaign.subject = subject;
     if (bodyHtml !== undefined) campaign.bodyHtml = bodyHtml;
-    if (settings !== undefined) campaign.settings = { ...campaign.settings.toObject(), ...settings };
+    if (settings !== undefined) {
+      // dailyLimit=0 isn't "unlimited" to the dispatcher — it reads as an
+      // already-reached cap and the campaign silently never sends again.
+      if (settings.dailyLimit !== undefined && !(Number(settings.dailyLimit) > 0)) {
+        return res.status(400).json({ success: false, message: 'Daily Limit must be at least 1' });
+      }
+      campaign.settings = { ...campaign.settings.toObject(), ...settings };
+    }
 
     await campaign.save();
     audit.log(req, { action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name });
@@ -223,7 +230,16 @@ exports.diagnoseCampaign = async (req, res, next) => {
       Number.isFinite(settings.maxNewLeadsPerDay) ? settings.maxNewLeadsPerDay : Infinity
     );
     if (Number.isFinite(cap)) {
-      const sentToday = await CampaignLead.countDocuments({ campaign: campaign._id, status: { $ne: 'pending' }, updatedAt: { $gte: startOfToday() } });
+      // Same counting rule as the dispatcher (see campaignDispatcher.js) —
+      // `sentAt` for delivered mail so a stale open/click/unsubscribe on an
+      // old send doesn't get miscounted as "sent today".
+      const sentToday = await CampaignLead.countDocuments({
+        campaign: campaign._id,
+        $or: [
+          { sentAt: { $gte: startOfToday() } },
+          { status: { $in: ['scheduled', 'sending', 'failed', 'bounced'] }, sentAt: null, updatedAt: { $gte: startOfToday() } },
+        ],
+      });
       if (sentToday >= cap) add('info', `Campaign's own daily limit reached (${sentToday}/${cap}) — resumes tomorrow. Nothing to fix.`);
     }
 
