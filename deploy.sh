@@ -16,6 +16,13 @@ BACKEND_PORT=5000
 # disk (now updated) and let the fresh copy do the actual deploy.
 if [[ "${RNDCRM_DEPLOY_REEXEC:-}" != "1" ]]; then
   cd "$GIT_ROOT"
+  # package-lock.json is pure build output — the npm install steps below
+  # always regenerate it anyway, and this VM's npm/OS commonly resolves it
+  # slightly differently than whatever dev machine last committed it,
+  # which otherwise blocks the pull with a false "local changes" conflict.
+  # Discarding drift in just these two known lockfiles is safe; nothing
+  # else is touched.
+  git checkout -- crm-agencyos/package-lock.json crm-agencyos/backend/package-lock.json 2>/dev/null || true
   echo "Pulling latest main"
   git pull origin main
   export RNDCRM_DEPLOY_REEXEC=1

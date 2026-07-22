@@ -345,14 +345,20 @@ export default function EmailAccountsManager({ initialView = 'list', showBackFro
                     </div>
                     {['spf', 'dmarc', 'dkim'].map((key) => {
                       const r = domainResult[key];
+                      // "Found" isn't the same as "doing anything" — e.g. a
+                      // DMARC record can exist with p=none (monitoring only,
+                      // no real enforcement). Surface that note even when found.
+                      const weak = r.found && !!r.detail;
                       return (
                         <div key={key} className="flex items-start gap-1.5">
-                          {r.found ? <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" /> : <XCircle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />}
+                          {r.found
+                            ? <CheckCircle2 size={13} className={cn('flex-shrink-0 mt-0.5', weak ? 'text-amber-500' : 'text-emerald-500')} />
+                            : <XCircle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />}
                           <div>
                             <span className="font-medium uppercase text-slate-700 dark:text-slate-300">{key}</span>
                             {' — '}
-                            <span className={r.found ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}>
-                              {r.found ? 'Found' : (r.detail || 'Not found')}
+                            <span className={r.found ? (weak ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400') : 'text-red-500'}>
+                              {r.found ? (r.detail || 'Found') : (r.detail || 'Not found')}
                             </span>
                           </div>
                         </div>

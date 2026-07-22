@@ -80,6 +80,11 @@ dump/
 *.rdb
 
 # =========================
+# User-uploaded files (task/message attachments, campaign images, etc.)
+# =========================
+uploads/
+
+# =========================
 # Mac/Linux hidden files
 # =========================
 .*.swp
