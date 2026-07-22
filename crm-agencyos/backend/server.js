@@ -11,6 +11,7 @@ const { LogWatcher } = require('./src/utils/logWatcher');
 const notifService = require('./src/services/notificationService');
 
 const { startBillingCron } = require('./src/cron/billingReminders');
+const { startCampaignDispatcher } = require('./src/cron/campaignDispatcher');
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB
@@ -119,6 +120,7 @@ emailQueueEvents.on('failed', async ({ jobId, failedReason }) => {
 });
 
 startBillingCron();
+startCampaignDispatcher();
 
 server.listen(PORT, '0.0.0.0', () => {
   const msg = `BBC CRM Backend running on port ${PORT} (${process.env.NODE_ENV || 'production'})`;

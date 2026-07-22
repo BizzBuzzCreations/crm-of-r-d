@@ -12,6 +12,7 @@ import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Toggle, Button, ConfirmDialog } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
+import EmailAccountsManager from '../components/campaigns/EmailAccountsManager';
 
 // ── Shared Helper: CSV / JSON Downloader ───────────────────────────
 function downloadCSV(rows, filename) {
@@ -1185,100 +1186,38 @@ function PersonalProfileSection({ user, onUpdate }) {
 
 // 12. Email & Calendar synchronization (All Members)
 function EmailCalendarSyncSection({ user, onUpdate }) {
-  const [provider, setProvider] = useState(user?.emailSync?.provider || 'none');
   const [calendarSync, setCalendarSync] = useState(!!user?.calendarSyncEnabled);
 
-  const { register, handleSubmit } = useForm({
-    defaultValues: {
-      email:    user?.emailSync?.email || '',
-      imapHost: user?.emailSync?.imapHost || '',
-      imapPort: user?.emailSync?.imapPort || 993,
-      smtpHost: user?.emailSync?.smtpHost || '',
-      smtpPort: user?.emailSync?.smtpPort || 465
-    }
-  });
-
-  const onSubmit = (data) => {
-    onUpdate({
-      emailSync: {
-        provider,
-        ...data
-      },
-      calendarSyncEnabled: calendarSync
-    });
+  const handleCalendarToggle = (checked) => {
+    setCalendarSync(checked);
+    onUpdate({ calendarSyncEnabled: checked });
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <div className="space-y-6">
       <h3 className="text-[16px] font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-200 dark:border-slate-700/60 flex items-center gap-2">
-        <Mail size={18} className="text-indigo-500" /> Work Email & Calendar Synchronizer
+        <Mail size={18} className="text-indigo-500" /> Connected Mailboxes
       </h3>
 
       <div className="space-y-4">
-        <div>
-          <label className="block text-[13.5px] font-semibold text-slate-700 dark:text-slate-350 mb-2">Primary Sync Provider</label>
-          <div className="flex flex-wrap gap-3">
-            {[
-              { id: 'none', label: 'Disconnected' },
-              { id: 'google', label: 'Google Workspace' },
-              { id: 'outlook', label: 'Microsoft Exchange / Outlook' },
-              { id: 'smtp', label: 'Custom IMAP / SMTP Host' }
-            ].map((p) => (
-              <button 
-                key={p.id} type="button" onClick={() => setProvider(p.id)}
-                className={cn('px-4 py-2.5 rounded-xl border text-[13px] font-semibold transition-all', provider === p.id ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-650 dark:text-indigo-350 border-indigo-400 dark:border-indigo-850' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50')}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+        <p className="text-[12.5px] text-slate-500 dark:text-slate-400 -mt-2">
+          Connect a mailbox with SMTP (sending) and, optionally, IMAP (inbox sync). You can connect more than
+          one — each is tested independently and only you (or an admin/manager) can manage the ones you add.
+        </p>
+
+        <div className="max-w-2xl">
+          <EmailAccountsManager initialView="list" showBackFromAdd={false} />
         </div>
-
-        {provider === 'smtp' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5 rounded-2xl border border-slate-205 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/20 max-w-2xl">
-            <div className="md:col-span-2">
-              <label className="block text-[13px] font-semibold text-slate-600 dark:text-slate-400 mb-1">IMAP/SMTP Mail Account</label>
-              <input type="email" placeholder="user@company.com" className="form-input text-[13px] py-1.5" {...register('email')} />
-            </div>
-            <div>
-              <label className="block text-[13px] font-semibold text-slate-600 dark:text-slate-400 mb-1">IMAP Incoming Server</label>
-              <input placeholder="imap.company.com" className="form-input text-[13px] py-1.5" {...register('imapHost')} />
-            </div>
-            <div>
-              <label className="block text-[13px] font-semibold text-slate-600 dark:text-slate-400 mb-1">IMAP SSL Port</label>
-              <input type="number" className="form-input text-[13px] py-1.5" {...register('imapPort')} />
-            </div>
-            <div>
-              <label className="block text-[13px] font-semibold text-slate-600 dark:text-slate-400 mb-1">SMTP Outgoing Server</label>
-              <input placeholder="smtp.company.com" className="form-input text-[13px] py-1.5" {...register('smtpHost')} />
-            </div>
-            <div>
-              <label className="block text-[13px] font-semibold text-slate-600 dark:text-slate-400 mb-1">SMTP SSL Port</label>
-              <input type="number" className="form-input text-[13px] py-1.5" {...register('smtpPort')} />
-            </div>
-          </div>
-        )}
-
-        {(provider === 'google' || provider === 'outlook') && (
-          <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-950 bg-indigo-50/30 dark:bg-indigo-900/10 flex items-center justify-between max-w-xl">
-            <span className="text-[13px] text-slate-600 dark:text-slate-350">Sync account is authorized via secure modern OAuth connection.</span>
-            <Button variant="outline" className="border-indigo-200 dark:border-indigo-900 text-indigo-650 dark:text-indigo-400">Re-Authorize</Button>
-          </div>
-        )}
 
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/10 flex items-center justify-between max-w-xl">
           <div>
             <h4 className="text-[13.5px] font-bold text-slate-850 dark:text-slate-200">Calendar Sync Integration</h4>
             <p className="text-[12px] text-slate-500 mt-0.5">Permit the CRM to read your calendar availability and create invite bookings instantly.</p>
           </div>
-          <input type="checkbox" className="w-5 h-5 accent-indigo-500" checked={calendarSync} onChange={(e) => setCalendarSync(e.target.checked)} />
+          <input type="checkbox" className="w-5 h-5 accent-indigo-500" checked={calendarSync} onChange={(e) => handleCalendarToggle(e.target.checked)} />
         </div>
       </div>
-
-      <Button variant="primary" type="submit">
-        <Save size={14} /> Synchronize Preferences
-      </Button>
-    </form>
+    </div>
   );
 }
 

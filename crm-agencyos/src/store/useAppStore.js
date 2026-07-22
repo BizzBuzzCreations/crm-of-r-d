@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
   todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
-  settingsAPI, leadsAPI, portalAPI,
+  settingsAPI, leadsAPI, portalAPI, campaignsAPI, emailAccountsAPI, emailTemplatesAPI, getBackendUrl,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -666,6 +666,10 @@ const useAppStore = create((set, get, store) => ({
   services:   [],
   projects:   [],
   leads:      [],
+  campaigns:      [],   // lazy-loaded — only fetched when the Campaigns page mounts
+  campaignLeads:  [],   // leads for whichever campaign is currently open
+  emailAccounts:  [],   // sending accounts pool, lazy-loaded alongside campaigns
+  emailTemplates: [],   // reusable email content library, lazy-loaded in Compose
   systemSettings: null,
   timer:      initialTimer(),
   activeThread: null,
@@ -815,6 +819,297 @@ const useAppStore = create((set, get, store) => ({
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to merge leads';
       toast.error(msg);
+      throw err;
+    }
+  },
+
+  // ── Email Accounts (campaign sending infra) ──────────────────
+  loadEmailAccounts: async () => {
+    try {
+      const { data } = await emailAccountsAPI.getAll();
+      set({ emailAccounts: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load email accounts');
+    }
+  },
+  createEmailAccount: async (body) => {
+    try {
+      const { data } = await emailAccountsAPI.create(body);
+      set((s) => ({ emailAccounts: [data.data, ...s.emailAccounts] }));
+      toast.success('Email account added');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add email account');
+      throw err;
+    }
+  },
+  updateEmailAccount: async (id, body) => {
+    try {
+      const { data } = await emailAccountsAPI.update(id, body);
+      set((s) => ({ emailAccounts: s.emailAccounts.map((a) => sameId(a, id) ? data.data : a) }));
+      toast.success('Email account updated');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update email account');
+      throw err;
+    }
+  },
+  deleteEmailAccount: async (id) => {
+    try {
+      await emailAccountsAPI.delete(id);
+      set((s) => ({ emailAccounts: s.emailAccounts.filter((a) => !sameId(a, id)) }));
+      toast.success('Email account removed');
+    } catch (err) {
+      toast.error('Failed to remove email account');
+      throw err;
+    }
+  },
+  // Returns { success, smtp: {ok,message}, imap: {ok,message}|null } so the
+  // UI can show per-protocol pass/fail, not just a single toast.
+  testEmailAccount: async (id) => {
+    try {
+      const { data } = await emailAccountsAPI.test(id);
+      toast.success('Connection successful');
+      get().loadEmailAccounts();
+      return data;
+    } catch (err) {
+      const data = err.response?.data;
+      const parts = [];
+      if (data?.smtp && !data.smtp.ok) parts.push(`SMTP: ${data.smtp.message}`);
+      if (data?.imap && !data.imap.ok) parts.push(`IMAP: ${data.imap.message}`);
+      toast.error(parts.length ? parts.join(' · ') : (data?.message || 'Connection test failed'));
+      get().loadEmailAccounts();
+      return data || { success: false };
+    }
+  },
+  checkAccountDomain: async (id) => {
+    try {
+      const { data } = await emailAccountsAPI.checkDomain(id);
+      return data.data;
+    } catch (err) {
+      toast.error('Domain check failed');
+      throw err;
+    }
+  },
+
+  // ── Campaigns ─────────────────────────────────────────────────
+  loadCampaigns: async () => {
+    try {
+      const { data } = await campaignsAPI.getAll();
+      set({ campaigns: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load campaigns');
+    }
+  },
+  loadCampaign: async (id) => {
+    try {
+      const { data } = await campaignsAPI.getOne(id);
+      set((s) => {
+        const already = s.campaigns.some((c) => sameId(c, data.data));
+        return { campaigns: already ? s.campaigns.map((c) => sameId(c, data.data) ? data.data : c) : [data.data, ...s.campaigns] };
+      });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load campaign');
+      throw err;
+    }
+  },
+  createCampaign: async (body) => {
+    try {
+      const { data } = await campaignsAPI.create(body);
+      set((s) => ({ campaigns: [data.data, ...s.campaigns] }));
+      toast.success('Campaign created');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create campaign');
+      throw err;
+    }
+  },
+  updateCampaign: async (id, body) => {
+    try {
+      const { data } = await campaignsAPI.update(id, body);
+      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? data.data : c) }));
+      toast.success('Campaign updated');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update campaign');
+      throw err;
+    }
+  },
+  deleteCampaign: async (id) => {
+    try {
+      await campaignsAPI.delete(id);
+      set((s) => ({ campaigns: s.campaigns.filter((c) => !sameId(c, id)) }));
+      toast.success('Campaign deleted');
+    } catch (err) {
+      toast.error('Failed to delete campaign');
+      throw err;
+    }
+  },
+  startCampaign: async (id) => {
+    try {
+      const { data } = await campaignsAPI.start(id);
+      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, status: data.data.status } : c) }));
+      toast.success('Campaign started');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to start campaign');
+      throw err;
+    }
+  },
+  pauseCampaign: async (id) => {
+    try {
+      const { data } = await campaignsAPI.pause(id);
+      set((s) => ({ campaigns: s.campaigns.map((c) => sameId(c, id) ? { ...c, status: data.data.status } : c) }));
+      toast.success('Campaign paused');
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to pause campaign');
+      throw err;
+    }
+  },
+  loadCampaignLeads: async (campaignId) => {
+    try {
+      const { data } = await campaignsAPI.getLeads(campaignId);
+      set({ campaignLeads: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load campaign leads');
+    }
+  },
+  importCampaignLeadsCsv: async (campaignId, file) => {
+    try {
+      const { data } = await campaignsAPI.importLeadsCsv(campaignId, file);
+      return await get()._reportLeadImport(campaignId, data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to import leads');
+      throw err;
+    }
+  },
+  importCampaignLeadsSheet: async (campaignId, googleSheetUrl) => {
+    try {
+      const { data } = await campaignsAPI.importLeadsSheet(campaignId, googleSheetUrl);
+      return await get()._reportLeadImport(campaignId, data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to import from Google Sheet');
+      throw err;
+    }
+  },
+  addCampaignLeadManual: async (campaignId, lead) => {
+    try {
+      const { data } = await campaignsAPI.importLeadsJson(campaignId, [lead]);
+      if (!data.data.imported) {
+        toast.error(data.data.invalidRows ? 'Invalid email address' : 'That lead is already in this campaign');
+      } else {
+        toast.success('Lead added');
+      }
+      await get().loadCampaignLeads(campaignId);
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add lead');
+      throw err;
+    }
+  },
+  // Shared toast + reload for the three import paths above (CSV/Sheet share
+  // the exact same { imported, skippedDuplicates, invalidRows } response).
+  _reportLeadImport: async (campaignId, result) => {
+    const { imported, skippedDuplicates, invalidRows } = result;
+    toast.success(`Imported ${imported} leads${skippedDuplicates ? ` (${skippedDuplicates} duplicates skipped)` : ''}${invalidRows ? ` (${invalidRows} invalid rows)` : ''}`);
+    await get().loadCampaignLeads(campaignId);
+    return result;
+  },
+  verifyCampaignLead: async (campaignId, leadId) => {
+    try {
+      const { data } = await campaignsAPI.verifyLead(campaignId, leadId);
+      set((s) => ({ campaignLeads: s.campaignLeads.map((l) => sameId(l, leadId) ? data.data : l) }));
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to verify lead');
+      throw err;
+    }
+  },
+  verifyAllCampaignLeads: async (campaignId) => {
+    try {
+      const { data } = await campaignsAPI.verifyAllLeads(campaignId);
+      toast.success(data.data.verified ? `Verified ${data.data.verified} leads` : 'All leads already verified');
+      await get().loadCampaignLeads(campaignId);
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to verify leads');
+      throw err;
+    }
+  },
+  uploadCampaignImage: async (file) => {
+    try {
+      const { data } = await campaignsAPI.uploadImage(file);
+      return `${getBackendUrl()}${data.data.url}`; // absolute URL — email clients can't resolve relative paths
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to upload image');
+      throw err;
+    }
+  },
+
+  // ── Email Templates ──────────────────────────────────────────
+  loadEmailTemplates: async () => {
+    try {
+      const { data } = await emailTemplatesAPI.getAll();
+      set({ emailTemplates: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load templates');
+    }
+  },
+  createEmailTemplate: async (body) => {
+    try {
+      const { data } = await emailTemplatesAPI.create(body);
+      set((s) => ({ emailTemplates: [data.data, ...s.emailTemplates] }));
+      toast.success('Template saved');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save template');
+      throw err;
+    }
+  },
+  updateEmailTemplate: async (id, body) => {
+    try {
+      const { data } = await emailTemplatesAPI.update(id, body);
+      set((s) => ({ emailTemplates: s.emailTemplates.map((t) => sameId(t, id) ? data.data : t) }));
+      toast.success('Template updated');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update template');
+      throw err;
+    }
+  },
+  deleteEmailTemplate: async (id) => {
+    try {
+      await emailTemplatesAPI.delete(id);
+      set((s) => ({ emailTemplates: s.emailTemplates.filter((t) => !sameId(t, id)) }));
+      toast.success('Template deleted');
+    } catch (err) {
+      toast.error('Failed to delete template');
+      throw err;
+    }
+  },
+
+  deleteCampaignLead: async (campaignId, leadId) => {
+    try {
+      await campaignsAPI.deleteLead(campaignId, leadId);
+      set((s) => ({ campaignLeads: s.campaignLeads.filter((l) => !sameId(l, leadId)) }));
+    } catch (err) {
+      toast.error('Failed to remove lead');
+      throw err;
+    }
+  },
+  markCampaignLeadReplied: async (campaignId, leadId) => {
+    try {
+      const { data } = await campaignsAPI.markReplied(campaignId, leadId);
+      set((s) => ({ campaignLeads: s.campaignLeads.map((l) => sameId(l, leadId) ? data.data : l) }));
+      toast.success('Marked as replied — no further emails will be sent to this lead');
+    } catch (err) {
+      toast.error('Failed to update lead');
       throw err;
     }
   },

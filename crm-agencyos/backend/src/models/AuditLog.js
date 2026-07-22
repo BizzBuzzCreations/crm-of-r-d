@@ -21,7 +21,7 @@ const AuditLogSchema = new Schema(
     },
     category: {
       type: String,
-      enum: ['auth', 'lead', 'task', 'todo', 'client', 'user', 'settings', 'meeting', 'revenue', 'worklog'],
+      enum: ['auth', 'lead', 'task', 'todo', 'client', 'user', 'settings', 'meeting', 'revenue', 'worklog', 'billing', 'campaign', 'email_account'],
       required: true,
     },
     target: {

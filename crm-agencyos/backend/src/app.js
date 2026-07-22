@@ -69,6 +69,13 @@ app.use('/api/audit',          require('./routes/audit'));
 app.use('/api/admin/logs',     require('./routes/adminLogs'));
 app.use('/api/portal',         require('./routes/portal'));
 app.use('/api/billing',        require('./routes/billing'));
+app.use('/api/email-accounts', require('./routes/emailAccounts'));
+app.use('/api/email-templates', require('./routes/emailTemplates'));
+// Public tracking (open pixel / click redirect / unsubscribe) MUST be
+// mounted before the protected campaigns router — both share the
+// /api/campaigns prefix, and Express matches in registration order.
+app.use('/api/campaigns',      require('./routes/campaignPublic'));
+app.use('/api/campaigns',      require('./routes/campaigns'));
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {

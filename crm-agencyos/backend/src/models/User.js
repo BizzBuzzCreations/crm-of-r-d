@@ -26,6 +26,9 @@ const UserSchema = new mongoose.Schema({
     smtpPort: { type: Number, default: 465 }
   },
   calendarSyncEnabled: { type: Boolean, default: false },
+  // Opt-in permission grant — lets admin/manager give a specific member
+  // (any role) access to Campaigns without promoting their role.
+  campaignsAccess: { type: Boolean, default: false },
   notificationPrefs: {
     type: Map,
     of: Boolean,

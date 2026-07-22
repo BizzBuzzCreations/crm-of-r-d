@@ -5,7 +5,7 @@ import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
   Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal,
-  Building2, Receipt,
+  Building2, Receipt, Mail,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -364,6 +364,7 @@ const NAV = [
       { path: '/tasks',     label: 'Tasks',                icon: CheckSquare,     roles: ['admin','manager','member','client_relations'] },
       { path: '/clients',   label: 'Clients & Projects',   icon: Users,           roles: ['admin','manager','client_relations'] },
       { path: '/leads',     label: 'Leads Pipeline',       icon: Target,          roles: ['admin','manager','client_relations','member'] },
+      { path: '/campaigns', label: 'Campaigns',            icon: Mail,            roles: ['admin','manager'], permissionKey: 'campaignsAccess' },
       { path: '/messages',  label: 'Messages',             icon: MessageSquare,   roles: ['admin','manager','member','client_relations','client'], badge: true },
       { path: '/meetings',  label: 'Meetings',             icon: Video,           roles: ['admin','manager','member','client_relations'] },
       { path: '/reports',   label: 'Reports',              icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },
@@ -435,7 +436,9 @@ export default function Sidebar() {
       {/* ── Nav ── */}
       <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
         {NAV.map(({ section, items }) => {
-          const visible = items.filter((item) => item.roles.includes(role));
+          const visible = items.filter((item) =>
+            item.roles.includes(role) || (item.permissionKey && authUser?.[item.permissionKey])
+          );
           if (!visible.length) return null;
           return (
             <div key={section} className="mb-1">
