@@ -152,6 +152,7 @@ async function testSmtp(account) {
     auth: { user: account.smtpUser, pass: (account.smtpPass || '').replace(/\s/g, '') },
     tls: { rejectUnauthorized: !account.smtpAllowInsecureTLS },
     connectionTimeout: 8000,
+    family: 4, // avoid ENETUNREACH on hosts with unrouted IPv6 — see campaignWorker.js
   });
   try {
     await transporter.verify();

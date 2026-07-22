@@ -67,6 +67,9 @@ const transporter = nodemailer.createTransport({
   socketTimeout: 10000,
   greetingTimeout: 10000,
   connectionTimeout: 10000,
+  // Avoid ENETUNREACH on hosts with an IPv6 address but no real outbound
+  // IPv6 routing (seen on campaign sends — same VM, same root cause).
+  family: 4,
 });
 
 transporter.verify((verifyErr, _ok) => {

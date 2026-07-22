@@ -970,6 +970,26 @@ const useAppStore = create((set, get, store) => ({
       throw err;
     }
   },
+  diagnoseCampaign: async (id) => {
+    try {
+      const { data } = await campaignsAPI.diagnose(id);
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to run diagnosis');
+      throw err;
+    }
+  },
+  resolveStuckCampaignLeads: async (id) => {
+    try {
+      const { data } = await campaignsAPI.resolveStuck(id);
+      toast.success(data.data.reset ? `Reset ${data.data.reset} stuck lead(s) — they'll be picked up again shortly` : 'No stuck leads found');
+      await get().loadCampaignLeads(id);
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to resolve stuck leads');
+      throw err;
+    }
+  },
   loadCampaignLeads: async (campaignId) => {
     try {
       const { data } = await campaignsAPI.getLeads(campaignId);

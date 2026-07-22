@@ -7,6 +7,15 @@ const EmailAccount = require('../models/EmailAccount');
 const audit = require('../services/auditService');
 const { verifyEmail, verifyBatch } = require('../utils/emailVerify');
 const { fetchGoogleSheetCsv } = require('../utils/googleSheet');
+const { effectiveDailyLimit } = require('../utils/warmup');
+const { isWithinSendingWindow } = require('../utils/sendingWindow');
+
+const STUCK_THRESHOLD_MS = 15 * 60000; // scheduled/sending longer than this = likely a queue/worker problem
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 
 const STATS_STATUSES = ['pending', 'scheduled', 'sending', 'sent', 'failed', 'bounced', 'replied', 'unsubscribed'];
 
@@ -147,6 +156,124 @@ exports.pauseCampaign = async (req, res, next) => {
     );
     if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
     res.json({ success: true, data: campaign });
+  } catch (err) { next(err); }
+};
+
+// GET /api/campaigns/:id/diagnose — re-runs the exact same checks the
+// dispatcher itself uses to decide whether it's sending right now, and
+// reports the answer in plain language. Read-only — changes nothing.
+exports.diagnoseCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } })
+      .populate('settings.accounts', 'name email isActive dailySendLimit warmupEnabled warmupStartDate warmupDays warmupStartLimit lastSmtpVerifiedAt lastSmtpVerifyError');
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    const settings = campaign.settings || {};
+    const findings = []; // { level: 'ok'|'info'|'warning'|'error', message, detail? }
+    const add = (level, message, detail) => findings.push({ level, message, detail });
+
+    if (campaign.status !== 'active') {
+      add('info', `Campaign is "${campaign.status}", not currently sending.`);
+    }
+
+    if (settings.sendingHoursEnabled && !isWithinSendingWindow(settings)) {
+      add('info', `Outside the allowed sending window (${settings.sendingHourStart}:00–${settings.sendingHourEnd}:00, ${settings.timezone}). Will resume automatically once back in window — nothing to fix.`);
+    }
+
+    if (campaign.status === 'active' && campaign.nextEligibleAt && new Date() < campaign.nextEligibleAt) {
+      const secs = Math.max(0, Math.round((new Date(campaign.nextEligibleAt) - Date.now()) / 1000));
+      add('info', `Pacing gap in effect — next send in ~${secs}s (per Sending Pattern settings). Nothing to fix, this is intentional.`);
+    }
+
+    const accounts = settings.accounts || [];
+    if (!accounts.length) {
+      add('error', 'No sending accounts selected. Go to Settings and pick at least one.');
+    } else {
+      const inactive = accounts.filter((a) => !a.isActive);
+      if (inactive.length) add('warning', `${inactive.length} selected account(s) are turned off (inactive): ${inactive.map((a) => a.email).join(', ')}`);
+
+      const active = accounts.filter((a) => a.isActive);
+      if (!active.length) {
+        add('error', 'None of the selected sending accounts are active.');
+      }
+
+      const unverified = active.filter((a) => !a.lastSmtpVerifiedAt || a.lastSmtpVerifyError);
+      if (unverified.length) {
+        add('warning', `${unverified.length} active account(s) haven't passed a connection test (or the last test failed) — click Test on them in Connected Mailboxes.`,
+          unverified.map((a) => ({ email: a.email, error: a.lastSmtpVerifyError || 'Never tested' })));
+      }
+
+      if (active.length) {
+        const sentTodayByAccount = await CampaignLead.aggregate([
+          { $match: { accountUsed: { $in: active.map((a) => a._id) }, status: 'sent', sentAt: { $gte: startOfToday() } } },
+          { $group: { _id: '$accountUsed', count: { $sum: 1 } } },
+        ]);
+        const sentMap = new Map(sentTodayByAccount.map((r) => [String(r._id), r.count]));
+        const maxedOut = active.filter((a) => (sentMap.get(String(a._id)) || 0) >= (effectiveDailyLimit(a) || Infinity));
+        if (maxedOut.length === active.length) {
+          add('warning', `All selected accounts have hit their daily send limit for today — sending will resume tomorrow. ${maxedOut.map((a) => `${a.email} (${sentMap.get(String(a._id)) || 0}/${effectiveDailyLimit(a)})`).join(', ')}`);
+        } else if (maxedOut.length) {
+          add('info', `${maxedOut.length} of ${active.length} account(s) are maxed out for today; the others will keep sending.`);
+        }
+      }
+    }
+
+    const cap = Math.min(
+      Number.isFinite(settings.dailyLimit) ? settings.dailyLimit : Infinity,
+      Number.isFinite(settings.maxNewLeadsPerDay) ? settings.maxNewLeadsPerDay : Infinity
+    );
+    if (Number.isFinite(cap)) {
+      const sentToday = await CampaignLead.countDocuments({ campaign: campaign._id, status: { $ne: 'pending' }, updatedAt: { $gte: startOfToday() } });
+      if (sentToday >= cap) add('info', `Campaign's own daily limit reached (${sentToday}/${cap}) — resumes tomorrow. Nothing to fix.`);
+    }
+
+    const pendingCount = await CampaignLead.countDocuments({ campaign: campaign._id, status: 'pending' });
+    const stuckLeads = await CampaignLead.find({
+      campaign: campaign._id,
+      status: { $in: ['scheduled', 'sending'] },
+      updatedAt: { $lt: new Date(Date.now() - STUCK_THRESHOLD_MS) },
+    }).select('email status updatedAt').lean();
+
+    if (stuckLeads.length) {
+      add('error', `${stuckLeads.length} lead(s) stuck in "${stuckLeads[0].status}" for over 15 minutes — the campaign-worker process likely isn't running, or a queue job was lost. Use "Fix stuck leads" to reset them back to pending so they get picked up again.`,
+        stuckLeads.map((l) => ({ email: l.email, status: l.status, since: l.updatedAt })));
+    }
+
+    if (pendingCount === 0 && !stuckLeads.length && campaign.status === 'active') {
+      add('info', 'No leads left to send — campaign will auto-complete on the next check (within a minute).');
+    }
+
+    const recentFailures = await CampaignLead.find({ campaign: campaign._id, status: { $in: ['failed', 'bounced'] } })
+      .sort({ updatedAt: -1 }).limit(5).select('email status error updatedAt').lean();
+    if (recentFailures.length) {
+      add('warning', `${recentFailures.length} recent failure(s) — see details for the actual error message from each.`, recentFailures);
+    }
+
+    if (!findings.length) add('ok', 'Everything looks normal — actively sending within its configured pace.');
+
+    res.json({ success: true, data: { findings, pendingCount, hasStuckLeads: stuckLeads.length > 0, checkedAt: new Date() } });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/resolve-stuck — resets leads stuck in
+// scheduled/sending (no job ever completed for them, likely a lost queue
+// job) back to pending so the dispatcher picks them up again.
+exports.resolveStuckLeads = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    const result = await CampaignLead.updateMany(
+      {
+        campaign: campaign._id,
+        status: { $in: ['scheduled', 'sending'] },
+        updatedAt: { $lt: new Date(Date.now() - STUCK_THRESHOLD_MS) },
+      },
+      { status: 'pending', accountUsed: null }
+    );
+
+    audit.log(req, { action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name, metadata: { resolvedStuckLeads: result.modifiedCount } });
+    res.json({ success: true, data: { reset: result.modifiedCount } });
   } catch (err) { next(err); }
 };
 

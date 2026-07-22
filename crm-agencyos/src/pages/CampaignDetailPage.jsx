@@ -8,10 +8,10 @@ import {
   ArrowLeft, Play, Pause, Trash2, Upload, Send, MailOpen, MousePointerClick,
   Users, XCircle, AlertTriangle, Ban, MessageSquareOff, Settings2, ListChecks,
   FileSpreadsheet, UserPlus, ShieldCheck, ShieldAlert, ShieldQuestion, RefreshCw, Loader2,
-  BarChart3, MailX, ExternalLink, FileText, Code2,
+  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
-import { Page, Button, Tabs, Input, Toggle, Select, StatCard, EmptyState, ConfirmDialog } from '../components/ui';
+import { Page, Button, Tabs, Input, Toggle, Select, StatCard, EmptyState, ConfirmDialog, Modal } from '../components/ui';
 import EmailAccountsModal from '../components/campaigns/EmailAccountsModal';
 import EmailTemplatesModal from '../components/campaigns/EmailTemplatesModal';
 import RichTextEditor from '../components/campaigns/RichTextEditor';
@@ -64,6 +64,109 @@ const VERIFICATION_BADGE = {
   unverified: { label: 'Unverified', icon: ShieldQuestion, tw: 'text-slate-400' },
 };
 
+// Quick hover hint next to the status badge — a cheap, client-side-only
+// guess (no API call) to explain the current state at a glance. The
+// "Diagnose" button does the real, thorough check against the backend.
+function statusHint(campaign) {
+  if (campaign.status === 'draft') return 'Draft — not sending. Add a subject/body, leads, and a sending account, then hit Start.';
+  if (campaign.status === 'paused') return 'Paused — sending is stopped until you hit Start again.';
+  if (campaign.status === 'completed') return 'Completed — every lead has been sent to, failed, or bounced.';
+  if (campaign.status === 'active') {
+    if (campaign.nextEligibleAt && new Date(campaign.nextEligibleAt) > new Date()) {
+      const secs = Math.max(0, Math.round((new Date(campaign.nextEligibleAt) - Date.now()) / 1000));
+      return `Active — waiting ~${secs}s before the next send (sending-pattern gap). Click Diagnose for the full picture.`;
+    }
+    return 'Active — should be sending within its configured pace. Click Diagnose if nothing seems to be happening.';
+  }
+  return '';
+}
+
+const FINDING_STYLE = {
+  ok:      { icon: CheckCircle2,  tw: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-900' },
+  info:    { icon: Info,          tw: 'text-slate-500 dark:text-slate-400',     bg: 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700' },
+  warning: { icon: AlertTriangle, tw: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-900/50' },
+  error:   { icon: XCircle,       tw: 'text-red-600 dark:text-red-400',         bg: 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/50' },
+};
+
+function DiagnoseModal({ open, onClose, campaignId, onDiagnose, onResolveStuck }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [fixing, setFixing] = useState(false);
+
+  const runDiagnosis = async () => {
+    setLoading(true);
+    try {
+      const data = await onDiagnose(campaignId);
+      setResult(data);
+    } catch {
+      // toast already shown
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { if (open) runDiagnosis(); else setResult(null); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleFixStuck = async () => {
+    setFixing(true);
+    try {
+      await onResolveStuck(campaignId);
+      await runDiagnosis(); // re-check immediately so the fix is reflected
+    } finally {
+      setFixing(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Campaign Diagnosis" size="lg">
+      <div className="px-6 py-5">
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-slate-400">
+            <Loader2 size={20} className="animate-spin" />
+          </div>
+        ) : result ? (
+          <div className="space-y-2.5">
+            {result.findings.map((f, i) => {
+              const style = FINDING_STYLE[f.level] || FINDING_STYLE.info;
+              return (
+                <div key={i} className={cn('flex items-start gap-2.5 p-3 rounded-xl border', style.bg)}>
+                  <style.icon size={15} className={cn('flex-shrink-0 mt-0.5', style.tw)} />
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('text-[13px]', style.tw)}>{f.message}</p>
+                    {Array.isArray(f.detail) && f.detail.length > 0 && (
+                      <ul className="mt-1.5 space-y-0.5 text-[11.5px] text-slate-500 dark:text-slate-400">
+                        {f.detail.map((d, j) => (
+                          <li key={j} className="truncate">
+                            {d.email}{d.status && ` — ${d.status}`}{d.error && `: ${d.error}`}{d.since && ` (since ${new Date(d.since).toLocaleTimeString()})`}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-[11px] text-slate-400">Checked {new Date(result.checkedAt).toLocaleTimeString()}</p>
+              <div className="flex gap-2">
+                {result.hasStuckLeads && (
+                  <Button variant="danger" size="sm" onClick={handleFixStuck} loading={fixing}>
+                    <Wrench size={13} /> Fix stuck leads
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={runDiagnosis}>
+                  <RefreshCw size={13} /> Re-check
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 export default function CampaignDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -73,6 +176,7 @@ export default function CampaignDetailPage() {
     updateCampaign, deleteCampaign, startCampaign, pauseCampaign,
     importCampaignLeadsCsv, importCampaignLeadsSheet, addCampaignLeadManual,
     deleteCampaignLead, markCampaignLeadReplied, verifyCampaignLead, verifyAllCampaignLeads,
+    diagnoseCampaign, resolveStuckCampaignLeads,
   } = useAppStore(useShallow((s) => ({
     campaigns: s.campaigns,
     campaignLeads: s.campaignLeads,
@@ -92,12 +196,15 @@ export default function CampaignDetailPage() {
     markCampaignLeadReplied: s.markCampaignLeadReplied,
     verifyCampaignLead: s.verifyCampaignLead,
     verifyAllCampaignLeads: s.verifyAllCampaignLeads,
+    diagnoseCampaign: s.diagnoseCampaign,
+    resolveStuckCampaignLeads: s.resolveStuckCampaignLeads,
   })));
 
   const campaign = campaigns.find((c) => c._id === id);
   const [tab, setTab] = useState('analytics');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);
+  const [diagnoseOpen, setDiagnoseOpen] = useState(false);
   const fileInputRef = useRef(null);
   const [importing, setImporting] = useState(false);
 
@@ -152,10 +259,16 @@ export default function CampaignDetailPage() {
             }[campaign.status])}>
               {campaign.status}
             </span>
+            <span title={statusHint(campaign)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-help">
+              <Info size={14} />
+            </span>
           </div>
           <p className="page-sub">Created {new Date(campaign.createdAt).toLocaleDateString()}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <Button variant="outline" onClick={() => setDiagnoseOpen(true)}>
+            <Stethoscope size={14} /> Diagnose
+          </Button>
           {campaign.status !== 'completed' && (
             <Button variant={campaign.status === 'active' ? 'outline' : 'primary'} onClick={handleToggleStatus}>
               {campaign.status === 'active' ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Start</>}
@@ -166,6 +279,14 @@ export default function CampaignDetailPage() {
           </Button>
         </div>
       </div>
+
+      <DiagnoseModal
+        open={diagnoseOpen}
+        onClose={() => setDiagnoseOpen(false)}
+        campaignId={campaign._id}
+        onDiagnose={diagnoseCampaign}
+        onResolveStuck={resolveStuckCampaignLeads}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
         <StatCard icon={Users} label="Total Leads" value={stats.total || 0} color="#6366f1" bg="#eef2ff" />
