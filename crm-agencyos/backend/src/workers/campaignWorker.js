@@ -87,7 +87,10 @@ function rewriteLinksForClickTracking(html, token) {
 }
 
 function appendOpenPixel(html, token) {
-  return `${html}<img src="${apiBase}/api/campaigns/track/open/${token}.png" width="1" height="1" alt="" style="display:none;" />`;
+  // No `display:none` — a hidden 1x1 image is a well-known spam-filter
+  // signature (real senders don't hide their pixel, spammers do). A plain
+  // 1x1 image is already visually negligible without needing to hide it.
+  return `${html}<img src="${apiBase}/api/campaigns/track/open/${token}.png" width="1" height="1" alt="" style="border:0;" />`;
 }
 
 function appendUnsubscribeFooter(html, token, account) {
