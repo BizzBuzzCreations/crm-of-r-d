@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
-import { Mail, Plus, Play, Pause, Trash2, Send, MailOpen, MousePointerClick, Users } from 'lucide-react';
+import { Mail, Plus, Play, Pause, Trash2, Send, MailOpen, MousePointerClick, Users, XCircle } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Page, Button, Modal, Input, Badge, EmptyState, ConfirmDialog, Skeleton } from '../components/ui';
 import { cn } from '../utils/helpers';
 
 const STATUS_BADGE = {
   draft:     { label: 'Draft',     tw: 'badge-neutral' },
+  scheduled: { label: 'Scheduled', tw: 'badge-purple' },
   active:    { label: 'Active',    tw: 'badge-success' },
   paused:    { label: 'Paused',    tw: 'badge-warning' },
   completed: { label: 'Completed', tw: 'badge-info' },
@@ -16,7 +17,7 @@ const STATUS_BADGE = {
 export default function CampaignsPage() {
   const navigate = useNavigate();
   const {
-    campaigns, loadCampaigns, createCampaign, deleteCampaign, startCampaign, pauseCampaign,
+    campaigns, loadCampaigns, createCampaign, deleteCampaign, startCampaign, pauseCampaign, unscheduleCampaign,
   } = useAppStore(useShallow((s) => ({
     campaigns: s.campaigns,
     loadCampaigns: s.loadCampaigns,
@@ -24,6 +25,7 @@ export default function CampaignsPage() {
     deleteCampaign: s.deleteCampaign,
     startCampaign: s.startCampaign,
     pauseCampaign: s.pauseCampaign,
+    unscheduleCampaign: s.unscheduleCampaign,
   })));
 
   const [loading, setLoading] = useState(true);
@@ -98,6 +100,7 @@ export default function CampaignsPage() {
                     <p className="text-[14.5px] font-semibold text-slate-900 dark:text-white truncate">{c.name}</p>
                     <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
                       {stats.total || 0} lead{stats.total === 1 ? '' : 's'}
+                      {c.status === 'scheduled' && c.scheduledAt && ` · starts ${new Date(c.scheduledAt).toLocaleString()}`}
                     </p>
                   </div>
                   <span className={cn('badge', badge.tw)}>{badge.label}</span>
@@ -111,18 +114,31 @@ export default function CampaignsPage() {
                 </div>
 
                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  {/* "completed" isn't necessarily terminal — the backend allows
-                      restarting once new leads exist (no status guard there),
-                      so show Start again if there's actually something pending. */}
-                  {(c.status === 'draft' || c.status === 'paused' || (c.status === 'completed' && (stats.pending || 0) > 0)) && (
-                    <Button variant="outline" size="sm" onClick={() => handleToggleStatus(c)}>
-                      <Play size={13} /> Start
-                    </Button>
-                  )}
-                  {c.status === 'active' && (
-                    <Button variant="outline" size="sm" onClick={() => handleToggleStatus(c)}>
-                      <Pause size={13} /> Pause
-                    </Button>
+                  {c.status === 'scheduled' ? (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => unscheduleCampaign(c._id)}>
+                        <XCircle size={13} /> Cancel
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleToggleStatus(c)}>
+                        <Play size={13} /> Start now
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {/* "completed" isn't necessarily terminal — the backend allows
+                          restarting once new leads exist (no status guard there),
+                          so show Start again if there's actually something pending. */}
+                      {(c.status === 'draft' || c.status === 'paused' || (c.status === 'completed' && (stats.pending || 0) > 0)) && (
+                        <Button variant="outline" size="sm" onClick={() => handleToggleStatus(c)}>
+                          <Play size={13} /> Start
+                        </Button>
+                      )}
+                      {c.status === 'active' && (
+                        <Button variant="outline" size="sm" onClick={() => handleToggleStatus(c)}>
+                          <Pause size={13} /> Pause
+                        </Button>
+                      )}
+                    </>
                   )}
                   <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(c)} className="ml-auto text-red-500 hover:text-red-600">
                     <Trash2 size={13} />

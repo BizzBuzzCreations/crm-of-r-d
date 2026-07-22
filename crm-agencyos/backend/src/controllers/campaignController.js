@@ -9,6 +9,7 @@ const { verifyEmail, verifyBatch } = require('../utils/emailVerify');
 const { fetchGoogleSheetCsv } = require('../utils/googleSheet');
 const { effectiveDailyLimit } = require('../utils/warmup');
 const { isWithinSendingWindow } = require('../utils/sendingWindow');
+const { checkCampaignReady } = require('../utils/campaignReadiness');
 
 const STUCK_THRESHOLD_MS = 15 * 60000; // scheduled/sending longer than this = likely a queue/worker problem
 function startOfToday() {
@@ -120,35 +121,79 @@ exports.updateCampaign = async (req, res, next) => {
 // DELETE /api/campaigns/:id  (soft delete)
 exports.deleteCampaign = async (req, res, next) => {
   try {
-    const campaign = await Campaign.findByIdAndUpdate(req.params.id, { isDeleted: true, status: 'paused' }, { new: true });
+    const campaign = await Campaign.findByIdAndUpdate(req.params.id, { isDeleted: true, status: 'paused', scheduledAt: null }, { new: true });
     if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
     audit.log(req, { action: 'delete', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name });
     res.json({ success: true, data: { _id: campaign._id } });
   } catch (err) { next(err); }
 };
 
-// POST /api/campaigns/:id/start   (draft|paused → active)
+// POST /api/campaigns/:id/start   (draft|scheduled|paused|completed → active)
 exports.startCampaign = async (req, res, next) => {
   try {
     const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
     if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
 
-    if (!campaign.subject?.trim() || !campaign.bodyHtml?.trim()) {
-      return res.status(400).json({ success: false, message: 'Add a subject and email body before starting the campaign' });
-    }
-    if (!campaign.settings.accounts?.length) {
-      return res.status(400).json({ success: false, message: 'Select at least one sending account in campaign settings' });
-    }
-    const pendingCount = await CampaignLead.countDocuments({ campaign: campaign._id, status: 'pending' });
-    if (pendingCount === 0) {
-      return res.status(400).json({ success: false, message: 'Import at least one lead before starting the campaign' });
-    }
+    const { ready, reason } = await checkCampaignReady(campaign);
+    if (!ready) return res.status(400).json({ success: false, message: reason });
 
     campaign.status = 'active';
     campaign.nextEligibleAt = null; // send the first one on the very next dispatcher tick
+    campaign.scheduledAt = null;    // starting manually supersedes any pending schedule
+    campaign.scheduleFailedReason = '';
     await campaign.save();
 
     audit.log(req, { action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name, metadata: { status: 'active' } });
+    res.json({ success: true, data: campaign });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/schedule   { scheduledAt: ISO datetime }
+// Validated the same way Start is — no point scheduling something that
+// can't actually send. Re-validated again at trigger time by the dispatcher
+// (see campaignReadiness.js) since accounts/leads can change before then.
+exports.scheduleCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    const { scheduledAt } = req.body;
+    const when = new Date(scheduledAt);
+    if (!scheduledAt || Number.isNaN(when.getTime())) {
+      return res.status(400).json({ success: false, message: 'A valid scheduled date/time is required' });
+    }
+    if (when.getTime() <= Date.now()) {
+      return res.status(400).json({ success: false, message: 'Scheduled time must be in the future' });
+    }
+
+    const { ready, reason } = await checkCampaignReady(campaign);
+    if (!ready) return res.status(400).json({ success: false, message: reason });
+
+    campaign.status = 'scheduled';
+    campaign.scheduledAt = when;
+    campaign.scheduleFailedReason = '';
+    await campaign.save();
+
+    audit.log(req, { action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name, metadata: { status: 'scheduled', scheduledAt: when } });
+    res.json({ success: true, data: campaign });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/unschedule   (scheduled → draft)
+exports.unscheduleCampaign = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+    if (campaign.status !== 'scheduled') {
+      return res.status(400).json({ success: false, message: `Campaign is "${campaign.status}", not scheduled` });
+    }
+
+    campaign.status = 'draft';
+    campaign.scheduledAt = null;
+    campaign.scheduleFailedReason = '';
+    await campaign.save();
+
+    audit.log(req, { action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name, metadata: { status: 'draft' } });
     res.json({ success: true, data: campaign });
   } catch (err) { next(err); }
 };
@@ -158,7 +203,9 @@ exports.pauseCampaign = async (req, res, next) => {
   try {
     const campaign = await Campaign.findOneAndUpdate(
       { _id: req.params.id, isDeleted: { $ne: true } },
-      { status: 'paused' },
+      // Clears any pending schedule too — a paused campaign shouldn't have a
+      // stale scheduledAt sitting underneath it from before it was paused.
+      { status: 'paused', scheduledAt: null, scheduleFailedReason: '' },
       { new: true }
     );
     if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
@@ -179,8 +226,17 @@ exports.diagnoseCampaign = async (req, res, next) => {
     const findings = []; // { level: 'ok'|'info'|'warning'|'error', message, detail? }
     const add = (level, message, detail) => findings.push({ level, message, detail });
 
-    if (campaign.status !== 'active') {
+    if (campaign.status === 'scheduled' && campaign.scheduledAt) {
+      const secs = Math.round((new Date(campaign.scheduledAt) - Date.now()) / 1000);
+      add('info', secs > 0
+        ? `Scheduled to start ${new Date(campaign.scheduledAt).toLocaleString()} (in ~${Math.round(secs / 60)} min). Nothing to fix, this is intentional.`
+        : `Scheduled time has passed — will be promoted to active on the next check (within a minute).`);
+    } else if (campaign.status !== 'active') {
       add('info', `Campaign is "${campaign.status}", not currently sending.`);
+    }
+
+    if (campaign.scheduleFailedReason) {
+      add('error', `A previous scheduled send didn't start: ${campaign.scheduleFailedReason}`, null);
     }
 
     if (settings.sendingHoursEnabled && !isWithinSendingWindow(settings)) {
