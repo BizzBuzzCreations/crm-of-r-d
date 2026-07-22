@@ -8,6 +8,12 @@ const { Worker } = require('bullmq');
 const nodemailer  = require('nodemailer');
 const mongoose    = require('mongoose');
 const EmailLog    = require('../models/EmailLog');
+const { resolveIPv4 } = require('../utils/ipv4');
+
+// This is a standalone process (not forked from server.js), so it needs its
+// own IPv4 preference — same ENETUNREACH issue as the campaign worker when
+// the SMTP host has an AAAA record but the VM has no real IPv6 route out.
+require('dns').setDefaultResultOrder('ipv4first');
 
 // ── MongoDB connection (worker-local, non-blocking startup) ──────────────────
 mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 8000 })
@@ -49,49 +55,63 @@ console.log('══════════════════════�
 // pool:true reuses SMTP connections — reduces auth overhead and improves
 // deliverability by lowering the "new connection per message" pattern that
 // spam filters treat as suspicious.
-const transporter = nodemailer.createTransport({
-  host:   cfg.smtp.host,
-  port:   cfg.smtp.port,
-  secure: cfg.smtp.secure,
-  auth:   { user: cfg.smtp.user, pass: cfg.smtp.pass },
-  pool:   true,
-  maxConnections: 3,
-  maxMessages:    100,
-  rateDelta:      1000,   // max 5 messages per second
-  rateLimit:      5,
-  tls: {
-    rejectUnauthorized: true,   // enforce valid TLS cert
-    minVersion:         'TLSv1.2',
-  },
-  // sendmailOptions is not used here, but socketTimeout prevents hanging
-  socketTimeout: 10000,
-  greetingTimeout: 10000,
-  connectionTimeout: 10000,
-  // Avoid ENETUNREACH on hosts with an IPv6 address but no real outbound
-  // IPv6 routing (seen on campaign sends — same VM, same root cause).
-  family: 4,
-});
+// Resolving the SMTP host to a literal IPv4 address ourselves (rather than
+// relying on `family: 4` alone) removes any ambiguity in whether nodemailer's
+// own connection path honors the family hint — see utils/ipv4.js.
+let transporter; // assigned once the IP resolves, below — worker registration waits on it
 
-transporter.verify((verifyErr, _ok) => {
-  const err = verifyErr;
-  if (err) {
-    sysLog.error('SMTP', `SMTP verification failed: ${err.message}`, { code: err.code });
-    console.error('❌ SMTP CONNECTION FAILED');
-    console.error('   Code    :', err.code   || 'n/a');
-    console.error('   Message :', err.message);
-    if (err.response) console.error('   Server  :', err.response);
-    console.error('\n   ── Troubleshooting ──────────────────────────────');
-    console.error('   1. Gmail: enable 2FA → App Passwords → generate 16-char token');
-    console.error('      https://myaccount.google.com/apppasswords');
-    console.error('   2. SMTP_USER and EMAIL_FROM must be the same address.');
-    console.error('   3. SMTP_PORT=587 + SMTP_SECURE=false → STARTTLS (recommended)');
-    console.error('      SMTP_PORT=465 + SMTP_SECURE=true  → SSL/TLS\n');
-  } else {
-    sysLog.info('SMTP', `SMTP connection verified — authenticated as ${cfg.smtp.user}`);
-    console.log('✅ SMTP connection verified — ready to send emails');
-    console.log(`   Authenticated as: ${cfg.smtp.user}\n`);
-  }
-});
+async function createTransporter() {
+  const ip = await resolveIPv4(cfg.smtp.host);
+  if (ip) log(`Resolved ${cfg.smtp.host} -> ${ip} (IPv4)`);
+  else log(`Could not resolve an IPv4 address for ${cfg.smtp.host} — connecting by hostname, may hit ENETUNREACH if it has an AAAA record`);
+
+  const t = nodemailer.createTransport({
+    host:   ip || cfg.smtp.host,
+    port:   cfg.smtp.port,
+    secure: cfg.smtp.secure,
+    auth:   { user: cfg.smtp.user, pass: cfg.smtp.pass },
+    pool:   true,
+    maxConnections: 3,
+    maxMessages:    100,
+    rateDelta:      1000,   // max 5 messages per second
+    rateLimit:      5,
+    tls: {
+      rejectUnauthorized: true,   // enforce valid TLS cert
+      minVersion:         'TLSv1.2',
+      servername:         cfg.smtp.host, // correct SNI/cert validation when connecting by IP
+    },
+    // sendmailOptions is not used here, but socketTimeout prevents hanging
+    socketTimeout: 10000,
+    greetingTimeout: 10000,
+    connectionTimeout: 10000,
+    // Avoid ENETUNREACH on hosts with an IPv6 address but no real outbound
+    // IPv6 routing (seen on campaign sends — same VM, same root cause).
+    family: 4,
+  });
+
+  t.verify((verifyErr, _ok) => {
+    const err = verifyErr;
+    if (err) {
+      sysLog.error('SMTP', `SMTP verification failed: ${err.message}`, { code: err.code });
+      console.error('❌ SMTP CONNECTION FAILED');
+      console.error('   Code    :', err.code   || 'n/a');
+      console.error('   Message :', err.message);
+      if (err.response) console.error('   Server  :', err.response);
+      console.error('\n   ── Troubleshooting ──────────────────────────────');
+      console.error('   1. Gmail: enable 2FA → App Passwords → generate 16-char token');
+      console.error('      https://myaccount.google.com/apppasswords');
+      console.error('   2. SMTP_USER and EMAIL_FROM must be the same address.');
+      console.error('   3. SMTP_PORT=587 + SMTP_SECURE=false → STARTTLS (recommended)');
+      console.error('      SMTP_PORT=465 + SMTP_SECURE=true  → SSL/TLS\n');
+    } else {
+      sysLog.info('SMTP', `SMTP connection verified — authenticated as ${cfg.smtp.user}`);
+      console.log('✅ SMTP connection verified — ready to send emails');
+      console.log(`   Authenticated as: ${cfg.smtp.user}\n`);
+    }
+  });
+
+  return t;
+}
 
 // ── Anti-spam headers added to every message ─────────────────────────────────
 // These tell receiving servers and spam filters this is legitimate
@@ -488,7 +508,14 @@ let sysLog = { info: () => {}, warn: () => {}, error: () => {} };
 try { sysLog = require('../utils/sysLogger').logger; } catch {}
 
 // ── Worker ───────────────────────────────────────────────────────────────────
-const worker = new Worker('email-queue', async (job) => {
+// Wait for the transporter's IPv4 resolution before registering the worker,
+// so no job can arrive and find `transporter` still undefined.
+let worker;
+
+async function startWorker() {
+  transporter = await createTransporter();
+
+  worker = new Worker('email-queue', async (job) => {
   const { recipientEmail, emailType, templateData, queuedAt, cc, leadId, triggeredBy } = job.data;
 
   log(`📨 Job ${job.id} | ${emailType} → ${recipientEmail}${cc ? ` (CC: ${cc})` : ''} | attempt=${job.attemptsMade + 1}/${job.opts?.attempts || 3} | queued=${queuedAt}`);
@@ -560,41 +587,47 @@ const worker = new Worker('email-queue', async (job) => {
 
   return { messageId: info.messageId };
 
-}, { connection: cfg.redis, concurrency: 5 });
+  }, { connection: cfg.redis, concurrency: 5 });
 
-// ── Worker events ────────────────────────────────────────────────────────────
-worker.on('ready', () => {
-  log('✅ Worker ready — listening on "email-queue"');
-  sysLog.info('WORKER', 'Email worker ready — listening on "email-queue"');
-});
-worker.on('active', (job) => {
-  log(`▶  Job ${job.id} active (${job.data?.emailType} → ${job.data?.recipientEmail})`);
-  sysLog.info('QUEUE', `Job ${job.id} active — ${job.data?.emailType} → ${job.data?.recipientEmail}`);
-});
-worker.on('completed', (job, r) => {
-  log(`✔  Job ${job.id} completed | msgId=${r?.messageId || 'n/a'}`);
-  sysLog.info('EMAIL', `Job ${job.id} delivered to ${job.data?.recipientEmail} | msgId=${r?.messageId || 'n/a'}`);
-});
-worker.on('failed', (job, e) => {
-  const attempts = job?.attemptsMade ?? '?';
-  const max = job?.opts?.attempts ?? 3;
-  err(`Job ${job?.id} FAILED (${attempts}/${max}) — ${attempts < max ? 'will retry' : 'EXHAUSTED'}: ${e.message}`);
-  sysLog.error('EMAIL', `Job ${job?.id} failed (${attempts}/${max}) — ${e.message}`, { willRetry: attempts < max });
-  if (attempts < max) log(`   Next retry in ~${(2000 * Math.pow(2, attempts - 1)) / 1000}s`);
-});
-worker.on('stalled', (id) => {
-  log(`⚠  Job ${id} stalled — will be requeued`);
-  sysLog.warn('QUEUE', `Job ${id} stalled — will be requeued`);
-});
-worker.on('error', (e) => {
-  err('Worker error:', e.message);
-  sysLog.error('WORKER', `Worker error: ${e.message}`);
+  // ── Worker events ──────────────────────────────────────────────────────────
+  worker.on('ready', () => {
+    log('✅ Worker ready — listening on "email-queue"');
+    sysLog.info('WORKER', 'Email worker ready — listening on "email-queue"');
+  });
+  worker.on('active', (job) => {
+    log(`▶  Job ${job.id} active (${job.data?.emailType} → ${job.data?.recipientEmail})`);
+    sysLog.info('QUEUE', `Job ${job.id} active — ${job.data?.emailType} → ${job.data?.recipientEmail}`);
+  });
+  worker.on('completed', (job, r) => {
+    log(`✔  Job ${job.id} completed | msgId=${r?.messageId || 'n/a'}`);
+    sysLog.info('EMAIL', `Job ${job.id} delivered to ${job.data?.recipientEmail} | msgId=${r?.messageId || 'n/a'}`);
+  });
+  worker.on('failed', (job, e) => {
+    const attempts = job?.attemptsMade ?? '?';
+    const max = job?.opts?.attempts ?? 3;
+    err(`Job ${job?.id} FAILED (${attempts}/${max}) — ${attempts < max ? 'will retry' : 'EXHAUSTED'}: ${e.message}`);
+    sysLog.error('EMAIL', `Job ${job?.id} failed (${attempts}/${max}) — ${e.message}`, { willRetry: attempts < max });
+    if (attempts < max) log(`   Next retry in ~${(2000 * Math.pow(2, attempts - 1)) / 1000}s`);
+  });
+  worker.on('stalled', (id) => {
+    log(`⚠  Job ${id} stalled — will be requeued`);
+    sysLog.warn('QUEUE', `Job ${id} stalled — will be requeued`);
+  });
+  worker.on('error', (e) => {
+    err('Worker error:', e.message);
+    sysLog.error('WORKER', `Worker error: ${e.message}`);
+  });
+}
+
+startWorker().catch((e) => {
+  err('Fatal error starting worker:', e.message);
+  process.exit(1);
 });
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────
 const shutdown = async (sig) => {
   log(`${sig} — closing worker gracefully…`);
-  await worker.close();
+  if (worker) await worker.close();
   process.exit(0);
 };
 process.on('SIGTERM', () => shutdown('SIGTERM'));

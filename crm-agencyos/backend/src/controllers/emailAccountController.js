@@ -4,6 +4,7 @@ const { ImapFlow } = require('imapflow');
 const EmailAccount = require('../models/EmailAccount');
 const audit = require('../services/auditService');
 const { checkDomainAuth } = require('../utils/domainAuth');
+const { resolveIPv4 } = require('../utils/ipv4');
 
 const isPrivileged = (role) => role === 'admin' || role === 'manager';
 
@@ -145,14 +146,15 @@ exports.deleteAccount = async (req, res, next) => {
 
 // ── Connection tests ──────────────────────────────────────────────────
 async function testSmtp(account) {
+  const ip = await resolveIPv4(account.smtpHost);
   const transporter = nodemailer.createTransport({
-    host: account.smtpHost,
+    host: ip || account.smtpHost,
     port: account.smtpPort,
     secure: account.smtpSecure,
     auth: { user: account.smtpUser, pass: (account.smtpPass || '').replace(/\s/g, '') },
-    tls: { rejectUnauthorized: !account.smtpAllowInsecureTLS },
+    tls: { rejectUnauthorized: !account.smtpAllowInsecureTLS, servername: account.smtpHost },
     connectionTimeout: 8000,
-    family: 4, // avoid ENETUNREACH on hosts with unrouted IPv6 — see campaignWorker.js
+    family: 4, // avoid ENETUNREACH on hosts with unrouted IPv6 — see utils/ipv4.js
   });
   try {
     await transporter.verify();
@@ -165,12 +167,13 @@ async function testSmtp(account) {
 }
 
 async function testImap(account) {
+  const ip = await resolveIPv4(account.imapHost);
   const client = new ImapFlow({
-    host: account.imapHost,
+    host: ip || account.imapHost,
     port: account.imapPort,
     secure: account.imapSecure,
     auth: { user: account.imapUser, pass: (account.imapPass || '').replace(/\s/g, '') },
-    tls: { rejectUnauthorized: !account.imapAllowInsecureTLS },
+    tls: { rejectUnauthorized: !account.imapAllowInsecureTLS, servername: account.imapHost },
     logger: false,
     connectionTimeout: 8000,
   });
