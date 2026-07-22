@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -949,11 +950,18 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
   };
 
   const handleSave = async () => {
+    // A blank/zero Daily Limit isn't "unlimited" here — dispatchOne() treats
+    // 0 as an already-reached cap and stops sending entirely with no
+    // obvious error. Guard against clearing the field by accident.
+    if (!(Number(dailyLimit) > 0)) {
+      toast.error('Daily Limit must be at least 1 — leave it blank and the campaign will never send.');
+      return;
+    }
     setSaving(true);
     try {
       await onSave({
         accounts, stopOnReply, openTracking, linkTracking, textOnly, firstEmailTextOnly,
-        dailyLimit: Number(dailyLimit) || 0,
+        dailyLimit: Number(dailyLimit),
         minGapMinutes: Number(minGapMinutes) || 0,
         randomGapMinutes: Number(randomGapMinutes) || 0,
         maxNewLeadsPerDay: maxNewLeadsPerDay === '' ? null : Number(maxNewLeadsPerDay),
