@@ -197,7 +197,14 @@ exports.diagnoseCampaign = async (req, res, next) => {
       add('error', 'No sending accounts selected. Go to Settings and pick at least one.');
     } else {
       const inactive = accounts.filter((a) => !a.isActive);
-      if (inactive.length) add('warning', `${inactive.length} selected account(s) are turned off (inactive): ${inactive.map((a) => a.email).join(', ')}`);
+      if (inactive.length) {
+        // An account gets auto-deactivated by campaignWorker.js on an SMTP
+        // AUTH failure (bad/expired App Password etc.) — surface the actual
+        // reason here instead of just "it's off", so there's no separate
+        // trip to Connected Mailboxes needed to find out why.
+        add('warning', `${inactive.length} selected account(s) are turned off (inactive): ${inactive.map((a) => a.email).join(', ')}`,
+          inactive.map((a) => ({ email: a.email, error: a.lastSmtpVerifyError || 'No reason recorded — check Connected Mailboxes' })));
+      }
 
       const active = accounts.filter((a) => a.isActive);
       if (!active.length) {

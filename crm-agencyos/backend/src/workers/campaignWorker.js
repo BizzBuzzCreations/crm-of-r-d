@@ -245,11 +245,43 @@ const worker = new Worker('campaign-queue', async (job) => {
     sysLog.info('CAMPAIGN', `Campaign "${campaign.name}" email delivered to ${lead.email} via ${account.email}`);
     return { messageId: info.messageId };
   } catch (smtpErr) {
+    const code = smtpErr.responseCode;
+
+    // An SMTP AUTH failure (535/534/530, or nodemailer's own EAUTH code) is
+    // NOT a statement about the recipient's mailbox — it happens before the
+    // message is even addressed to them, because THIS ACCOUNT'S credentials
+    // are wrong. Classifying it as a bounce (as any other 5xx would be)
+    // would wrongly brand a perfectly good lead as undeliverable forever,
+    // AND — far worse — every other lead the dispatcher subsequently routes
+    // through this same broken account would identically "bounce" too,
+    // silently mislabeling a whole campaign's worth of good addresses.
+    const isAuthFailure = smtpErr.code === 'EAUTH' || (typeof code === 'number' && [530, 534, 535].includes(code));
+
+    if (isAuthFailure) {
+      transporterCache.delete(String(account._id)); // cached creds are dead, don't keep reusing them
+      // Take the account out of rotation immediately so the dispatcher stops
+      // routing more leads through it — surfaces in Connected Mailboxes /
+      // Diagnose as "inactive" with the real error, same as a failed Test.
+      await EmailAccount.updateOne(
+        { _id: account._id },
+        { isActive: false, lastSmtpVerifiedAt: new Date(), lastSmtpVerifyError: (smtpErr.message || 'Authentication failed').slice(0, 300) }
+      );
+      // Not this lead's fault — put it back to pending so it's naturally
+      // retried (via a different account, or this one once re-enabled)
+      // instead of being permanently marked failed/bounced.
+      lead.status = 'pending';
+      lead.accountUsed = null;
+      lead.error = '';
+      await lead.save();
+      err(`SMTP AUTH failed for account ${account.email} — deactivated, lead ${lead.email} reverted to pending: ${smtpErr.message}`);
+      sysLog.error('CAMPAIGN', `Account ${account.email} deactivated after SMTP AUTH failure: ${smtpErr.message}`);
+      return { authFailed: true };
+    }
+
     // 5xx SMTP response = permanent rejection (bad/nonexistent mailbox) —
     // a hard bounce. Retrying won't help, so don't throw (which would make
     // BullMQ retry 3x with backoff) — just record it and move on. Anything
     // else (4xx, connection errors, timeouts) is transient — throw to retry.
-    const code = smtpErr.responseCode;
     const isHardBounce = typeof code === 'number' && code >= 500 && code < 600;
     const maxAttempts = job.opts?.attempts || 3;
     const isLastAttempt = job.attemptsMade + 1 >= maxAttempts;

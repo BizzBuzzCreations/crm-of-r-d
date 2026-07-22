@@ -58,9 +58,14 @@ exports.authorize = (...roles) => (req, res, next) => {
 
 // Role guard that also allows a specific opt-in permission flag on the user
 // doc — e.g. a solo member granted `campaignsAccess: true` without being
-// promoted to manager.
+// promoted to manager. The opt-in flag is only ever meant for internal
+// staff (member/client_relations) — portal `client` logins are a different
+// access model entirely and must never pass here, regardless of what the
+// flag happens to be set to (the Team page UI already excludes client
+// accounts from the picker, but that's not a substitute for the actual
+// authorization boundary enforcing it too).
 exports.authorizeOrFlag = (roles, flagField) => (req, res, next) => {
-  if (roles.includes(req.user.role) || req.user[flagField] === true) return next();
+  if (req.user.role !== 'client' && (roles.includes(req.user.role) || req.user[flagField] === true)) return next();
   return res.status(403).json({
     success: false,
     message: `Role '${req.user.role}' is not authorized for this action`,
