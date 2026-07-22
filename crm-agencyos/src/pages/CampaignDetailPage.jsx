@@ -909,6 +909,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
   const [stopOnReply, setStopOnReply] = useState(s.stopOnReply ?? true);
   const [openTracking, setOpenTracking] = useState(s.openTracking ?? true);
   const [linkTracking, setLinkTracking] = useState(s.linkTracking ?? false);
+  const [includeUnsubscribeLink, setIncludeUnsubscribeLink] = useState(s.includeUnsubscribeLink ?? true);
   const [textOnly, setTextOnly] = useState(s.textOnly ?? false);
   const [firstEmailTextOnly, setFirstEmailTextOnly] = useState(s.firstEmailTextOnly ?? false);
   const [dailyLimit, setDailyLimit] = useState(s.dailyLimit ?? 30);
@@ -927,6 +928,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
     setStopOnReply(s.stopOnReply ?? true);
     setOpenTracking(s.openTracking ?? true);
     setLinkTracking(s.linkTracking ?? false);
+    setIncludeUnsubscribeLink(s.includeUnsubscribeLink ?? true);
     setTextOnly(s.textOnly ?? false);
     setFirstEmailTextOnly(s.firstEmailTextOnly ?? false);
     setDailyLimit(s.dailyLimit ?? 30);
@@ -960,7 +962,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
     setSaving(true);
     try {
       await onSave({
-        accounts, stopOnReply, openTracking, linkTracking, textOnly, firstEmailTextOnly,
+        accounts, stopOnReply, openTracking, linkTracking, includeUnsubscribeLink, textOnly, firstEmailTextOnly,
         dailyLimit: Number(dailyLimit),
         minGapMinutes: Number(minGapMinutes) || 0,
         randomGapMinutes: Number(randomGapMinutes) || 0,
@@ -1010,6 +1012,17 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
         <div className="flex items-center gap-2 py-2 pl-4">
           <input type="checkbox" checked={linkTracking} onChange={(e) => setLinkTracking(e.target.checked)} className="rounded border-slate-300" />
           <span className="text-[12.5px] text-slate-600 dark:text-slate-400">Link tracking (rewrites links to track clicks)</span>
+        </div>
+        <div className="py-2">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={includeUnsubscribeLink} onChange={(e) => setIncludeUnsubscribeLink(e.target.checked)} className="rounded border-slate-300" />
+            <span className="text-[12.5px] text-slate-600 dark:text-slate-400">Include unsubscribe link in every email</span>
+          </label>
+          {!includeUnsubscribeLink && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 pl-6">
+              Commercial email is legally required to include an opt-out mechanism in most jurisdictions (e.g. CAN-SPAM). Turning this off is your call to make, not a deliverability trick — Gmail/Yahoo also penalize bulk senders that lack it.
+            </p>
+          )}
         </div>
       </div>
 
