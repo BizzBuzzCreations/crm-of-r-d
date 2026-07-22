@@ -204,7 +204,10 @@ async function testImap(account) {
   } catch (e) {
     return { ok: false, message: e.message || 'IMAP verification failed' };
   } finally {
-    client.close().catch(() => {});
+    // client.close() is synchronous (no Promise) unlike client.logout() above
+    // — chaining .catch() on it throws "Cannot read properties of undefined
+    // (reading 'catch')", which was masking the real IMAP error underneath.
+    client.close();
   }
 }
 

@@ -44,12 +44,14 @@ function RequireRole({ roles, children }) {
   return children;
 }
 
-// Campaigns: admin/manager always have access; anyone else needs the
-// campaignsAccess flag granted individually from the Team page.
+// Campaigns: admin/manager always have access; internal staff (member/
+// client_relations) need the campaignsAccess flag granted individually from
+// the Team page. Portal `client` logins are a different access model
+// entirely and must never qualify via the flag, even in theory.
 function RequireCampaignsAccess({ children }) {
   const authUser = useAppStore((s) => s.authUser);
   if (!authUser) return <Navigate to="/login" replace />;
-  const allowed = ['admin', 'manager'].includes(authUser.role) || authUser.campaignsAccess === true;
+  const allowed = authUser.role !== 'client' && (['admin', 'manager'].includes(authUser.role) || authUser.campaignsAccess === true);
   if (!allowed) return <Navigate to="/dashboard" replace />;
   return children;
 }

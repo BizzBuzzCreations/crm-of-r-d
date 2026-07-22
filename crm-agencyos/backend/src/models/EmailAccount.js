@@ -37,6 +37,14 @@ const EmailAccountSchema = new mongoose.Schema({
   imapAllowInsecureTLS: { type: Boolean, default: false },
   lastImapVerifiedAt: { type: Date, default: null },
   lastImapVerifyError: { type: String, default: '' },
+  // Reply-sync watermark (see cron/replySync.js) — the highest INBOX UID
+  // already scanned, so each poll only looks at mail that arrived since the
+  // last check instead of re-scanning the whole mailbox. Left null until
+  // the first successful poll, which intentionally only records the current
+  // UID as a baseline without processing anything — a newly IMAP-connected
+  // mailbox can have years of history, and none of it are actual campaign
+  // replies just because IMAP was switched on today.
+  imapLastUid: { type: Number, default: null },
 
   dailySendLimit: { type: Number, default: 100 }, // per-account safety ceiling, separate from per-campaign dailyLimit — this is the RAMP TARGET once warm-up (below) finishes
   isActive:   { type: Boolean, default: true },
