@@ -270,7 +270,11 @@ export default function CampaignDetailPage() {
           <Button variant="outline" onClick={() => setDiagnoseOpen(true)}>
             <Stethoscope size={14} /> Diagnose
           </Button>
-          {campaign.status !== 'completed' && (
+          {/* "completed" isn't necessarily terminal — the backend's startCampaign
+              has no status guard, so adding new leads to a completed campaign
+              and starting it again genuinely resumes sending. Only hide the
+              button once there's truly nothing left to send. */}
+          {(campaign.status !== 'completed' || (stats.pending || 0) > 0) && (
             <Button variant={campaign.status === 'active' ? 'outline' : 'primary'} onClick={handleToggleStatus}>
               {campaign.status === 'active' ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Start</>}
             </Button>
