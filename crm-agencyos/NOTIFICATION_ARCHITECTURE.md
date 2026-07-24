@@ -1,5 +1,8 @@
 # BizzBuzz CRM — Production-Grade Notification Architecture
 
+> **⚠️ NOT YET IMPLEMENTED — this is a design blueprint, not the current system.**
+> What actually exists today: Socket.io + MongoDB-persisted notifications only (see `services/notificationService.js`, `socket/socketHandler.js`, `models/Notification.js`). There is no web-push/VAPID delivery, no BullMQ-driven notification queue, and no `NotificationPreference` schema on `User` — the current model only has a simple `notificationPrefs` Map. Everything below describes a future direction, not shipped behavior.
+
 This document provides a highly scalable, production-grade notification architecture blueprint for the BizzBuzz CRM. It outlines the data schema, delivery mechanics (real-time in-app sockets, browser push, and email), event-driven triggers, and backend queueing systems to ensure reliable, high-performance messaging across all devices.
 
 ---
