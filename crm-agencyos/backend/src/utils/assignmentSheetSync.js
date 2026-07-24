@@ -171,7 +171,7 @@ async function patchRow(sheets, spreadsheetId, tabName, rowIndex, cols, values) 
 async function syncTodoToSheet(todo) {
   if (!isConfigured()) return;
   try {
-    const user = await User.findById(todo.userId).select('department assignmentSheetTab').lean();
+    const user = await User.findById(todo.userId).select('position assignmentSheetTab').lean();
     if (!user?.assignmentSheetTab) return; // not mapped to a tab — nothing to do
 
     const sheets = await getSheetsClient();
@@ -186,7 +186,7 @@ async function syncTodoToSheet(todo) {
     const cols = mapColumns(header.headerRow);
 
     const values = {
-      subject:    user.department || '',
+      subject:    user.position || '',
       assignment: todo.title || '',
       status:     STATUS_MAP[todo.status] || 'Not started',
       startDate:  formatSheetDate(todo.startDate),
