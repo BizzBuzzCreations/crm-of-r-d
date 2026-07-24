@@ -29,6 +29,12 @@ const UserSchema = new mongoose.Schema({
   // Opt-in permission grant — lets admin/manager give a specific member
   // (any role) access to Campaigns without promoting their role.
   campaignsAccess: { type: Boolean, default: false },
+  // Exact tab name in the shared "Assignment tracker" Google Sheet this
+  // user's todos sync into (see utils/assignmentSheetSync.js). Explicit,
+  // admin-set mapping rather than guessed from `name` — a first-name match
+  // is exactly the kind of thing that silently breaks the moment two people
+  // share a name or a tab gets renamed. Empty/unset = sync skipped for them.
+  assignmentSheetTab: { type: String, default: '' },
   notificationPrefs: {
     type: Map,
     of: Boolean,

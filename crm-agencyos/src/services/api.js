@@ -264,6 +264,7 @@ export const settingsAPI = {
   get:    ()          => api.get('/settings'),
   update: (body)      => api.put('/settings', body),
   invite: (body)      => api.post('/settings/users', body),
+  testAssignmentSheet: () => api.get('/settings/assignment-sheet-test'),
 };
 
 // ── Leads

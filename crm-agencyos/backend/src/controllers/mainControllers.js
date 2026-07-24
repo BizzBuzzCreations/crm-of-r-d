@@ -5,6 +5,7 @@ const { Invoice }     = require('../models/Invoice');
 const notifService    = require('../services/notificationService');
 const audit           = require('../services/auditService');
 const emailService    = require('../services/emailService');
+const { syncTodoToSheet } = require('../utils/assignmentSheetSync');
 
 // Generate a random readable password: 12 chars, alphanumeric
 function generatePassword() {
@@ -722,6 +723,9 @@ exports.createTodo = async (req, res, next) => {
       targetId: todo._id, targetModel: 'Todo', targetTitle: todo.title,
       metadata: { priority: todo.priority, status: todo.status, assignedTo: String(todo.userId ?? '') },
     });
+    // Fire-and-forget — a Sheets outage or bad credentials must never fail
+    // (or even slow down) the actual todo creation response.
+    syncTodoToSheet(todo).catch(() => {});
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
@@ -784,6 +788,7 @@ exports.updateTodo = async (req, res, next) => {
 
     const io = req.app.get('io');
     io?.emit('todo:updated', todo);
+    syncTodoToSheet(todo).catch(() => {});
     res.json({ success: true, data: todo });
   } catch (err) { next(err); }
 };

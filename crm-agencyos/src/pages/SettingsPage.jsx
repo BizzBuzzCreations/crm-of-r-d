@@ -13,6 +13,7 @@ import { useShallow } from 'zustand/shallow';
 import { Page, Toggle, Button, ConfirmDialog } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
 import EmailAccountsManager from '../components/campaigns/EmailAccountsManager';
+import EmailTemplatesManager from '../components/campaigns/EmailTemplatesManager';
 
 // ── Shared Helper: CSV / JSON Downloader ───────────────────────────
 function downloadCSV(rows, filename) {
@@ -851,40 +852,34 @@ function AssignmentRulesSection({ settings, onSave }) {
   );
 }
 
-// 8. Shared Email & Snippet Templates (Admins & Managers)
+// 8. Shared Email Templates (real Campaign template library, see
+// EmailTemplatesManager) & Snippets (Admins & Managers)
 function TemplatesSection({ settings, onSave }) {
-  const [templates, setTemplates] = useState(settings?.emailTemplates || []);
-  const [tName, setTName] = useState('');
-  const [tSubject, setTSubject] = useState('');
-  const [tBody, setTBody] = useState('');
-
   const [snippets, setSnippets] = useState(settings?.snippetLibrary || []);
   const [sTrigger, setSTrigger] = useState('');
   const [sText, setSText] = useState('');
 
-  const handleAddTemplate = () => {
-    if (!tName.trim() || !tSubject.trim() || !tBody.trim()) {
-      toast.error('All template fields are required');
-      return;
-    }
-    setTemplates([...templates, { name: tName.trim(), subject: tSubject.trim(), body: tBody.trim() }]);
-    setTName('');
-    setTSubject('');
-    setTBody('');
-  };
-
   const handleAddSnippet = () => {
-    if (!sTrigger.trim() || !sText.trim()) {
+    const trigger = sTrigger.trim();
+    if (!trigger || !sText.trim()) {
       toast.error('Snippet trigger and replacement are required');
       return;
     }
-    setSnippets([...snippets, { trigger: sTrigger.trim(), text: sText.trim() }]);
+    if (snippets.some((s) => s.trigger === trigger)) {
+      toast.error(`A snippet with trigger "${trigger}" already exists`);
+      return;
+    }
+    // The Compose editor's live picker only activates on ";" — auto-prefix
+    // it if forgotten so this snippet actually shows up when browsing,
+    // rather than silently only working via the type-then-space shortcut.
+    const normalizedTrigger = trigger.startsWith(';') ? trigger : `;${trigger}`;
+    setSnippets([...snippets, { trigger: normalizedTrigger, text: sText.trim() }]);
     setSTrigger('');
     setSText('');
   };
 
   const handleSave = () => {
-    onSave({ emailTemplates: templates, snippetLibrary: snippets });
+    onSave({ snippetLibrary: snippets });
   };
 
   return (
@@ -894,35 +889,13 @@ function TemplatesSection({ settings, onSave }) {
       </h3>
 
       <div className="space-y-4">
-        <h4 className="text-[14px] font-bold text-slate-800 dark:text-slate-250">Shared Email Templates</h4>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {templates.map((t, idx) => (
-            <div key={idx} className="p-4 rounded-xl border border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-900/30 flex flex-col justify-between">
-              <div>
-                <p className="text-[14px] font-bold text-slate-800 dark:text-slate-250">{t.name}</p>
-                <p className="text-[12px] font-semibold text-indigo-500 mt-0.5">Subj: {t.subject}</p>
-                <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mt-2 line-clamp-3 whitespace-pre-line">{t.body}</p>
-              </div>
-              <div className="flex justify-end mt-4">
-                <button onClick={() => setTemplates(templates.filter((_, i) => i !== idx))} className="text-slate-400 hover:text-red-500">
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </div>
-          ))}
+        <div>
+          <h4 className="text-[14px] font-bold text-slate-800 dark:text-slate-250">Shared Email Templates</h4>
+          <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
+            The same library used by the "Templates" button in every campaign's Compose tab — create or edit one here and it's immediately available there, and vice versa.
+          </p>
         </div>
-
-        {/* Add template fields */}
-        <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-250 dark:border-slate-750 space-y-3">
-          <p className="text-[13px] font-bold text-slate-800 dark:text-slate-250">Create Shared Email Template</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <input placeholder="Template Name (e.g. Intro)" className="form-input text-[13px] py-1.5" value={tName} onChange={(e) => setTName(e.target.value)} />
-            <input placeholder="Email Subject" className="form-input text-[13px] py-1.5" value={tSubject} onChange={(e) => setTSubject(e.target.value)} />
-          </div>
-          <textarea placeholder="Write email body text..." className="form-input text-[13px] py-2 h-20 resize-none" value={tBody} onChange={(e) => setTBody(e.target.value)} />
-          <Button variant="outline" onClick={handleAddTemplate} className="px-3 py-1.5"><Plus size={13} className="mr-1" /> Add Template</Button>
-        </div>
+        <EmailTemplatesManager />
       </div>
 
       <div className="space-y-4 pt-6 border-t border-slate-200 dark:border-slate-850">
@@ -953,8 +926,11 @@ function TemplatesSection({ settings, onSave }) {
         </div>
       </div>
 
+      {/* Templates save immediately per-item via EmailTemplatesManager above —
+          this button only persists the snippet list, which still uses the
+          generic settings blob (batch save, unrelated to campaigns). */}
       <Button variant="primary" onClick={handleSave}>
-        <Save size={14} /> Update Shared Communication Templates
+        <Save size={14} /> Save Snippets Library
       </Button>
     </div>
   );

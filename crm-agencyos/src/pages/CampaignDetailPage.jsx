@@ -970,6 +970,7 @@ function ComposeTab({ campaign, onSave }) {
         <p className="text-[11.5px] text-slate-500 dark:text-slate-400 mt-1.5">
           Merge tags are replaced per-recipient at send time. Unsubscribe footer is added automatically.
           Use the <Code2Inline /> button in the toolbar to edit raw HTML directly.
+          Type <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">;</code> to browse your saved snippets (Settings → Communication), or type a snippet's trigger and press space to expand it instantly.
         </p>
       </div>
 
