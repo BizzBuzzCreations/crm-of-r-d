@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee, Edit3, Shield, ShieldCheck, Crown, AlertTriangle, Users, ClipboardList } from 'lucide-react';
+import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee, Edit3, Shield, ShieldCheck, Crown, AlertTriangle, Users, ClipboardList, Sheet, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -137,6 +137,7 @@ function EditMemberModal({ open, onClose, user, onSave, currentUserRole, isCurre
         joinDate:   user.joinDate || '',
         password:   '',
         campaignsAccess: user.campaignsAccess || false,
+        assignmentSheetTab: user.assignmentSheetTab || '',
       });
     }
   }, [user, open, reset]);
@@ -337,6 +338,20 @@ function EditMemberModal({ open, onClose, user, onSave, currentUserRole, isCurre
               </p>
             </div>
           </label>
+        )}
+
+        {/* Assignment tracker Google Sheet tab mapping */}
+        {canManage(currentUserRole) && (
+          <div>
+            <Input
+              label="Assignment Sheet Tab"
+              placeholder="e.g. Tejash (exact tab name in the Google Sheet)"
+              {...register('assignmentSheetTab')}
+            />
+            <p className="text-[11.5px] text-slate-500 dark:text-slate-400 mt-1">
+              Must exactly match this person's tab name in the shared Assignment Tracker Google Sheet — their todos sync into it automatically. Leave blank to skip syncing for them.
+            </p>
+          </div>
         )}
 
         {/* Password Reset */}
@@ -796,8 +811,76 @@ function MemberDetailModal({ open, onClose, user, logs, loading, tasks, todos, a
 }
 
 // ── Main TeamPage ─────────────────────────────────────────────
+// ── Assignment Sheet connection test ────────────────────────────
+function AssignmentSheetTestModal({ open, onClose, onTest }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) { setResult(null); setError(''); return; }
+    setLoading(true);
+    onTest()
+      .then(setResult)
+      .catch((err) => setError(err.response?.data?.message || 'Test failed'))
+      .finally(() => setLoading(false));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <Modal open={open} onClose={onClose} title="Assignment Sheet Connection" size="md">
+      <div className="px-6 py-5">
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-slate-400">
+            <Loader2 size={20} className="animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/10">
+            <XCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-[13px] text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        ) : result ? (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2.5 p-3 rounded-xl border border-emerald-100 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-900/10">
+              <CheckCircle2 size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+              <p className="text-[13px] text-emerald-700 dark:text-emerald-400">
+                Connected to <strong>{result.spreadsheetTitle || 'the spreadsheet'}</strong> — found {result.tabsFound.length} tab(s).
+              </p>
+            </div>
+
+            {result.badMappings.length > 0 && (
+              <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/10">
+                <p className="text-[12.5px] font-semibold text-amber-700 dark:text-amber-400 mb-1">
+                  {result.badMappings.length} user(s) mapped to a tab that doesn't exist:
+                </p>
+                <ul className="text-[12px] text-amber-600 dark:text-amber-400 space-y-0.5">
+                  {result.badMappings.map((u) => (
+                    <li key={u.name}>{u.name} → "{u.tab}" not found</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div>
+              <p className="text-[12px] font-semibold text-slate-500 dark:text-slate-400 mb-1">Users currently mapped</p>
+              {result.usersMapped.length === 0 ? (
+                <p className="text-[12.5px] text-slate-400">None yet — set "Assignment Sheet Tab" when editing a team member.</p>
+              ) : (
+                <ul className="text-[12.5px] text-slate-600 dark:text-slate-300 space-y-0.5">
+                  {result.usersMapped.map((u) => (
+                    <li key={u.name}>{u.name} → {u.tab}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 export default function TeamPage() {
-  const { authUser, users, tasks, todos, addUser, deleteUser, updateUser, systemSettings } = useAppStore(useShallow((s) => ({
+  const { authUser, users, tasks, todos, addUser, deleteUser, updateUser, systemSettings, testAssignmentSheet } = useAppStore(useShallow((s) => ({
     authUser:       s.authUser,
     users:          s.users,
     tasks:          s.tasks,
@@ -806,6 +889,7 @@ export default function TeamPage() {
     deleteUser:     s.deleteUser,
     updateUser:     s.updateUser,
     systemSettings: s.systemSettings,
+    testAssignmentSheet: s.testAssignmentSheet,
   })));
 
   const departments = systemSettings?.departments?.length ? systemSettings.departments : DEFAULT_DEPARTMENTS;
@@ -826,6 +910,7 @@ export default function TeamPage() {
   // Edit modal states
   const [showEdit,   setShowEdit]   = useState(false);
   const [editingUser, setEditingUser] = useState(null);
+  const [showSheetTest, setShowSheetTest] = useState(false);
 
   const handleSelectUser = async (user) => {
     setSelectedUser(user);
@@ -970,12 +1055,23 @@ export default function TeamPage() {
           />
           {/* Add Member — admin/manager only */}
           {isManager && (
-            <Button variant="primary" size="sm" onClick={() => setShowAdd(true)}>
-              <Plus size={14} /> Add Member
-            </Button>
+            <>
+              <Button variant="outline" size="sm" onClick={() => setShowSheetTest(true)}>
+                <Sheet size={14} /> Test Sheet Sync
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => setShowAdd(true)}>
+                <Plus size={14} /> Add Member
+              </Button>
+            </>
           )}
         </div>
       </div>
+
+      <AssignmentSheetTestModal
+        open={showSheetTest}
+        onClose={() => setShowSheetTest(false)}
+        onTest={testAssignmentSheet}
+      />
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-5 flex-wrap">

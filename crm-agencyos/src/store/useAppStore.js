@@ -892,6 +892,15 @@ const useAppStore = create((set, get, store) => ({
       throw err;
     }
   },
+  testAssignmentSheet: async () => {
+    try {
+      const { data } = await settingsAPI.testAssignmentSheet();
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Assignment sheet test failed');
+      throw err;
+    }
+  },
 
   // ── Campaigns ─────────────────────────────────────────────────
   loadCampaigns: async () => {

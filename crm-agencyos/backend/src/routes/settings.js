@@ -13,4 +13,6 @@ router.route('/')
 router.route('/users')
   .post(authorize('admin', 'manager'), ctrl.inviteUser);
 
+router.get('/assignment-sheet-test', authorize('admin', 'manager'), ctrl.testAssignmentSheet);
+
 module.exports = router;

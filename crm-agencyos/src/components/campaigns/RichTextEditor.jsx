@@ -1,5 +1,8 @@
 import { forwardRef, useImperativeHandle, useState, useRef, useEffect } from 'react';
-import { useEditor, EditorContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
+import { useEditor, EditorContent, NodeViewWrapper, ReactNodeViewRenderer, ReactRenderer } from '@tiptap/react';
+import { Extension, InputRule } from '@tiptap/core';
+import { PluginKey } from '@tiptap/pm/state';
+import Suggestion from '@tiptap/suggestion';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
@@ -14,8 +17,161 @@ import {
   Undo2, Redo2, Code2, Eye, Loader2, X,
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
+import useAppStore from '../../store/useAppStore';
 
 const COLORS = ['#0f172a', '#dc2626', '#ea580c', '#d97706', '#16a34a', '#0ea5e9', '#4f46e5', '#7c3aed', '#db2777'];
+
+// ── Live snippet-picker popup (type ";" to browse) ────────────────────────
+// Keyboard nav (Up/Down/Enter) + click-to-select, following TipTap's
+// documented mention/suggestion-list pattern. `command` here is the
+// Suggestion plugin's own dispatcher (threaded in as a prop by the render()
+// lifecycle below) — calling it with a snippet re-enters our top-level
+// `command` handler in SnippetExpander with that snippet as `props`.
+const SnippetSuggestionList = forwardRef(function SnippetSuggestionList({ items, command }, ref) {
+  const [selected, setSelected] = useState(0);
+
+  useEffect(() => { setSelected(0); }, [items]);
+
+  const select = (index) => {
+    const item = items[index];
+    if (item) command(item);
+  };
+
+  useImperativeHandle(ref, () => ({
+    onKeyDown: ({ event }) => {
+      if (event.key === 'ArrowUp') { setSelected((s) => (s + items.length - 1) % items.length); return true; }
+      if (event.key === 'ArrowDown') { setSelected((s) => (s + 1) % items.length); return true; }
+      if (event.key === 'Enter' || event.key === 'Tab') { select(selected); return true; }
+      return false;
+    },
+  }), [items, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!items.length) return null;
+
+  return (
+    <div className="w-64 max-h-64 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-modal p-1">
+      {items.map((item, i) => (
+        <button
+          key={item.trigger}
+          type="button"
+          onMouseDown={(e) => e.preventDefault()} // keep editor focus/selection intact
+          onClick={() => select(i)}
+          className={cn(
+            'w-full text-left px-2.5 py-1.5 rounded-lg flex flex-col gap-0.5',
+            i === selected ? 'bg-primary-50 dark:bg-primary-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+          )}
+        >
+          <span className="font-mono text-[11.5px] font-semibold text-primary-600 dark:text-primary-400">{item.trigger}</span>
+          <span className="text-[11.5px] text-slate-500 dark:text-slate-400 truncate">{item.text}</span>
+        </button>
+      ))}
+    </div>
+  );
+});
+
+function positionFloatingEl(el, clientRectFn) {
+  const rect = clientRectFn?.();
+  if (!rect) return;
+  el.style.left = `${rect.left + window.scrollX}px`;
+  el.style.top = `${rect.bottom + window.scrollY + 4}px`;
+}
+
+// ── Shared Snippets Library (Settings -> Communication) ───────────────────
+// Two ways to use it, both built on TipTap's own mechanisms rather than
+// hand-rolled keystroke interception:
+//  1. Type a configured trigger (e.g. ";greet") then a space — InputRule
+//     expands it immediately, the same system TipTap uses internally for
+//     markdown-style auto-formatting.
+//  2. Type just the activation character (";") — the Suggestion plugin (the
+//     same utility TipTap ships for @mention/slash-command pickers) opens a
+//     browsable, filterable, keyboard-navigable list so you don't have to
+//     already know a trigger exists to find it.
+//
+// `getSnippets` is a getter, not a captured array: useEditor() only builds
+// the extension list once and the editor instance persists across
+// re-renders, so a plain closed-over array would go stale the moment the
+// snippet library changes. The getter always reads through to a ref that's
+// kept fresh — see snippetsRef below.
+const SnippetExpander = Extension.create({
+  name: 'snippetExpander',
+  addOptions() {
+    return { getSnippets: () => [] };
+  },
+  addInputRules() {
+    return [
+      new InputRule({
+        // Matches the run of non-space characters immediately before a
+        // just-typed space — i.e. "the word that was just finished".
+        find: /(\S+)\s$/,
+        handler: ({ state, range, match }) => {
+          const word = match[1];
+          const snippets = this.options.getSnippets() || [];
+          const found = snippets.find((s) => s.trigger?.trim() === word);
+          if (!found) return null; // not a configured trigger — the space inserts normally, nothing else happens
+          // Replace only the trigger word, leaving the trailing space the
+          // user just typed untouched, so spacing after expansion stays natural.
+          const wordEnd = range.to - (match[0].length - word.length);
+          state.tr.insertText(found.text || '', range.from, wordEnd);
+        },
+      }),
+    ];
+  },
+  addProseMirrorPlugins() {
+    return [
+      Suggestion({
+        editor: this.editor,
+        char: ';',
+        allowSpaces: false,
+        pluginKey: new PluginKey('snippetSuggestion'),
+        // Triggers stored with their leading ";" (matching the Settings UI's
+        // own placeholder convention) still need to match a query that
+        // never includes the activation character itself.
+        items: ({ query }) => {
+          const snippets = this.options.getSnippets() || [];
+          const q = query.toLowerCase();
+          return snippets
+            .filter((s) => (s.trigger || '').replace(/^;/, '').toLowerCase().includes(q))
+            .slice(0, 8);
+        },
+        command: ({ editor, range, props: item }) => {
+          editor.chain().focus().insertContentAt(range, item.text || '').run();
+        },
+        render: () => {
+          let component = null;
+
+          const mount = (props) => {
+            component = new ReactRenderer(SnippetSuggestionList, { props, editor: props.editor });
+            component.element.style.position = 'absolute';
+            component.element.style.zIndex = '50';
+            document.body.appendChild(component.element);
+            positionFloatingEl(component.element, props.clientRect);
+          };
+          const unmount = () => {
+            if (!component) return;
+            component.destroy();
+            component.element.remove();
+            component = null;
+          };
+
+          return {
+            onStart: (props) => { if (props.items.length) mount(props); },
+            onUpdate: (props) => {
+              if (!props.items.length) { unmount(); return; }
+              if (!component) mount(props);
+              else { component.updateProps(props); positionFloatingEl(component.element, props.clientRect); }
+            },
+            onKeyDown: (props) => {
+              if (!component) return false;
+              if (props.event.key === 'Escape') { unmount(); return true; }
+              return component.ref?.onKeyDown(props) || false;
+            },
+            onExit: unmount,
+          };
+        },
+      }),
+    ];
+  },
+});
 
 // ── Inline-style string helpers ──────────────────────────────────────────
 // The image's `style` attribute is the single source of truth for both size
@@ -250,6 +406,13 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState(value || '');
 
+  // Kept fresh via effect below so SnippetExpander's getter (captured once,
+  // at editor-creation time) always sees the current library, not whatever
+  // it was when this component first mounted.
+  const snippetLibrary = useAppStore((s) => s.systemSettings?.snippetLibrary || []);
+  const snippetsRef = useRef(snippetLibrary);
+  useEffect(() => { snippetsRef.current = snippetLibrary; }, [snippetLibrary]);
+
   // Custom drag-to-resize for the whole editor box (width + height). Native
   // CSS `resize` on a contenteditable element turned out unreliable here —
   // this is the same manual mousemove/mouseup approach already used for
@@ -298,6 +461,7 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
       Link.configure({ openOnClick: false, autolink: false }),
       ImageExt,
       Placeholder.configure({ placeholder: placeholder || 'Write your email…' }),
+      SnippetExpander.configure({ getSnippets: () => snippetsRef.current }),
     ],
     content: value || '',
     onUpdate: ({ editor: ed }) => onChange(ed.getHTML()),
@@ -411,7 +575,14 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
         {sourceMode ? (
           <textarea
             value={sourceHtml}
-            onChange={(e) => setSourceHtml(e.target.value)}
+            onChange={(e) => {
+              // Push straight to the parent on every keystroke, not just when
+              // leaving source mode — saving directly from source view (never
+              // toggling back to visual) used to submit stale/empty content
+              // because the parent never heard about the edit at all.
+              setSourceHtml(e.target.value);
+              onChange(e.target.value);
+            }}
             rows={14}
             spellCheck={false}
             className={cn(

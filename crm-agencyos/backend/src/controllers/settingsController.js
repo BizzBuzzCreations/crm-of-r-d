@@ -1,5 +1,6 @@
 const { SystemSettings } = require('../models/index');
 const User = require('../models/User');
+const { getSheetsClient, isConfigured } = require('../utils/googleSheetsClient');
 
 // Defaults that must exist in every document — used to patch legacy docs
 const FIELD_DEFAULTS = {
@@ -119,5 +120,49 @@ exports.inviteUser = async (req, res, next) => {
     io?.emit('user:updated', newUser);
 
     res.status(201).json({ success: true, data: newUser });
+  } catch (err) { next(err); }
+};
+
+// @GET /api/settings/assignment-sheet-test — verifies the service account
+// can actually reach the configured spreadsheet, and cross-checks every
+// user's assignmentSheetTab against the tab names that really exist there
+// (a typo'd tab name is otherwise a silent no-op — todos just never sync,
+// with nothing in the UI to explain why).
+exports.testAssignmentSheet = async (req, res, next) => {
+  try {
+    if (!isConfigured()) {
+      return res.status(400).json({
+        success: false,
+        message: 'GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY, and GOOGLE_ASSIGNMENT_SHEET_ID must all be set in backend/.env',
+      });
+    }
+
+    const spreadsheetId = process.env.GOOGLE_ASSIGNMENT_SHEET_ID;
+    let meta;
+    try {
+      const sheets = await getSheetsClient();
+      meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'properties.title,sheets.properties.title' });
+    } catch (err) {
+      const reason = err.response?.data?.error?.message || err.message;
+      return res.status(400).json({
+        success: false,
+        message: `Could not access the spreadsheet — ${reason}. Make sure it's shared with the service account's email as an Editor.`,
+      });
+    }
+
+    const tabNames = (meta.data.sheets || []).map((s) => s.properties.title);
+    const users = await User.find({ isDeleted: { $ne: true } }).select('name assignmentSheetTab').lean();
+    const mapped = users.filter((u) => u.assignmentSheetTab);
+    const badMappings = mapped.filter((u) => !tabNames.includes(u.assignmentSheetTab));
+
+    res.json({
+      success: true,
+      data: {
+        spreadsheetTitle: meta.data.properties?.title || '',
+        tabsFound: tabNames,
+        usersMapped: mapped.map((u) => ({ name: u.name, tab: u.assignmentSheetTab })),
+        badMappings: badMappings.map((u) => ({ name: u.name, tab: u.assignmentSheetTab })),
+      },
+    });
   } catch (err) { next(err); }
 };
