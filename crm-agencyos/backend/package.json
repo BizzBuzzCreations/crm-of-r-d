@@ -11,6 +11,7 @@
     "campaign-worker": "node src/workers/campaignWorker.js",
     "campaign-worker:dev": "nodemon src/workers/campaignWorker.js",
     "seed": "node src/seed.js",
+    "backfill-lead-sync": "node src/backfillLeadPipelineSync.js",
     "admin": "node src/adminData.js"
   },
   "dependencies": {

@@ -92,16 +92,24 @@ async function doSync(campaignLead, reason) {
   }
 
   // reason === 'replied'
+  const alreadyReplied = existing.tags?.includes('Replied');
   await Lead.updateOne({ _id: existing._id }, {
     $set: { lastContactDate: new Date() },
-    $inc: { interactionsCount: 1 },
     $addToSet: { tags: { $each: ['Campaign', 'Replied'] } },
-    $push: { activities: {
-      type: 'note',
-      text: `📨 Replied to campaign "${campaignName}"`,
-      performedBy: 'System',
-    } },
   });
+  if (!alreadyReplied) {
+    // Only the first reply bumps the interaction count and logs a note —
+    // repeat calls (e.g. a re-run of the historical backfill script) must
+    // not keep incrementing, same as the "hot" branch's alreadyHot guard.
+    await Lead.updateOne({ _id: existing._id }, {
+      $inc: { interactionsCount: 1 },
+      $push: { activities: {
+        type: 'note',
+        text: `📨 Replied to campaign "${campaignName}"`,
+        performedBy: 'System',
+      } },
+    });
+  }
   return existing;
 }
 
