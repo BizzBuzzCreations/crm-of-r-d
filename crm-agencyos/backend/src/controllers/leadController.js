@@ -35,6 +35,13 @@ const calculateHealthScore = (lead) => {
     score -= 10;
   }
 
+  // 5. Repeat engagement override: opening a campaign email 3+ times is a
+  // strong buying signal on its own — guarantee the Hot bucket (>=75) even
+  // if other factors (deal value, recency) are still thin.
+  if ((lead.emailOpens || 0) >= 3) {
+    score = Math.max(score, 80);
+  }
+
   return Math.min(100, Math.max(0, score));
 };
 

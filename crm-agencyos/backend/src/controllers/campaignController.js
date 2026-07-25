@@ -10,6 +10,7 @@ const { fetchGoogleSheetCsv } = require('../utils/googleSheet');
 const { effectiveDailyLimit } = require('../utils/warmup');
 const { isWithinSendingWindow } = require('../utils/sendingWindow');
 const { checkCampaignReady } = require('../utils/campaignReadiness');
+const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 
 const STUCK_THRESHOLD_MS = 15 * 60000; // scheduled/sending longer than this = likely a queue/worker problem
 function startOfToday() {
@@ -547,12 +548,16 @@ exports.verifyAllLeads = async (req, res, next) => {
 // automatic reply-detection integration is built.
 exports.markReplied = async (req, res, next) => {
   try {
+    const existing = await CampaignLead.findOne({ _id: req.params.leadId, campaign: req.params.id }).select('status');
+    if (!existing) return res.status(404).json({ success: false, message: 'Lead not found in this campaign' });
+    const wasAlreadyReplied = existing.status === 'replied';
+
     const lead = await CampaignLead.findOneAndUpdate(
       { _id: req.params.leadId, campaign: req.params.id },
       { status: 'replied', repliedAt: new Date() },
       { new: true }
     );
-    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found in this campaign' });
+    if (!wasAlreadyReplied) syncCampaignLeadToPipeline(lead, 'replied').catch(() => {});
     res.json({ success: true, data: lead });
   } catch (err) { next(err); }
 };

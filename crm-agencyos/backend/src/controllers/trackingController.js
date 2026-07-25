@@ -4,6 +4,12 @@
 // page). No `protect` middleware on this router; identity comes entirely
 // from the unguessable per-lead `token`.
 const CampaignLead = require('../models/CampaignLead');
+const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
+
+// A lead that opens a campaign email this many times or more is a strong
+// repeat-engagement signal — auto-surfaced in the B2B Leads Pipeline. Keep
+// in sync with HOT_OPEN_THRESHOLD in CampaignDetailPage.jsx (frontend badge).
+const HOT_OPEN_THRESHOLD = 3;
 
 // 1x1 transparent PNG
 const PIXEL = Buffer.from(
@@ -15,7 +21,7 @@ const PIXEL = Buffer.from(
 exports.trackOpen = async (req, res) => {
   const token = String(req.params.token || '').replace(/\.png$/i, '');
   const now = new Date();
-  CampaignLead.updateOne(
+  CampaignLead.findOneAndUpdate(
     { token },
     {
       $inc: { openCount: 1 },
@@ -23,8 +29,16 @@ exports.trackOpen = async (req, res) => {
       // Keep a bounded history (last 50) — enough to distinguish a genuine
       // repeat-open pattern from a single prefetch, without unbounded growth.
       $push: { opens: { $each: [{ at: now, ip: req.ip || '', userAgent: req.headers['user-agent'] || '' }], $slice: -50 } },
+    },
+    { new: true }
+  ).then((updated) => {
+    // Called on every open past the threshold, not just the first — safe/
+    // idempotent by design (see leadPipelineSync.js), so it can't lose count
+    // under rapid-fire opens racing each other.
+    if (updated && updated.openCount >= HOT_OPEN_THRESHOLD) {
+      syncCampaignLeadToPipeline(updated, 'hot').catch(() => {});
     }
-  ).catch(() => {}); // fire-and-forget — never delay/fail the pixel response
+  }).catch(() => {}); // fire-and-forget — never delay/fail the pixel response
 
   res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
   res.send(PIXEL);

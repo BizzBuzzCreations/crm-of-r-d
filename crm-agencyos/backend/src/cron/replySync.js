@@ -12,6 +12,7 @@ const { ImapFlow } = require('imapflow');
 const EmailAccount = require('../models/EmailAccount');
 const CampaignLead = require('../models/CampaignLead');
 const { resolveIPv4 } = require('../utils/ipv4');
+const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 
 let tickRunning = false;
 
@@ -86,12 +87,18 @@ async function syncAccount(account) {
       }
 
       if (fromAddresses.size) {
-        const result = await CampaignLead.updateMany(
-          { accountUsed: account._id, status: 'sent', email: { $in: [...fromAddresses.keys()] } },
-          { status: 'replied', repliedAt: new Date() }
+        const matched = await CampaignLead.find(
+          { accountUsed: account._id, status: 'sent', email: { $in: [...fromAddresses.keys()] } }
         );
-        if (result.modifiedCount) {
-          console.log(`[ReplySync] ${account.email}: ${result.modifiedCount} lead(s) marked replied`);
+        if (matched.length) {
+          await CampaignLead.updateMany(
+            { _id: { $in: matched.map((m) => m._id) } },
+            { status: 'replied', repliedAt: new Date() }
+          );
+          console.log(`[ReplySync] ${account.email}: ${matched.length} lead(s) marked replied`);
+          for (const m of matched) {
+            syncCampaignLeadToPipeline(m, 'replied').catch(() => {});
+          }
         }
       }
 

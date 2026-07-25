@@ -12,7 +12,7 @@ import useAppStore, { sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { StatCard, Avatar, Badge, Page } from '../components/ui';
 import { PRODUCTIVITY_DATA, TASK_STATUS_DIST, REVENUE_DATA } from '../mockData';
-import { MEETING_TYPE_CONFIG, canManage, cn, getId } from '../utils/helpers';
+import { MEETING_TYPE_CONFIG, canManage, cn, getId, statusDist } from '../utils/helpers';
 
 // ── Greeting ─────────────────────────────────────────────────
 function getGreeting() {
@@ -22,32 +22,6 @@ function getGreeting() {
   return            { text: 'Good evening' };
 }
 
-// ── Task/Todo status palette (shared — both use the same 4-state vocabulary:
-// pending, in-progress, sent-for-approval, completed) ─────────────────────
-// Slots 1/2/4/3 of the app's validated categorical palette (blue/orange/aqua/
-// yellow), reordered so every pair that's actually adjacent in the rendered
-// donut ring — including the wrap where the last segment touches the first —
-// passes CVD-safety. The one pair that fails (yellow vs orange) is the
-// diagonal/opposite pair in a 4-segment ring, which never touches, so it
-// doesn't apply to this chart form. Verified with scripts/validate_palette.js
-// (dataviz skill) in both light and dark mode before shipping.
-const STATUS_COLOR = {
-  pending:            { light: '#eb6834', dark: '#d95926', label: 'Pending' },
-  'in-progress':      { light: '#2a78d6', dark: '#3987e5', label: 'In Progress' },
-  'sent-for-approval':{ light: '#eda100', dark: '#c98500', label: 'Approval' },
-  completed:          { light: '#1baf7a', dark: '#199e70', label: 'Completed' },
-};
-const STATUS_ORDER = ['pending', 'in-progress', 'sent-for-approval', 'completed'];
-
-function statusDist(items, darkMode) {
-  const counts = STATUS_ORDER.map((key) => items.filter((i) => i.status === key).length);
-  if (counts.every((c) => c === 0)) return [];
-  return STATUS_ORDER.map((key, i) => ({
-    name: STATUS_COLOR[key].label,
-    value: counts[i],
-    color: STATUS_COLOR[key][darkMode ? 'dark' : 'light'],
-  }));
-}
 
 // ── Heatmap config ────────────────────────────────────────────
 const MONTHS   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

@@ -35,7 +35,7 @@ const LeadSchema = new mongoose.Schema({
   },
   source: {
     type: String,
-    enum: ['Manual', 'Import', 'Web Form'],
+    enum: ['Manual', 'Import', 'Web Form', 'Campaign'],
     default: 'Manual'
   },
   assignedTo:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
