@@ -12,7 +12,7 @@ import useAppStore, { sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { StatCard, Avatar, Badge, Page } from '../components/ui';
 import { PRODUCTIVITY_DATA, TASK_STATUS_DIST, REVENUE_DATA } from '../mockData';
-import { MEETING_TYPE_CONFIG, canManage, cn } from '../utils/helpers';
+import { MEETING_TYPE_CONFIG, canManage, cn, getId } from '../utils/helpers';
 
 // ── Greeting ─────────────────────────────────────────────────
 function getGreeting() {
@@ -20,6 +20,33 @@ function getGreeting() {
   if (h < 12) return { text: 'Good morning' };
   if (h < 17) return { text: 'Good afternoon' };
   return            { text: 'Good evening' };
+}
+
+// ── Task/Todo status palette (shared — both use the same 4-state vocabulary:
+// pending, in-progress, sent-for-approval, completed) ─────────────────────
+// Slots 1/2/4/3 of the app's validated categorical palette (blue/orange/aqua/
+// yellow), reordered so every pair that's actually adjacent in the rendered
+// donut ring — including the wrap where the last segment touches the first —
+// passes CVD-safety. The one pair that fails (yellow vs orange) is the
+// diagonal/opposite pair in a 4-segment ring, which never touches, so it
+// doesn't apply to this chart form. Verified with scripts/validate_palette.js
+// (dataviz skill) in both light and dark mode before shipping.
+const STATUS_COLOR = {
+  pending:            { light: '#eb6834', dark: '#d95926', label: 'Pending' },
+  'in-progress':      { light: '#2a78d6', dark: '#3987e5', label: 'In Progress' },
+  'sent-for-approval':{ light: '#eda100', dark: '#c98500', label: 'Approval' },
+  completed:          { light: '#1baf7a', dark: '#199e70', label: 'Completed' },
+};
+const STATUS_ORDER = ['pending', 'in-progress', 'sent-for-approval', 'completed'];
+
+function statusDist(items, darkMode) {
+  const counts = STATUS_ORDER.map((key) => items.filter((i) => i.status === key).length);
+  if (counts.every((c) => c === 0)) return [];
+  return STATUS_ORDER.map((key, i) => ({
+    name: STATUS_COLOR[key].label,
+    value: counts[i],
+    color: STATUS_COLOR[key][darkMode ? 'dark' : 'light'],
+  }));
 }
 
 // ── Heatmap config ────────────────────────────────────────────
@@ -334,7 +361,7 @@ const ChartTooltip = ({ active, payload, label }) => {
 // ── Main Page ─────────────────────────────────────────────────
 export default function DashboardPage() {
   const navigate = useNavigate();
-    const { authUser, tasks, todos, clients, meetings, users, revenueSummary, fetchRevenueSummary } = useAppStore(useShallow((s) => ({
+    const { authUser, tasks, todos, clients, meetings, users, revenueSummary, fetchRevenueSummary, darkMode } = useAppStore(useShallow((s) => ({
     authUser: s.authUser,
     tasks:    s.tasks,
     todos:    s.todos,
@@ -343,6 +370,7 @@ export default function DashboardPage() {
     users:    s.users,
     revenueSummary: s.revenueSummary,
     fetchRevenueSummary: s.fetchRevenueSummary,
+    darkMode: s.darkMode,
   })));
 
   const role    = authUser?.role;
@@ -355,7 +383,11 @@ export default function DashboardPage() {
   }, [isManager]);
 
   const myTasks = role === 'member' ? tasks.filter((t) => sameId(t.assignedTo, authUser)) : tasks;
-  const myTodos = role === 'member' ? todos.filter((t) => t.userId     === authUser?.id) : todos;
+  // Was comparing with === against authUser?.id, but todo.userId is usually a
+  // populated object (not a bare string) once the backend returns it — that
+  // comparison silently failed for every 'member'-role user, always showing 0
+  // pending todos on their dashboard regardless of how many they actually had.
+  const myTodos = role === 'member' ? todos.filter((t) => sameId(t.userId, authUser)) : todos;
   const upcoming         = meetings.filter((m) => m.status === 'upcoming').slice(0, 4);
   const pendingApprovals = tasks.filter((t) => t.status === 'sent-for-approval');
   const currentYear      = new Date().getFullYear();
@@ -426,20 +458,23 @@ export default function DashboardPage() {
   ];
 
   // Completely dynamic pie chart for Task Status snapshot
-  const taskStatusDist = useMemo(() => {
-    const pendingCount = myTasks.filter((t) => t.status === 'pending').length;
-    const progressCount = myTasks.filter((t) => t.status === 'in-progress').length;
-    const approvalCount = myTasks.filter((t) => t.status === 'sent-for-approval').length;
-    const completedCount = myTasks.filter((t) => t.status === 'completed').length;
-    const total = pendingCount + progressCount + approvalCount + completedCount;
-    if (total === 0) return [];
-    return [
-      { name: 'Pending',     value: pendingCount,  color: '#f59e0b' },
-      { name: 'In Progress', value: progressCount, color: '#0ea5e9' },
-      { name: 'Approval',    value: approvalCount, color: '#8b5cf6' },
-      { name: 'Completed',   value: completedCount, color: '#10b981' },
-    ];
-  }, [myTasks]);
+  const taskStatusDist = useMemo(() => statusDist(myTasks, darkMode), [myTasks, darkMode]);
+
+  // Completely dynamic pie chart for Todo Status snapshot
+  const todoStatusDist = useMemo(() => statusDist(myTodos, darkMode), [myTodos, darkMode]);
+
+  // Active (non-completed) todos grouped by assignee
+  const todosByAssignee = useMemo(() => {
+    const active = todos.filter((t) => t.status !== 'completed');
+    const counts = new Map();
+    active.forEach((t) => {
+      const owner = users.find((u) => sameId(u, t.userId));
+      const key = getId(t.userId) || 'unassigned';
+      const name = owner?.name || 'Unassigned';
+      counts.set(key, { name, count: (counts.get(key)?.count || 0) + 1 });
+    });
+    return Array.from(counts.values()).sort((a, b) => b.count - a.count).slice(0, 8);
+  }, [todos, users]);
 
   // Completely dynamic revenue aggregates
   const dynamicRevenueData = useMemo(() => {
@@ -608,6 +643,71 @@ export default function DashboardPage() {
                 ))}
               </div>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* Todo insight row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        <div className="card p-5">
+          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-1">Todo Status</h3>
+          <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-3">Current daily todo snapshot</p>
+          {myTodos.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
+                <ListTodo size={18} className="text-slate-400" />
+              </div>
+              <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-300">No todos found</p>
+              <p className="text-[11.5px] text-slate-400 max-w-[160px] mt-0.5">Todos you create will show up here</p>
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={todoStatusDist} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3}>
+                    {todoStatusDist.map((e) => <Cell key={e.name} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v, n) => [v, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5 mt-1">
+                {todoStatusDist.map((e) => (
+                  <div key={e.name} className="flex items-center justify-between text-[12px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
+                      <span className="text-slate-600 dark:text-slate-400">{e.name}</span>
+                    </div>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{e.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="card p-5 lg:col-span-2">
+          <div className="mb-4">
+            <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200">Active Todos by Team Member</h3>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">Who is currently carrying open todos</p>
+          </div>
+          {todosByAssignee.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
+                <ListTodo size={18} className="text-slate-400" />
+              </div>
+              <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-300">No active todos</p>
+              <p className="text-[11.5px] text-slate-400 max-w-[160px] mt-0.5">Everything is completed right now</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(160, todosByAssignee.length * 32)}>
+              <BarChart data={todosByAssignee} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="count" name="Active Todos" fill={darkMode ? '#3987e5' : '#2a78d6'} radius={[0, 4, 4, 0]} maxBarSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
           )}
         </div>
       </div>
