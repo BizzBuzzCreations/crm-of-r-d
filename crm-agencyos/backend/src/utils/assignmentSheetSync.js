@@ -21,13 +21,13 @@
 const User = require('../models/User');
 const { getSheetsClient, isConfigured } = require('./googleSheetsClient');
 
-// Deliberately only ever writes "In progress" or "Done" — pending,
-// in-progress, and sent-for-approval all collapse to "In progress" in the
-// sheet. "Not started" and "Skipped" are sheet-only values a human sets
-// manually; the sync never writes either of them (see the Skipped guard
-// below for why an existing "Skipped" row is left untouched entirely).
+// pending -> Not started, in-progress/sent-for-approval -> In progress
+// (sent-for-approval has no direct sheet equivalent, closest honest match),
+// completed -> Done. "Skipped" is sheet-only, a human sets it manually; the
+// sync never writes it (see the Skipped guard below for why an existing
+// "Skipped" row is left untouched entirely).
 const STATUS_MAP = {
-  pending: 'In progress',
+  pending: 'Not started',
   'in-progress': 'In progress',
   'sent-for-approval': 'In progress',
   completed: 'Done',
@@ -245,4 +245,43 @@ async function syncTodoToSheet(todo) {
   }
 }
 
-module.exports = { syncTodoToSheet, STATUS_MAP, formatSheetDate };
+// Removes a todo's row from the sheet entirely (real row deletion, not just
+// clearing the cells) when it's deleted in the CRM. Developer Metadata is
+// anchored to the row itself, not a fixed index — Sheets re-flows every
+// other row's metadata automatically when a row above it is deleted via the
+// API, the same way a cell comment stays attached to its cell after an
+// insert/delete elsewhere on the sheet. That's precisely why row tracking
+// uses Developer Metadata instead of a hardcoded row number: this deletion
+// would otherwise desync every other already-synced todo's tracked row.
+async function deleteTodoFromSheet(todo) {
+  if (!isConfigured()) return;
+  try {
+    const user = await User.findById(todo.userId).select('assignmentSheetTab').lean();
+    if (!user?.assignmentSheetTab) return;
+
+    const sheets = await getSheetsClient();
+    const spreadsheetId = process.env.GOOGLE_ASSIGNMENT_SHEET_ID;
+    const tabName = user.assignmentSheetTab;
+
+    const sheetId = await resolveSheetId(sheets, spreadsheetId, tabName);
+    if (sheetId == null) return;
+
+    const trackedRow = await findTrackedRow(sheets, spreadsheetId, sheetId, todo._id);
+    if (trackedRow == null) return; // never synced (or already removed) — nothing to delete
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: { sheetId, dimension: 'ROWS', startIndex: trackedRow, endIndex: trackedRow + 1 },
+          },
+        }],
+      },
+    });
+  } catch (err) {
+    console.error('[AssignmentSheet] delete sync failed:', err.message);
+  }
+}
+
+module.exports = { syncTodoToSheet, deleteTodoFromSheet, STATUS_MAP, formatSheetDate };

@@ -5,7 +5,7 @@ const { Invoice }     = require('../models/Invoice');
 const notifService    = require('../services/notificationService');
 const audit           = require('../services/auditService');
 const emailService    = require('../services/emailService');
-const { syncTodoToSheet } = require('../utils/assignmentSheetSync');
+const { syncTodoToSheet, deleteTodoFromSheet } = require('../utils/assignmentSheetSync');
 
 // Generate a random readable password: 12 chars, alphanumeric
 function generatePassword() {
@@ -799,6 +799,7 @@ exports.deleteTodo = async (req, res, next) => {
     if (!target) return res.status(404).json({ success: false, message: 'Todo not found' });
     const io = req.app.get('io');
     io?.emit('todo:deleted', req.params.id);
+    deleteTodoFromSheet(target).catch(() => {});
     audit.log(req, {
       action: 'delete', category: 'todo',
       targetId: req.params.id, targetModel: 'Todo',
