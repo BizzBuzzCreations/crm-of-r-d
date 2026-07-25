@@ -24,6 +24,25 @@ export const STATUS_CONFIG = {
   completed:            { label: 'Completed',     tw: 'badge-success' },
 };
 
+// ── Status chart palette (validated colorblind-safe, light/dark) ──
+export const STATUS_CHART_COLOR = {
+  pending:             { light: '#eb6834', dark: '#d95926', label: 'Pending' },
+  'in-progress':       { light: '#2a78d6', dark: '#3987e5', label: 'In Progress' },
+  'sent-for-approval': { light: '#eda100', dark: '#c98500', label: 'Approval' },
+  completed:           { light: '#1baf7a', dark: '#199e70', label: 'Completed' },
+};
+export const STATUS_ORDER = ['pending', 'in-progress', 'sent-for-approval', 'completed'];
+
+export function statusDist(items, darkMode) {
+  const counts = STATUS_ORDER.map((key) => items.filter((i) => i.status === key).length);
+  if (counts.every((c) => c === 0)) return [];
+  return STATUS_ORDER.map((key, i) => ({
+    name: STATUS_CHART_COLOR[key].label,
+    value: counts[i],
+    color: STATUS_CHART_COLOR[key][darkMode ? 'dark' : 'light'],
+  }));
+}
+
 // ── Meeting type config ──────────────────────────────────────
 export const MEETING_TYPE_CONFIG = {
   client:   { label: 'Client',   tw: 'badge-primary', color: '#6366f1', bg: '#eef2ff' },

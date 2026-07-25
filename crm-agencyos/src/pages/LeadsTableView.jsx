@@ -63,7 +63,7 @@ function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', confirm
 
 // ── Constants ─────────────────────────────────────────────────
 const STAGES = ['New Lead', 'First Contact', 'Proposal Sent', 'Won', 'Lost'];
-const SOURCES = ['Manual', 'LinkedIn', 'Referral', 'Website', 'Import', 'Cold Outreach', 'Event'];
+const SOURCES = ['Manual', 'Campaign', 'LinkedIn', 'Referral', 'Website', 'Import', 'Cold Outreach', 'Event'];
 
 const STAGE_CFG = {
   'New Lead': { bg: '#eff6ff', color: '#3b82f6' },

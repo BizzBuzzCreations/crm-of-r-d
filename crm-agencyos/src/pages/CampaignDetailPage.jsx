@@ -9,7 +9,7 @@ import {
   ArrowLeft, Play, Pause, Trash2, Upload, Send, MailOpen, MousePointerClick,
   Users, XCircle, AlertTriangle, Ban, MessageSquareOff, Settings2, ListChecks,
   FileSpreadsheet, UserPlus, ShieldCheck, ShieldAlert, ShieldQuestion, RefreshCw, Loader2,
-  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download,
+  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download, Flame,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Page, Button, Tabs, Input, Toggle, Select, StatCard, EmptyState, ConfirmDialog, Modal } from '../components/ui';
@@ -29,6 +29,10 @@ const SERIES_COLOR = {
   replied:     { light: '#eda100', dark: '#c98500' }, // slot 4 — yellow
   totalClicks: { light: '#e87ba4', dark: '#d55181' }, // slot 5 — magenta (only shown if link tracking is on)
 };
+
+// A lead that opens a campaign email this many times or more is a strong
+// repeat-engagement signal — flagged as "Hot" directly in the leads table.
+const HOT_OPEN_THRESHOLD = 3;
 
 const LEAD_STATUS_BADGE = {
   pending:      { label: 'Pending',      tw: 'badge-neutral' },
@@ -701,6 +705,7 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
   const sentLeads = leads.filter((l) => l.status === 'sent');
   const pendingLeads = leads.filter((l) => l.status === 'pending');
   const sentOrPendingLeads = leads.filter((l) => l.status === 'sent' || l.status === 'pending');
+  const hotLeads = leads.filter((l) => (l.openCount || 0) >= HOT_OPEN_THRESHOLD);
 
   const exportSlug = (campaign.name || 'campaign').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const handleExport = (list, tag) => downloadLeadsCSV(list, `${exportSlug}-${tag}-leads.csv`);
@@ -844,8 +849,18 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
         ) : (
           <>
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-[12px] text-slate-500 dark:text-slate-400">{leads.length} lead{leads.length === 1 ? '' : 's'}</span>
+              <span className="text-[12px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                {leads.length} lead{leads.length === 1 ? '' : 's'}
+                {hotLeads.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-orange-600 dark:text-orange-400">
+                    <Flame size={12} /> {hotLeads.length} hot
+                  </span>
+                )}
+              </span>
               <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" disabled={!hotLeads.length} onClick={() => handleExport(hotLeads, 'hot')}>
+                  <Flame size={12} className="text-orange-500" /> Hot ({hotLeads.length})
+                </Button>
                 <Button variant="ghost" size="sm" disabled={!sentLeads.length} onClick={() => handleExport(sentLeads, 'sent')}>
                   <Download size={12} /> Sent ({sentLeads.length})
                 </Button>
@@ -902,8 +917,12 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
                           {l.error && <span title={l.error}><AlertTriangle size={12} className="inline ml-1.5 text-red-400" /></span>}
                         </td>
                         <td className="px-4 py-2.5 text-center text-slate-600 dark:text-slate-400">
-                          <span title={formatOpenHistory(l)} className={l.openCount ? 'underline decoration-dotted cursor-help' : ''}>
+                          <span
+                            title={formatOpenHistory(l) + ((l.openCount || 0) >= HOT_OPEN_THRESHOLD ? '\n🔥 Hot lead — opened 3+ times' : '')}
+                            className={cn('inline-flex items-center gap-1', l.openCount ? 'underline decoration-dotted cursor-help' : '')}
+                          >
                             {l.openCount || 0}
+                            {(l.openCount || 0) >= HOT_OPEN_THRESHOLD && <Flame size={12} className="text-orange-500" />}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">

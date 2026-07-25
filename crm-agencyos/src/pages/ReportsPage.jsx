@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Avatar, Badge, ProgressBar } from '../components/ui';
-import { cn, getId, sameId, canManage, ROLE_CONFIG } from '../utils/helpers';
+import { cn, getId, sameId, canManage, ROLE_CONFIG, statusDist, STATUS_CHART_COLOR, PRIORITY_CONFIG } from '../utils/helpers';
 
 // ── Date helpers ─────────────────────────────────────────────
 const todayStr   = () => new Date().toISOString().split('T')[0];
@@ -108,12 +108,13 @@ const ChartTip = ({ active, payload, label }) => {
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function ReportsPage() {
-  const { authUser, tasks, todos, clients, meetings } = useAppStore(useShallow((s) => ({
+  const { authUser, tasks, todos, clients, meetings, darkMode } = useAppStore(useShallow((s) => ({
     authUser: s.authUser,
     tasks:    s.tasks,
     todos:    s.todos,
     clients:  s.clients,
     meetings: s.meetings,
+    darkMode: s.darkMode,
   })));
   const users = useAppStore((s) => s.users);
 
@@ -230,30 +231,9 @@ export default function ReportsPage() {
     }));
   }, [clients]);
 
-  // ── Task Status Distribution ───────────────────────────────
-  const taskStatusDist = useMemo(() => {
-    const counts = {
-      completed: 0,
-      'in-progress': 0,
-      pending: 0,
-      'sent-for-approval': 0,
-    };
-
-    filteredTasks.forEach((t) => {
-      if (counts[t.status] !== undefined) {
-        counts[t.status]++;
-      } else {
-        counts.pending++;
-      }
-    });
-
-    return [
-      { name: 'Completed',    value: counts.completed,         color: '#10B981' },
-      { name: 'In Progress',  value: counts['in-progress'],     color: '#6366f1' },
-      { name: 'Pending',      value: counts.pending,           color: '#F59E0B' },
-      { name: 'For Approval', value: counts['sent-for-approval'],color: '#8B5CF6' },
-    ];
-  }, [filteredTasks]);
+  // ── Task / Todo Status Distribution ────────────────────────
+  const taskStatusDist = useMemo(() => statusDist(filteredTasks, darkMode), [filteredTasks, darkMode]);
+  const todoStatusDist = useMemo(() => statusDist(filteredTodos, darkMode), [filteredTodos, darkMode]);
 
   // Per-member breakdown for table
   const memberBreakdown = useMemo(() => {
@@ -293,8 +273,19 @@ export default function ReportsPage() {
         return [t.title, u?.name || '—', t.status, t.priority, t.dueDate || '—', t.createdAt || '—'];
       }),
     ];
+    const todoRows = [
+      ['Title', 'Owner', 'Status', 'Priority', 'Due Date', 'Created'],
+      ...filteredTodos.map((t) => {
+        const u = users.find((u) => getId(u) === getId(t.userId));
+        return [t.title, u?.name || '—', t.status, t.priority, t.dueDate || '—', t.createdAt || '—'];
+      }),
+    ];
     downloadCSV(
-      [['=== MEMBER SUMMARY ==='], header, ...rows, [], ['=== TASK DETAIL ==='], ...taskRows],
+      [
+        ['=== MEMBER SUMMARY ==='], header, ...rows,
+        [], ['=== TASK DETAIL ==='], ...taskRows,
+        [], ['=== TODO DETAIL ==='], ...todoRows,
+      ],
       `BBC-CRM-Report-${period}-${todayStr()}.csv`
     );
     toast.success('CSV downloaded!');
@@ -312,14 +303,28 @@ export default function ReportsPage() {
       </tr>
     `).join('');
 
+    const statusColor = { completed:'#16a34a','in-progress':'#2563eb','sent-for-approval':'#7c3aed',pending:'#d97706' };
+
     const taskRows = filteredTasks.slice(0, 20).map((t) => {
       const u = users.find((u) => getId(u) === getId(t.assignedTo));
-      const statusColor = { completed:'#16a34a','in-progress':'#2563eb','sent-for-approval':'#7c3aed',pending:'#d97706' }[t.status] || '#64748b';
       return `
         <tr>
           <td>${t.title}</td>
           <td>${u?.name || '—'}</td>
-          <td style="color:${statusColor}">${t.status}</td>
+          <td style="color:${statusColor[t.status] || '#64748b'}">${t.status}</td>
+          <td>${t.priority}</td>
+          <td>${t.dueDate || '—'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const todoRows = filteredTodos.slice(0, 40).map((t) => {
+      const u = users.find((u) => getId(u) === getId(t.userId));
+      return `
+        <tr>
+          <td>${t.title}</td>
+          <td>${u?.name || '—'}</td>
+          <td style="color:${statusColor[t.status] || '#64748b'}">${t.status}</td>
           <td>${t.priority}</td>
           <td>${t.dueDate || '—'}</td>
         </tr>
@@ -348,6 +353,15 @@ export default function ReportsPage() {
           <tr><th>Title</th><th>Assigned To</th><th>Status</th><th>Priority</th><th>Due Date</th></tr>
           ${taskRows}
           ${filteredTasks.length > 20 ? `<tr><td colspan="5" style="color:#94a3b8;font-style:italic">... and ${filteredTasks.length - 20} more tasks</td></tr>` : ''}
+        </table>
+      ` : ''}
+
+      ${filteredTodos.length > 0 ? `
+        <h2>Todo Details (${filteredTodos.length} todos)</h2>
+        <table>
+          <tr><th>Title</th><th>Owner</th><th>Status</th><th>Priority</th><th>Due Date</th></tr>
+          ${todoRows}
+          ${filteredTodos.length > 40 ? `<tr><td colspan="5" style="color:#94a3b8;font-style:italic">... and ${filteredTodos.length - 40} more todos</td></tr>` : ''}
         </table>
       ` : ''}
     `;
@@ -600,8 +614,8 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {/* ── Task Status Distribution ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* ── Task Breakdown & Status Distribution ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
         <div className="card p-5 lg:col-span-2">
           <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">
             Task Breakdown — {periodLabel}
@@ -612,11 +626,11 @@ export default function ReportsPage() {
           ) : (
             <div className="space-y-2.5">
               {filteredTasks.slice(0, 8).map((t) => {
-                const u   = users.find((u) => getId(u) === getId(t.assignedTo));
-                const sc  = { completed:'#10b981','in-progress':'#3b82f6','sent-for-approval':'#8b5cf6',pending:'#f59e0b' };
+                const u  = users.find((u) => getId(u) === getId(t.assignedTo));
+                const sc = STATUS_CHART_COLOR[t.status]?.[darkMode ? 'dark' : 'light'] || '#94a3b8';
                 return (
                   <div key={getId(t)} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: sc[t.status] || '#94a3b8' }} />
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: sc }} />
                     <span className="text-[13px] text-slate-700 dark:text-slate-300 flex-1 truncate font-medium">{t.title}</span>
                     <span className="text-[11px] text-slate-400">{t.dueDate || t.createdAt}</span>
                     <Avatar user={u} size="xs" />
@@ -631,26 +645,90 @@ export default function ReportsPage() {
         </div>
 
         <div className="card p-5">
-          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">Status Distribution</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={taskStatusDist} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}>
-                {taskStatusDist.map((e) => <Cell key={e.name} fill={e.color} />)}
-              </Pie>
-              <Tooltip formatter={(v, n) => [v, n]} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="space-y-1.5 mt-2">
-            {taskStatusDist.map((e) => (
-              <div key={e.name} className="flex items-center justify-between text-[12px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
-                  <span className="text-slate-600 dark:text-slate-400">{e.name}</span>
-                </div>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{e.value}</span>
+          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">Task Status</h3>
+          {taskStatusDist.length === 0 ? (
+            <p className="text-[13px] text-slate-400 py-14 text-center">No tasks in this period</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={taskStatusDist} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}>
+                    {taskStatusDist.map((e) => <Cell key={e.name} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v, n) => [v, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5 mt-2">
+                {taskStatusDist.map((e) => (
+                  <div key={e.name} className="flex items-center justify-between text-[12px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
+                      <span className="text-slate-600 dark:text-slate-400">{e.name}</span>
+                    </div>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{e.value}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Todo Breakdown & Status Distribution ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="card p-5 lg:col-span-2">
+          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">
+            Todo Breakdown — {periodLabel}
+            {selectedMember && <span className="text-primary-500 ml-1">({selectedMember.name.split(' ')[0]})</span>}
+          </h3>
+          {filteredTodos.length === 0 ? (
+            <p className="text-[13px] text-slate-400 py-6 text-center">No todos in this period</p>
+          ) : (
+            <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
+              {filteredTodos.map((t) => {
+                const u  = users.find((u) => getId(u) === getId(t.userId));
+                const sc = STATUS_CHART_COLOR[t.status]?.[darkMode ? 'dark' : 'light'] || '#94a3b8';
+                return (
+                  <div key={getId(t)} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: sc }} />
+                    <span className="text-[13px] text-slate-700 dark:text-slate-300 flex-1 truncate font-medium">{t.title}</span>
+                    <Badge className={PRIORITY_CONFIG[t.priority]?.tw}>{t.priority}</Badge>
+                    <span className="text-[11px] text-slate-400 w-[80px] text-right">{t.dueDate || t.createdAt}</span>
+                    {!effectiveMemberId && <Avatar user={u} size="xs" />}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200 mb-4">Todo Status</h3>
+          {todoStatusDist.length === 0 ? (
+            <p className="text-[13px] text-slate-400 py-14 text-center">No todos in this period</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={todoStatusDist} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" paddingAngle={3}>
+                    {todoStatusDist.map((e) => <Cell key={e.name} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v, n) => [v, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5 mt-2">
+                {todoStatusDist.map((e) => (
+                  <div key={e.name} className="flex items-center justify-between text-[12px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
+                      <span className="text-slate-600 dark:text-slate-400">{e.name}</span>
+                    </div>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{e.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </Page>
