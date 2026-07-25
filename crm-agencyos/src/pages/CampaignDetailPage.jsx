@@ -9,7 +9,7 @@ import {
   ArrowLeft, Play, Pause, Trash2, Upload, Send, MailOpen, MousePointerClick,
   Users, XCircle, AlertTriangle, Ban, MessageSquareOff, Settings2, ListChecks,
   FileSpreadsheet, UserPlus, ShieldCheck, ShieldAlert, ShieldQuestion, RefreshCw, Loader2,
-  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock,
+  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Page, Button, Tabs, Input, Toggle, Select, StatCard, EmptyState, ConfirmDialog, Modal } from '../components/ui';
@@ -56,6 +56,25 @@ function formatOpenHistory(lead) {
   const lines = events.map((o) => new Date(o.at).toLocaleString());
   const suffix = lead.openCount > events.length ? `\n… and ${lead.openCount - events.length} earlier` : '';
   return `${lead.openCount} open${lead.openCount === 1 ? '' : 's'}:\n${lines.join('\n')}${suffix}`;
+}
+
+// Client-side CSV export for the leads table — data's already loaded in the
+// browser, no need for a round trip to build a download.
+function downloadLeadsCSV(leads, filename) {
+  const headers = ['Email', 'First Name', 'Last Name', 'Status', 'Verification', 'Provider', 'Opens', 'Clicks', 'Sent At', 'Error'];
+  const rows = leads.map((l) => [
+    l.email, l.firstName || '', l.lastName || '', l.status, l.verificationStatus || '',
+    l.provider || '', l.openCount || 0, l.clickCount || 0,
+    l.sentAt ? new Date(l.sentAt).toLocaleString() : '', l.error || '',
+  ]);
+  const csv = [headers, ...rows]
+    .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
 }
 
 const VERIFICATION_BADGE = {
@@ -679,6 +698,12 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
   const [verifyingAll, setVerifyingAll] = useState(false);
 
   const unverifiedCount = leads.filter((l) => l.verificationStatus === 'unverified').length;
+  const sentLeads = leads.filter((l) => l.status === 'sent');
+  const pendingLeads = leads.filter((l) => l.status === 'pending');
+  const sentOrPendingLeads = leads.filter((l) => l.status === 'sent' || l.status === 'pending');
+
+  const exportSlug = (campaign.name || 'campaign').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const handleExport = (list, tag) => downloadLeadsCSV(list, `${exportSlug}-${tag}-leads.csv`);
 
   const handleManualSubmit = async (e) => {
     e.preventDefault();
@@ -818,6 +843,20 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
           <EmptyState icon={ListChecks} title="No leads imported yet" description="Add leads above to get this campaign started." />
         ) : (
           <>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-[12px] text-slate-500 dark:text-slate-400">{leads.length} lead{leads.length === 1 ? '' : 's'}</span>
+              <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" disabled={!sentLeads.length} onClick={() => handleExport(sentLeads, 'sent')}>
+                  <Download size={12} /> Sent ({sentLeads.length})
+                </Button>
+                <Button variant="ghost" size="sm" disabled={!pendingLeads.length} onClick={() => handleExport(pendingLeads, 'pending')}>
+                  <Download size={12} /> Pending ({pendingLeads.length})
+                </Button>
+                <Button variant="ghost" size="sm" disabled={!sentOrPendingLeads.length} onClick={() => handleExport(sentOrPendingLeads, 'sent-and-pending')}>
+                  <Download size={12} /> Sent + Pending ({sentOrPendingLeads.length})
+                </Button>
+              </div>
+            </div>
             {unverifiedCount > 0 && (
               <div className="flex items-center justify-between px-4 py-2.5 bg-amber-50 dark:bg-amber-900/10 border-b border-amber-100 dark:border-amber-900/50">
                 <span className="text-[12px] text-amber-700 dark:text-amber-400">{unverifiedCount} lead{unverifiedCount === 1 ? '' : 's'} not yet verified</span>
