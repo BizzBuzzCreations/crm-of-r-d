@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import LeadsKanbanView from './LeadsKanbanView';
 import LeadsTableView from './LeadsTableView';
 import PipelineForecastView from './PipelineForecastView';
+import EmailLeadsView from './EmailLeadsView';
 import ConfettiCanvas from '../components/ConfettiCanvas';
 import {
   Target, TrendingUp, User, Phone, Mail, Plus, Search, Trash2, Edit2,
@@ -593,6 +594,7 @@ export default function LeadsPage() {
 
   const navigate = useNavigate();
 
+  const [activeSection, setActiveSection] = useState('pipeline'); // 'pipeline' | 'emailLeads'
   const [activeView, setActiveView] = useState('csvgrid'); // 'kanban' | 'csvgrid' | 'forecast'
   const [searchTerm, setSearchTerm] = useState('');
   const [quickAddInput, setQuickAddInput] = useState('');
@@ -947,6 +949,18 @@ export default function LeadsPage() {
     filterMinVal, filterMaxVal, filterMinHealth, filterMaxHealth, filterStartDate, filterEndDate, filterTags
   ]);
 
+  // ── Pipeline vs Email Leads split ──
+  // Campaign-engagement leads (opened 3+ times / replied — see leadPipelineSync.js
+  // on the backend) live in their own "Email Leads" tab, fully separate from the
+  // main pipeline's grid, stats, and Kanban/Forecast views, until someone
+  // explicitly moves one in ("Move to Pipeline" — flips source away from 'Campaign').
+  const pipelineLeads = useMemo(() => filteredLeads.filter((l) => l.source !== 'Campaign'), [filteredLeads]);
+  const emailLeadsList = useMemo(() => filteredLeads.filter((l) => l.source === 'Campaign'), [filteredLeads]);
+  // Unfiltered pools — tab badge counts and the pipeline sub-views' "allLeads"
+  // fallback (archive lookups etc.) shouldn't shift with the search box.
+  const pipelineAllLeads = useMemo(() => leads.filter((l) => l.source !== 'Campaign'), [leads]);
+  const emailLeadsAllCount = useMemo(() => leads.filter((l) => l.source === 'Campaign').length, [leads]);
+
   // ── Multi-Column Sorting Logic ──
   const sortedLeads = useMemo(() => {
     if (!sortColumn || !sortDirection) return filteredLeads;
@@ -1229,7 +1243,7 @@ export default function LeadsPage() {
       <ConfettiCanvas active={confettiActive} onComplete={() => setConfettiActive(false)} />
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <div>
           <h1 className="page-title flex items-center gap-2">
             <Target className="text-indigo-500 animate-pulse" /> B2B Leads pipeline
@@ -1237,46 +1251,77 @@ export default function LeadsPage() {
           <p className="page-sub">Ingest, qualify, draft B2B contracts, and automatically onboard won accounts into delivery workspaces</p>
         </div>
 
-        {/* Header Action buttons & view toggler */}
+        {/* Header Action buttons */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700/60">
-            {[
-              { id: 'csvgrid',  label: 'CSV Pipeline Grid', icon: FileText    },
-              { id: 'kanban',   label: 'Kanban Funnel',    icon: Sliders      },
-              { id: 'forecast', label: 'Pipeline Forecast', icon: BarChart2   },
-            ].map((v) => {
-              const Icon = v.icon;
-              return (
-                <button
-                  key={v.id}
-                  onClick={() => {
-                    setActiveView(v.id);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold transition-all ${activeView === v.id
-                      ? 'bg-white dark:bg-slate-900 text-indigo-650 dark:text-indigo-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
-                    }`}
-                >
-                  <Icon size={14} />
-                  <span>{v.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          {activeSection === 'pipeline' && (
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700/60">
+              {[
+                { id: 'csvgrid',  label: 'CSV Pipeline Grid', icon: FileText    },
+                { id: 'kanban',   label: 'Kanban Funnel',    icon: Sliders      },
+                { id: 'forecast', label: 'Pipeline Forecast', icon: BarChart2   },
+              ].map((v) => {
+                const Icon = v.icon;
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => {
+                      setActiveView(v.id);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold transition-all ${activeView === v.id
+                        ? 'bg-white dark:bg-slate-900 text-indigo-650 dark:text-indigo-400 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
+                      }`}
+                  >
+                    <Icon size={14} />
+                    <span>{v.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-          <div className="flex gap-2">
-            <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)} className="flex items-center gap-1">
-              <Plus size={14} />
-              <span>Add Lead</span>
-            </Button>
-            {activeView === 'csvgrid' && (
-              <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)} className="flex items-center gap-1 text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-950">
-                <FileText size={14} />
-                <span>Import CSV</span>
+          {activeSection === 'pipeline' && (
+            <div className="flex gap-2">
+              <Button variant="primary" size="sm" onClick={() => setShowAddModal(true)} className="flex items-center gap-1">
+                <Plus size={14} />
+                <span>Add Lead</span>
               </Button>
-            )}
-          </div>
+              {activeView === 'csvgrid' && (
+                <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)} className="flex items-center gap-1 text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-950">
+                  <FileText size={14} />
+                  <span>Import CSV</span>
+                </Button>
+              )}
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* Section tabs — Pipeline (manual/imported deals) vs Email Leads (campaign engagement) */}
+      <div className="flex items-center gap-1.5 mb-5 border-b border-slate-200 dark:border-slate-800">
+        {[
+          { id: 'pipeline', label: 'Leads Pipeline', icon: Target, count: pipelineAllLeads.length },
+          { id: 'emailLeads', label: 'Email Leads', icon: Mail, count: emailLeadsAllCount },
+        ].map((sec) => {
+          const Icon = sec.icon;
+          const active = activeSection === sec.id;
+          return (
+            <button
+              key={sec.id}
+              onClick={() => setActiveSection(sec.id)}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-[13px] font-semibold border-b-2 -mb-px transition-all ${active
+                  ? 'border-indigo-500 text-indigo-650 dark:text-indigo-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
+                }`}
+            >
+              <Icon size={14} />
+              <span>{sec.label}</span>
+              <span className={`ml-0.5 text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${active ? 'bg-indigo-100 text-indigo-650 dark:bg-indigo-900/40 dark:text-indigo-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                {sec.count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Search and control box */}
@@ -1285,7 +1330,7 @@ export default function LeadsPage() {
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450" />
           <input
             className="form-input text-[13px] pl-10"
-            placeholder="Search B2B leads by Company or Representative..."
+            placeholder={activeSection === 'pipeline' ? 'Search B2B leads by Company or Representative...' : 'Search email leads by Company or Contact...'}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -1293,9 +1338,18 @@ export default function LeadsPage() {
       </div>
 
       {/* Main Panel views */}
-      {activeView === 'kanban' && (
+      {activeSection === 'emailLeads' && (
+        <EmailLeadsView
+          leads={emailLeadsList}
+          users={users}
+          onSelectLead={setSelectedLead}
+          onUpdate={updateLead}
+        />
+      )}
+
+      {activeSection === 'pipeline' && activeView === 'kanban' && (
         <LeadsKanbanView
-          filteredLeads={filteredLeads}
+          filteredLeads={pipelineLeads}
           users={users}
           onSelectLead={setSelectedLead}
           onReassign={handleReassign}
@@ -1303,10 +1357,10 @@ export default function LeadsPage() {
         />
       )}
 
-      {activeView === 'csvgrid' && (
+      {activeSection === 'pipeline' && activeView === 'csvgrid' && (
         <LeadsTableView
-          filteredLeads={filteredLeads}
-          allLeads={leads}
+          filteredLeads={pipelineLeads}
+          allLeads={pipelineAllLeads}
           users={users}
           onSelectLead={setSelectedLead}
           onDelete={deleteLead}
@@ -1314,8 +1368,8 @@ export default function LeadsPage() {
         />
       )}
 
-      {activeView === 'forecast' && (
-        <PipelineForecastView leads={leads} />
+      {activeSection === 'pipeline' && activeView === 'forecast' && (
+        <PipelineForecastView leads={pipelineAllLeads} />
       )}
 
       {/* Slide-out Inspections drawer Details panel */}

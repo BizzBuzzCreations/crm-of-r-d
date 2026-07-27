@@ -4,6 +4,7 @@ const EmailLog = require('../models/EmailLog');
 const notifService = require('../services/notificationService');
 const { addEmailToQueue, EMAIL_TYPES } = require('../queues/emailQueue');
 const audit = require('../services/auditService');
+const { autoAssignLead } = require('../utils/leadAssignment');
 
 // Helper to calculate Lead Health Score dynamically
 const calculateHealthScore = (lead) => {
@@ -133,7 +134,13 @@ exports.getLeads = async (req, res, next) => {
 exports.createLead = async (req, res, next) => {
   try {
     const { companyName, contactPerson, email, phone, website, dealValue, status, assignedTo, contacts, source, nextFollowUpDate, tags, customFields } = req.body;
-    
+
+    // No explicit assignee — hand it to the Lead Distribution algorithm
+    // configured in Settings > Lead Routing (round-robin / least-loaded /
+    // off). Returns null if auto-distribution is off or nobody's eligible.
+    const wasAutoAssigned = !assignedTo;
+    const finalAssignee = assignedTo || await autoAssignLead();
+
     const lead = new Lead({
       companyName,
       contactPerson,
@@ -143,7 +150,7 @@ exports.createLead = async (req, res, next) => {
       dealValue: dealValue ? Number(dealValue) : 0,
       status: status || 'New Lead',
       source: source || 'Manual',
-      assignedTo: assignedTo || null,
+      assignedTo: finalAssignee || null,
       contacts: contacts || [],
       nextFollowUpDate: nextFollowUpDate || null,
       tags: tags || [],
@@ -156,6 +163,13 @@ exports.createLead = async (req, res, next) => {
       text: `Lead created manually by ${req.user?.name || 'Administrator'}`,
       performedBy: req.user?.name || 'System'
     });
+    if (wasAutoAssigned && finalAssignee) {
+      lead.activities.push({
+        type: 'assign',
+        text: 'Auto-assigned via Lead Distribution rules',
+        performedBy: 'System'
+      });
+    }
 
     await lead.save();
     
@@ -175,27 +189,29 @@ exports.createLead = async (req, res, next) => {
       targetId: lead._id, targetModel: 'Lead',
       targetTitle: companyName,
       targetRef: enriched.leadId || '',
-      metadata: { status: lead.status, assignedTo: assignedTo ? String(assignedTo) : null, dealValue: lead.dealValue },
+      metadata: { status: lead.status, assignedTo: finalAssignee ? String(finalAssignee) : null, autoAssigned: wasAutoAssigned && !!finalAssignee, dealValue: lead.dealValue },
     });
 
-    // Notify assigned user if specified
-    if (assignedTo && String(assignedTo) !== String(req.user?._id)) {
+    // Notify assigned user (manually chosen or auto-assigned)
+    if (finalAssignee && String(finalAssignee) !== String(req.user?._id)) {
       notifService.dispatch(io, {
-        recipient: assignedTo,
+        recipient: finalAssignee,
         sender: req.user?._id,
         type: 'lead_assigned',
-        title: 'New sales lead assigned to you',
-        message: `${req.user?.name} assigned you a prospective B2B lead: "${companyName}"`,
+        title: wasAutoAssigned ? 'New sales lead auto-assigned to you' : 'New sales lead assigned to you',
+        message: wasAutoAssigned
+          ? `A prospective B2B lead was auto-assigned to you via Lead Distribution rules: "${companyName}"`
+          : `${req.user?.name} assigned you a prospective B2B lead: "${companyName}"`,
         link: '/leads'
       });
 
       // Async email — fire-and-forget (never blocks the response)
       // CC goes to the official company inbox so the team always has visibility.
-      User.findById(assignedTo).select('email name').then(rep => {
+      User.findById(finalAssignee).select('email name').then(rep => {
         if (rep?.email) {
           addEmailToQueue(rep.email, EMAIL_TYPES.LEAD_ASSIGNED, {
             assigneeName:  rep.name,
-            assignerName:  req.user?.name,
+            assignerName:  wasAutoAssigned ? 'Lead Distribution (auto-assigned)' : req.user?.name,
             companyName,
             contactPerson: enriched.contactPerson,
             dealValue:     enriched.dealValue,
@@ -218,12 +234,13 @@ exports.updateLead = async (req, res, next) => {
     const {
       companyName, contactPerson, email, phone, website, dealValue, status,
       assignedTo, watchers, contacts, noteText, websiteVisits, emailOpens, proposalViews, interactionsCount,
-      nextFollowUpDate, tags, archived, customFields
+      nextFollowUpDate, tags, archived, customFields, source
     } = req.body;
 
     const io = req.app.get('io');
     const oldStatus = lead.status;
     const oldAssigned = lead.assignedTo;
+    const oldSource = lead.source;
 
     // Apply values
     if (companyName !== undefined) lead.companyName = companyName;
@@ -237,6 +254,16 @@ exports.updateLead = async (req, res, next) => {
     if (nextFollowUpDate !== undefined) lead.nextFollowUpDate = nextFollowUpDate;
     if (tags !== undefined) lead.tags = tags;
     if (archived !== undefined) lead.archived = archived;
+    if (source !== undefined && source !== oldSource) {
+      lead.source = source;
+      lead.activities.push({
+        type: 'general',
+        text: oldSource === 'Campaign' && source !== 'Campaign'
+          ? 'Moved from Email Leads into the main B2B Leads Pipeline'
+          : `Lead source changed from "${oldSource}" to "${source}"`,
+        performedBy: req.user?.name || 'System'
+      });
+    }
     if (customFields !== undefined && typeof customFields === 'object') {
       Object.entries(customFields).forEach(([k, v]) => {
         lead.customFields.set(k, v);
@@ -633,26 +660,40 @@ exports.bulkCreateLeads = async (req, res, next) => {
     // Programmatically calculate sequential leadId values to ensure CSV imports are aligned
     const nextNum = await Lead.getNextLeadNumber();
 
-    const prepared = leads.map((l, index) => ({
-      leadId: `LD-${nextNum + index}`,
-      companyName: l.companyName || 'Unnamed B2B Lead',
-      contactPerson: l.contactPerson || 'Undecided',
-      email: l.email || '',
-      phone: l.phone || '',
-      website: l.website || '',
-      dealValue: l.dealValue ? Number(l.dealValue) : 0,
-      status: l.status || 'New Lead',
-      source: 'Import',
-      assignedTo: l.assignedTo || null,
-      nextFollowUpDate: l.nextFollowUpDate || null,
-      tags: l.tags || [],
-      customFields: l.customFields || {},
-      activities: [{
+    const prepared = [];
+    for (let index = 0; index < leads.length; index++) {
+      const l = leads[index];
+      // Rows with no assignee in the CSV go through the same Lead
+      // Distribution rules as any other unassigned lead.
+      const wasAutoAssigned = !l.assignedTo;
+      const finalAssignee = l.assignedTo || await autoAssignLead();
+
+      const activities = [{
         type: 'create',
         text: `Lead imported in bulk from CSV by ${req.user?.name || 'Administrator'}`,
         performedBy: req.user?.name || 'System'
-      }]
-    }));
+      }];
+      if (wasAutoAssigned && finalAssignee) {
+        activities.push({ type: 'assign', text: 'Auto-assigned via Lead Distribution rules', performedBy: 'System' });
+      }
+
+      prepared.push({
+        leadId: `LD-${nextNum + index}`,
+        companyName: l.companyName || 'Unnamed B2B Lead',
+        contactPerson: l.contactPerson || 'Undecided',
+        email: l.email || '',
+        phone: l.phone || '',
+        website: l.website || '',
+        dealValue: l.dealValue ? Number(l.dealValue) : 0,
+        status: l.status || 'New Lead',
+        source: 'Import',
+        assignedTo: finalAssignee || null,
+        nextFollowUpDate: l.nextFollowUpDate || null,
+        tags: l.tags || [],
+        customFields: l.customFields || {},
+        activities
+      });
+    }
 
     const created = await Lead.insertMany(prepared);
 
