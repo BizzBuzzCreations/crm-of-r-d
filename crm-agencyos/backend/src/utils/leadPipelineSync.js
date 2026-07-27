@@ -18,6 +18,7 @@
 // cluster); a multi-instance deployment would need a DB-level lock instead.
 const Lead = require('../models/Lead');
 const Campaign = require('../models/Campaign');
+const { autoAssignLead } = require('./leadAssignment');
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const queues = new Map(); // lowercase email -> tail of the pending chain
@@ -44,12 +45,14 @@ async function doSync(campaignLead, reason) {
   const existing = await findLeadByEmail(campaignLead.email);
 
   if (!existing) {
+    const assignedTo = await autoAssignLead();
     return Lead.create({
       companyName: companyGuess(campaignLead),
       contactPerson: displayName(campaignLead),
       email: campaignLead.email,
       source: 'Campaign',
       status: reason === 'replied' ? 'First Contact' : 'New Lead',
+      assignedTo,
       emailOpens: campaignLead.openCount || 0,
       interactionsCount: reason === 'replied' ? 1 : 0,
       tags: reason === 'replied' ? ['Campaign', 'Replied'] : ['Campaign', 'Hot'],
@@ -60,13 +63,16 @@ async function doSync(campaignLead, reason) {
           : `Auto-created — opened campaign "${campaignName}" ${campaignLead.openCount}+ times.`,
         authorName: 'System',
       }],
-      activities: [{
-        type: 'create',
-        text: reason === 'replied'
-          ? '📨 Auto-added to pipeline from campaign reply'
-          : '🔥 Auto-added to pipeline as Hot from campaign engagement',
-        performedBy: 'System',
-      }],
+      activities: [
+        {
+          type: 'create',
+          text: reason === 'replied'
+            ? '📨 Auto-added to pipeline from campaign reply'
+            : '🔥 Auto-added to pipeline as Hot from campaign engagement',
+          performedBy: 'System',
+        },
+        ...(assignedTo ? [{ type: 'assign', text: 'Auto-assigned via Lead Distribution rules', performedBy: 'System' }] : []),
+      ],
     });
   }
 
