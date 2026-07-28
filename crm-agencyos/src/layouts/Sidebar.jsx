@@ -5,7 +5,7 @@ import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
   Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal,
-  Building2, Receipt, Mail,
+  Building2, Receipt, Mail, Megaphone, Globe2,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -365,6 +365,8 @@ const NAV = [
       { path: '/clients',   label: 'Clients & Projects',   icon: Users,           roles: ['admin','manager','client_relations'] },
       { path: '/leads',     label: 'Leads Pipeline',       icon: Target,          roles: ['admin','manager','client_relations','member'] },
       { path: '/campaigns', label: 'Campaigns',            icon: Mail,            roles: ['admin','manager'], permissionKey: 'campaignsAccess' },
+      { path: '/meta-ads',  label: 'Meta Ads',             icon: Megaphone,       roles: ['admin','manager'] },
+      { path: '/website-intelligence', label: 'Website Intelligence', icon: Globe2, roles: ['admin','manager'] },
       { path: '/messages',  label: 'Messages',             icon: MessageSquare,   roles: ['admin','manager','member','client_relations','client'], badge: true },
       { path: '/meetings',  label: 'Meetings',             icon: Video,           roles: ['admin','manager','member','client_relations'] },
       { path: '/reports',   label: 'Reports',              icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },

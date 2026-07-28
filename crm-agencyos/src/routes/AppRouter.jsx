@@ -21,6 +21,8 @@ import ClientPortalPage   from '../pages/portal/ClientPortalPage';
 import BillingPage        from '../pages/BillingPage';
 import CampaignsPage      from '../pages/CampaignsPage';
 import CampaignDetailPage from '../pages/CampaignDetailPage';
+import MetaAdsPage        from '../pages/MetaAdsPage';
+import WebsiteIntelligencePage from '../pages/WebsiteIntelligencePage';
 
 // ── Guards ────────────────────────────────────────────────────
 function RequireAuth({ children }) {
@@ -146,6 +148,22 @@ export default function AppRouter() {
               <RequireCampaignsAccess>
                 <CampaignDetailPage />
               </RequireCampaignsAccess>
+            }
+          />
+          <Route
+            path="meta-ads"
+            element={
+              <RequireRole roles={['admin', 'manager']}>
+                <MetaAdsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="website-intelligence"
+            element={
+              <RequireRole roles={['admin', 'manager']}>
+                <WebsiteIntelligencePage />
+              </RequireRole>
             }
           />
           <Route path="settings" element={<SettingsPage />} />
