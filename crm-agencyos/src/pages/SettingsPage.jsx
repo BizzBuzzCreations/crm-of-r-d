@@ -6,12 +6,13 @@ import {
   Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock, 
   Layers, Plus, Trash2, X, Edit2, Zap, Palette, Smartphone, Globe, BarChart3, 
   PenTool, Clapperboard, Camera, Wrench, Lightbulb, Shield, Rocket, HelpCircle, 
-  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Code, Info, ArrowUpRight
+  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Code, Info, ArrowUpRight, Megaphone
 } from 'lucide-react';
 import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Toggle, Button, ConfirmDialog } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
+import { metaAdsAPI, witAPI } from '../services/api';
 import EmailAccountsManager from '../components/campaigns/EmailAccountsManager';
 import EmailTemplatesManager from '../components/campaigns/EmailTemplatesManager';
 
@@ -1086,6 +1087,375 @@ function IntegrationsSection({ settings, onSave }) {
   );
 }
 
+// 10b. Meta Ads connection — credentials entered here, encrypted at rest in
+// the database (same pattern as EmailAccount's SMTP/IMAP passwords), never
+// echoed back to the browser. No backend/.env edit or server restart needed.
+function MetaAdsSection() {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const { register, handleSubmit, reset } = useForm({
+    defaultValues: { accessToken: '', adAccountId: '', appId: '', appSecret: '' },
+  });
+
+  const loadStatus = async () => {
+    try {
+      const { data } = await metaAdsAPI.status();
+      setStatus(data.data);
+      reset({
+        accessToken: '',
+        adAccountId: data.data?.account?.adAccountId || '',
+        appId: data.data?.account?.appId || '',
+        appSecret: '',
+      });
+    } catch {
+      toast.error('Failed to load Meta Ads status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const onSave = async (formData) => {
+    setSaving(true);
+    try {
+      const { data } = await metaAdsAPI.saveCredentials(formData);
+      if (data.verified) {
+        toast.success(`Connected: ${data.data.accountName} (${data.data.currency})`);
+      } else {
+        toast.error(data.message || 'Saved, but could not verify the connection');
+      }
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save credentials');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const { data } = await metaAdsAPI.testConnection();
+      toast.success(`Connected: ${data.data.accountName} (${data.data.currency})`);
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Connection test failed');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await metaAdsAPI.syncNow();
+      toast.success('Meta Ads data synced');
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!window.confirm('Disconnect Meta Ads? Cached campaign history stays in place — you can reconnect any time.')) return;
+    setDisconnecting(true);
+    try {
+      await metaAdsAPI.clearCredentials();
+      toast.success('Meta Ads disconnected');
+      await loadStatus();
+    } catch {
+      toast.error('Failed to disconnect');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h3 className="text-[16px] font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-200 dark:border-slate-700/60 flex items-center gap-2">
+        <Megaphone size={18} className="text-indigo-500" /> Meta Ads Integration
+      </h3>
+
+      {loading ? (
+        <p className="text-[13px] text-slate-400">Loading status…</p>
+      ) : (
+        <div className="max-w-2xl space-y-5">
+          {status?.account?.accountName && (
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={cn('w-2.5 h-2.5 rounded-full', status?.configured ? 'bg-emerald-500' : 'bg-slate-350')} />
+                  <h4 className="text-[14px] font-bold text-slate-850 dark:text-slate-200">Connected</h4>
+                </div>
+                <button type="button" onClick={handleDisconnect} disabled={disconnecting} className="text-[12px] font-semibold text-red-500 hover:text-red-700">
+                  Disconnect
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-[12.5px]">
+                <div><span className="text-slate-400 block">Ad Account</span><span className="font-semibold text-slate-700 dark:text-slate-300">{status.account.accountName || '—'}</span></div>
+                <div><span className="text-slate-400 block">Currency</span><span className="font-semibold text-slate-700 dark:text-slate-300">{status.account.currency || '—'}</span></div>
+                <div><span className="text-slate-400 block">Last Synced</span><span className="font-semibold text-slate-700 dark:text-slate-300">{status.account.lastSyncedAt ? new Date(status.account.lastSyncedAt).toLocaleString() : 'Never'}</span></div>
+                <div>
+                  <span className="text-slate-400 block">Sync Health</span>
+                  <span className={cn('font-semibold', status.account.lastSyncError ? 'text-red-500' : 'text-emerald-600')}>
+                    {status.account.lastSyncError ? 'Error' : status.account.lastSyncOkAt ? 'Healthy' : 'Pending first sync'}
+                  </span>
+                </div>
+              </div>
+              {status?.account?.lastSyncError && (
+                <p className="text-[11.5px] text-red-500 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg p-2">
+                  {status.account.lastSyncError}
+                </p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" variant="outline" onClick={handleTest} loading={testing}>Test Connection</Button>
+                <Button size="sm" variant="primary" onClick={handleSync} loading={syncing}>Sync Now</Button>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onSave)} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 space-y-4">
+            <p className="text-[12.5px] text-slate-550 dark:text-slate-400">
+              A long-lived System User access token with <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11.5px]">ads_read</code> permission on the target ad account. Never shown again once saved.
+            </p>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">Access Token *</label>
+              <input type="password" autoComplete="new-password" className="form-input text-[13px]"
+                placeholder={status?.account?.accountName ? '•••••••• (already set — leave blank to keep)' : 'EAAG...'}
+                {...register('accessToken')} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">Ad Account ID *</label>
+              <input className="form-input text-[13px]" placeholder="act_1234567890 (or just the digits)" {...register('adAccountId', { required: true })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">App ID <span className="normal-case font-normal text-slate-400">(optional)</span></label>
+                <input className="form-input text-[13px]" {...register('appId')} />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">App Secret <span className="normal-case font-normal text-slate-400">(optional)</span></label>
+                <input type="password" autoComplete="new-password" className="form-input text-[13px]"
+                  placeholder={status?.account?.appId ? '•••••••• (already set)' : ''} {...register('appSecret')} />
+              </div>
+            </div>
+            <Button variant="primary" type="submit" loading={saving}>
+              <Save size={14} /> Save & Verify
+            </Button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 10c. Website Intelligence — manage the tracked websites (Settings →
+// Websites). Each gets a public trackingId (ships in the embedded snippet)
+// and a private apiSecret (shown exactly once, for the lead-capture call).
+function WebsitesSection() {
+  const [websites, setWebsites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDomain, setNewDomain] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [revealSecret, setRevealSecret] = useState(null); // { website, apiSecret }
+  const [snippetFor, setSnippetFor] = useState(null); // website being viewed
+  const [deletingId, setDeletingId] = useState(null);
+
+  const origin = window.location.origin;
+
+  const load = async () => {
+    try {
+      const { data } = await witAPI.getWebsites();
+      setWebsites(data.data);
+    } catch {
+      toast.error('Failed to load websites');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!newName.trim() || !newDomain.trim()) return;
+    setCreating(true);
+    try {
+      const { data } = await witAPI.createWebsite({ name: newName.trim(), domain: newDomain.trim() });
+      toast.success(`"${data.data.name}" added`);
+      setRevealSecret({ website: data.data, apiSecret: data.data.apiSecret });
+      setNewName(''); setNewDomain(''); setShowAddForm(false);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to add website');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleToggleActive = async (website) => {
+    try {
+      await witAPI.updateWebsite(website._id, { isActive: !website.isActive });
+      toast.success(website.isActive ? 'Website paused' : 'Website resumed');
+      await load();
+    } catch {
+      toast.error('Failed to update website');
+    }
+  };
+
+  const handleRegenerateSecret = async (website) => {
+    if (!window.confirm(`Regenerate the API secret for "${website.name}"? Any code still using the old secret will stop being able to capture leads until updated.`)) return;
+    try {
+      const { data } = await witAPI.regenerateSecret(website._id);
+      setRevealSecret({ website, apiSecret: data.data.apiSecret });
+    } catch {
+      toast.error('Failed to regenerate secret');
+    }
+  };
+
+  const handleDelete = async (website) => {
+    if (!window.confirm(`Permanently delete "${website.name}"? This removes its visitor/session/pageview history for good. Any leads already captured from it are kept, just unlinked from this site entry.`)) return;
+    setDeletingId(website._id);
+    try {
+      await witAPI.deleteWebsite(website._id);
+      toast.success(`"${website.name}" deleted`);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete website');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const copyToClipboard = (text, label) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copied`);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700/60">
+        <h3 className="text-[16px] font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Globe size={18} className="text-indigo-500" /> Tracked Websites
+        </h3>
+        <Button size="sm" variant="primary" onClick={() => setShowAddForm((v) => !v)}>
+          <Plus size={14} /> Add Website
+        </Button>
+      </div>
+
+      {showAddForm && (
+        <form onSubmit={handleCreate} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 space-y-3 max-w-xl">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">Website Name</label>
+              <input className="form-input text-[13px]" placeholder="Main Company Site" value={newName} onChange={(e) => setNewName(e.target.value)} required />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">Domain</label>
+              <input className="form-input text-[13px]" placeholder="example.com" value={newDomain} onChange={(e) => setNewDomain(e.target.value)} required />
+            </div>
+          </div>
+          <Button variant="primary" type="submit" loading={creating}>Create & Get Snippet</Button>
+        </form>
+      )}
+
+      {loading ? (
+        <p className="text-[13px] text-slate-400">Loading…</p>
+      ) : websites.length === 0 ? (
+        <p className="text-[13px] text-slate-400">No websites added yet.</p>
+      ) : (
+        <div className="space-y-3 max-w-3xl">
+          {websites.map((w) => (
+            <div key={w._id} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', w.isActive ? 'bg-emerald-500' : 'bg-slate-350')} />
+                <div className="min-w-0">
+                  <p className="text-[14px] font-bold text-slate-850 dark:text-slate-200 truncate">{w.name}</p>
+                  <p className="text-[12px] text-slate-450 truncate">{w.domain}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button size="xs" variant="outline" onClick={() => setSnippetFor(w)}>Snippet</Button>
+                <Button size="xs" variant="outline" onClick={() => handleRegenerateSecret(w)}>New Secret</Button>
+                <Button size="xs" variant={w.isActive ? 'outline' : 'primary'} onClick={() => handleToggleActive(w)}>
+                  {w.isActive ? 'Pause' : 'Resume'}
+                </Button>
+                <button
+                  onClick={() => handleDelete(w)}
+                  disabled={deletingId === w._id}
+                  title="Delete website"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Reveal secret modal (shown ONCE at creation / regeneration) ── */}
+      {revealSecret && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setRevealSecret(null)}>
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">API Secret for {revealSecret.website.name}</h3>
+            <p className="text-[12.5px] text-red-500 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg p-2.5">
+              Save this now — it will never be shown again. It's needed only by your site's own backend, to POST captured leads to <code>/api/wit/lead</code>.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-[12.5px] bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-lg break-all">{revealSecret.apiSecret}</code>
+              <Button size="sm" variant="outline" onClick={() => copyToClipboard(revealSecret.apiSecret, 'Secret')}>Copy</Button>
+            </div>
+            <div className="text-right">
+              <Button variant="primary" onClick={() => setRevealSecret(null)}>Done</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Snippet / integration instructions modal ── */}
+      {snippetFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setSnippetFor(null)}>
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">Embed on {snippetFor.name}</h3>
+              <button onClick={() => setSnippetFor(null)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450"><X size={16} /></button>
+            </div>
+
+            <div>
+              <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">1. Add to every page (before <code>&lt;/body&gt;</code>)</p>
+              <div className="flex items-start gap-2">
+                <pre className="flex-1 text-[12px] bg-slate-900 text-slate-200 rounded-lg p-3 overflow-x-auto">{`<script src="${origin}/wit.js" data-tracking-id="${snippetFor.trackingId}" async></script>`}</pre>
+                <Button size="xs" variant="outline" onClick={() => copyToClipboard(`<script src="${origin}/wit.js" data-tracking-id="${snippetFor.trackingId}" async></script>`, 'Snippet')}>Copy</Button>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">2. (Optional) Tag lead forms to track Form Analytics</p>
+              <pre className="text-[12px] bg-slate-900 text-slate-200 rounded-lg p-3 overflow-x-auto">{`<form data-wit-form="quote-request">\n  <input name="name" />\n  <input name="email" />\n  <button type="submit">Send</button>\n</form>`}</pre>
+            </div>
+
+            <div>
+              <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">3. When your backend creates the lead, link it to this visitor</p>
+              <pre className="text-[12px] bg-slate-900 text-slate-200 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">{`POST ${origin}/api/wit/lead\n{\n  "trackingId": "${snippetFor.trackingId}",\n  "apiSecret": "<your saved secret>",\n  "visitorId": "<from wit.getIds() client-side, or the hidden wit_visitor_id form field>",\n  "sessionId": "<same, wit_session_id>",\n  "companyName": "...", "contactPerson": "...", "email": "...", "phone": "...", "dealValue": 0\n}`}</pre>
+              <p className="text-[11.5px] text-slate-450 mt-1.5">This creates the lead directly in the pipeline with source "Web Form" and full UTM/landing-page attribution — you don't need to separately call the regular Leads API.</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 11. Personal Profile Settings (All Members)
 function PersonalProfileSection({ user, onUpdate }) {
   const { register, handleSubmit } = useForm({
@@ -1496,6 +1866,8 @@ export default function SettingsPage() {
         { id: 'assignment_rules', label: 'Lead Routing',    icon: Sliders },
         { id: 'templates',        label: 'Communication',   icon: FileText },
         { id: 'integrations',     label: 'Integrations',    icon: Zap },
+        { id: 'meta_ads',         label: 'Meta Ads',        icon: Megaphone },
+        { id: 'websites',         label: 'Websites',        icon: Globe },
         { id: 'data',             label: 'Data Controls',   icon: Database }
       ]});
     }
@@ -1665,6 +2037,8 @@ export default function SettingsPage() {
           {isManager && activeTab === 'integrations' && (
             <IntegrationsSection settings={systemSettings} onSave={handleUpdateSystemSettings} />
           )}
+          {isManager && activeTab === 'meta_ads' && <MetaAdsSection />}
+          {isManager && activeTab === 'websites' && <WebsitesSection />}
           {isManager && activeTab === 'data' && (
             <DataControlSection 
               settings={systemSettings} onSave={handleUpdateSystemSettings}

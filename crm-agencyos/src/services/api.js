@@ -382,6 +382,43 @@ export const emailTemplatesAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── Meta Ads Analytics (admin/manager only)
+// ─────────────────────────────────────────────────────────────
+export const metaAdsAPI = {
+  status:         ()               => api.get('/meta-ads/status'),
+  saveCredentials: (body)          => api.put('/meta-ads/credentials', body),
+  clearCredentials: ()             => api.delete('/meta-ads/credentials'),
+  testConnection: ()               => api.post('/meta-ads/test-connection'),
+  syncNow:        ()               => api.post('/meta-ads/sync-now'),
+  summary:        (params)         => api.get('/meta-ads/summary', { params }),
+  trends:         (params)         => api.get('/meta-ads/trends', { params }),
+  campaigns:      (params)         => api.get('/meta-ads/campaigns', { params }),
+  adsets:         (params)         => api.get('/meta-ads/adsets', { params }),
+  ads:            (params)         => api.get('/meta-ads/ads', { params }),
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Website Intelligence (admin/manager only)
+// ─────────────────────────────────────────────────────────────
+export const witAPI = {
+  getWebsites:       ()               => api.get('/website-intelligence/websites'),
+  createWebsite:     (body)           => api.post('/website-intelligence/websites', body),
+  updateWebsite:     (id, body)       => api.put(`/website-intelligence/websites/${id}`, body),
+  regenerateSecret:  (id)             => api.post(`/website-intelligence/websites/${id}/regenerate-secret`),
+  deleteWebsite:     (id)             => api.delete(`/website-intelligence/websites/${id}`),
+  summary:           (params)         => api.get('/website-intelligence/summary', { params }),
+  trends:            (params)         => api.get('/website-intelligence/trends', { params }),
+  trafficSources:    (params)         => api.get('/website-intelligence/traffic-sources', { params }),
+  devices:           (params)         => api.get('/website-intelligence/devices', { params }),
+  pages:             (params)         => api.get('/website-intelligence/pages', { params }),
+  landingPages:      (params)         => api.get('/website-intelligence/landing-pages', { params }),
+  forms:             (params)         => api.get('/website-intelligence/forms', { params }),
+  funnel:            (params)         => api.get('/website-intelligence/funnel', { params }),
+  leadAttribution:   (params)         => api.get('/website-intelligence/lead-attribution', { params }),
+  repeatVisitors:    (params)         => api.get('/website-intelligence/repeat-visitors', { params }),
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Client Portal (role: client only)
 // ─────────────────────────────────────────────────────────────
 export const portalAPI = {

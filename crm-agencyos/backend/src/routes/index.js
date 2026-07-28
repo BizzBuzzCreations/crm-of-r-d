@@ -247,3 +247,58 @@ emailTemplatesRouter.post('/',      emailTemplateCtrl.createTemplate);
 emailTemplatesRouter.put('/:id',    emailTemplateCtrl.updateTemplate);
 emailTemplatesRouter.delete('/:id', emailTemplateCtrl.deleteTemplate);
 module.exports.emailTemplates = emailTemplatesRouter;
+
+// ── Meta Ads Analytics routes (admin/manager only — spend & ROI data) ──
+const metaAdsCtrl = require('../controllers/metaAdsController');
+const metaAdsRouter = express.Router();
+metaAdsRouter.use(protect);
+metaAdsRouter.use(authorize('admin', 'manager'));
+metaAdsRouter.get('/status',          metaAdsCtrl.getStatus);
+metaAdsRouter.put('/credentials',     metaAdsCtrl.saveCredentials);
+metaAdsRouter.delete('/credentials',  metaAdsCtrl.clearCredentials);
+metaAdsRouter.post('/test-connection', metaAdsCtrl.testConnection);
+metaAdsRouter.post('/sync-now',       metaAdsCtrl.triggerSync);
+metaAdsRouter.get('/summary',         metaAdsCtrl.getSummary);
+metaAdsRouter.get('/trends',          metaAdsCtrl.getTrends);
+metaAdsRouter.get('/campaigns',       metaAdsCtrl.getCampaigns);
+metaAdsRouter.get('/adsets',          metaAdsCtrl.getAdSets);
+metaAdsRouter.get('/ads',             metaAdsCtrl.getAds);
+module.exports.metaAds = metaAdsRouter;
+
+// ── Website Intelligence — public tracking endpoints ────────────────
+// Called from the 5 monitored websites' own origins (arbitrary third-party
+// domains) via the embedded snippet (public/wit.js) — needs its own
+// wide-open CORS, applied here rather than relying on the app-wide
+// allowlist in app.js (which this router is deliberately mounted BEFORE).
+const cors = require('cors');
+const witPublicCtrl = require('../controllers/witPublicController');
+const witPublicRouter = express.Router();
+witPublicRouter.use(cors({ origin: true }));
+witPublicRouter.post('/pageview',   witPublicCtrl.pageview);
+witPublicRouter.post('/pageend',    witPublicCtrl.pageend);
+witPublicRouter.post('/ping',       witPublicCtrl.ping);
+witPublicRouter.post('/form-event', witPublicCtrl.formEvent);
+witPublicRouter.post('/lead',       witPublicCtrl.captureLead);
+module.exports.witPublic = witPublicRouter;
+
+// ── Website Intelligence — staff dashboard (admin/manager only) ────
+const witCtrl = require('../controllers/witController');
+const witRouter = express.Router();
+witRouter.use(protect);
+witRouter.use(authorize('admin', 'manager'));
+witRouter.get('/websites',                     witCtrl.getWebsites);
+witRouter.post('/websites',                    witCtrl.createWebsite);
+witRouter.put('/websites/:id',                 witCtrl.updateWebsite);
+witRouter.post('/websites/:id/regenerate-secret', witCtrl.regenerateSecret);
+witRouter.delete('/websites/:id',              witCtrl.deleteWebsite);
+witRouter.get('/summary',           witCtrl.getSummary);
+witRouter.get('/trends',            witCtrl.getTrends);
+witRouter.get('/traffic-sources',   witCtrl.getTrafficSources);
+witRouter.get('/devices',           witCtrl.getDevices);
+witRouter.get('/pages',             witCtrl.getPages);
+witRouter.get('/landing-pages',     witCtrl.getLandingPages);
+witRouter.get('/forms',             witCtrl.getForms);
+witRouter.get('/funnel',            witCtrl.getFunnel);
+witRouter.get('/lead-attribution',  witCtrl.getLeadAttribution);
+witRouter.get('/repeat-visitors',   witCtrl.getRepeatVisitors);
+module.exports.websiteIntelligence = witRouter;

@@ -60,7 +60,19 @@ const LeadSchema = new mongoose.Schema({
   nextFollowUpDate: { type: Date },
   tags:             [{ type: String }],
   archived:         { type: Boolean, default: false },
-  customFields:     { type: Map, of: mongoose.Schema.Types.Mixed, default: {} }
+  customFields:     { type: Map, of: mongoose.Schema.Types.Mixed, default: {} },
+
+  // Website Intelligence attribution — set once, at creation, by
+  // witPublicController.js when a lead form on a tracked site submits.
+  // Never touched again afterward, so it always reflects the ORIGINAL
+  // acquisition touchpoint even if the lead's other fields get edited later.
+  websiteId:        { type: mongoose.Schema.Types.ObjectId, ref: 'TrackedWebsite', default: null },
+  websiteVisitorId: { type: String, default: '' },
+  websiteSessionId: { type: String, default: '' },
+  landingPageUrl:   { type: String, default: '' },
+  utmSource:        { type: String, default: '' },
+  utmMedium:        { type: String, default: '' },
+  utmCampaign:      { type: String, default: '' },
 }, { timestamps: true });
 
 LeadSchema.statics.getNextLeadNumber = async function () {
