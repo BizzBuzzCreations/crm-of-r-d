@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, BarChart, Bar, LineChart, Line, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
   Globe, Users2, UserCheck, Repeat, Layers, Clock, LogOut, Target, Percent, DollarSign,
-  FileSpreadsheet, FileText, Download, Calendar, X, ChevronDown, ChevronRight,
+  FileSpreadsheet, FileText, Download, Calendar, X, ChevronDown, ChevronRight, TrendingUp, BarChart3,
 } from 'lucide-react';
 import { Page, Button, Badge } from '../components/ui';
 import { cn } from '../utils/helpers';
@@ -135,6 +136,7 @@ export default function WebsiteIntelligencePage() {
   const [trend, setTrend] = useState([]);
   const [granularity, setGranularity] = useState('daily');
   const [trendMetric, setTrendMetric] = useState('visitors');
+  const [chartType, setChartType] = useState('area');
   const [darkMode] = useState(() => document.documentElement.classList.contains('dark') || document.documentElement.dataset.theme === 'dark');
 
   const [detailTab, setDetailTab] = useState('traffic');
@@ -252,6 +254,10 @@ export default function WebsiteIntelligencePage() {
     );
   }
 
+  const seriesBlue = darkMode ? '#3987e5' : '#2a78d6';
+  const seriesOrange = darkMode ? '#d95926' : '#eb6834';
+  const surfaceColor = darkMode ? '#1e293b' : '#ffffff'; // matches .card's bg-white/dark:bg-slate-800 — the stacked-bar segment gap draws in this
+
   return (
     <Page>
       {/* Header */}
@@ -312,6 +318,14 @@ export default function WebsiteIntelligencePage() {
               {TREND_METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
             </select>
             <div className="flex gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+              <button onClick={() => setChartType('area')} title="Area chart" className={cn('p-1.5 rounded-md transition-all', chartType === 'area' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400')}>
+                <TrendingUp size={13} />
+              </button>
+              <button onClick={() => setChartType('bar')} title="Bar chart" className={cn('p-1.5 rounded-md transition-all', chartType === 'bar' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400')}>
+                <BarChart3 size={13} />
+              </button>
+            </div>
+            <div className="flex gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
               {[['daily', 'D'], ['weekly', 'W'], ['monthly', 'M']].map(([v, l]) => (
                 <button key={v} onClick={() => setGranularity(v)} className={cn('px-2.5 py-1 rounded-md text-[11.5px] font-semibold transition-all', granularity === v ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400')}>{l}</button>
               ))}
@@ -319,20 +333,69 @@ export default function WebsiteIntelligencePage() {
           </div>
         </div>
         <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={trend} margin={{ left: -20, right: 5, top: 5 }}>
-            <defs>
-              <linearGradient id="witTrendGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={darkMode ? '#3987e5' : '#2a78d6'} stopOpacity={0.25} />
-                <stop offset="95%" stopColor={darkMode ? '#3987e5' : '#2a78d6'} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <Tooltip content={<ChartTip />} />
-            <Area type="monotone" dataKey={trendMetric} name={TREND_METRICS.find((m) => m.key === trendMetric)?.label} stroke={darkMode ? '#3987e5' : '#2a78d6'} fill="url(#witTrendGrad)" strokeWidth={2.5} dot={false} />
-          </AreaChart>
+          {chartType === 'area' ? (
+            <AreaChart data={trend} margin={{ left: -20, right: 5, top: 5 }}>
+              <defs>
+                <linearGradient id="witTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={seriesBlue} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={seriesBlue} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Area type="monotone" dataKey={trendMetric} name={TREND_METRICS.find((m) => m.key === trendMetric)?.label} stroke={seriesBlue} fill="url(#witTrendGrad)" strokeWidth={2.5} dot={false} />
+            </AreaChart>
+          ) : (
+            <BarChart data={trend} margin={{ left: -20, right: 5, top: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Bar dataKey={trendMetric} name={TREND_METRICS.find((m) => m.key === trendMetric)?.label} fill={seriesBlue} radius={[4, 4, 0, 0]} maxBarSize={28} />
+            </BarChart>
+          )}
         </ResponsiveContainer>
+      </div>
+
+      {/* Supporting trend comparisons */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div className="card p-5">
+          <div className="mb-4">
+            <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200">Visitor Acquisition</h3>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">New vs. returning visitors per period</p>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={trend} margin={{ left: -20, right: 5, top: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+              <Bar dataKey="newVisitors" name="New" stackId="visitors" fill={seriesBlue} stroke={surfaceColor} strokeWidth={2} maxBarSize={28} />
+              <Bar dataKey="returningVisitors" name="Returning" stackId="visitors" fill={seriesOrange} stroke={surfaceColor} strokeWidth={2} radius={[4, 4, 0, 0]} maxBarSize={28} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="card p-5">
+          <div className="mb-4">
+            <h3 className="text-[14px] font-semibold text-slate-800 dark:text-slate-200">Visitors vs. Sessions</h3>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">Engagement depth — sessions per visitor over time</p>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={trend} margin={{ left: -20, right: 5, top: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTip />} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+              <Line type="monotone" dataKey="visitors" name="Visitors" stroke={seriesBlue} strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="sessions" name="Sessions" stroke={seriesOrange} strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       {/* Detail tabs */}

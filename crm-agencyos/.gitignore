@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Secrets — never commit real env files
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+
+# Runtime data — user uploads, logs, local persistence dumps
+backend/uploads/
+backend/logs/
+dump.rdb
+
+# OS cruft
+.DS_Store
+Thumbs.db

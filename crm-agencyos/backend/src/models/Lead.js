@@ -35,7 +35,7 @@ const LeadSchema = new mongoose.Schema({
   },
   source: {
     type: String,
-    enum: ['Manual', 'Import', 'Web Form', 'Campaign'],
+    enum: ['Manual', 'Import', 'Web Form', 'Campaign', 'Meta Ads'],
     default: 'Manual'
   },
   assignedTo:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
@@ -73,6 +73,31 @@ const LeadSchema = new mongoose.Schema({
   utmSource:        { type: String, default: '' },
   utmMedium:        { type: String, default: '' },
   utmCampaign:      { type: String, default: '' },
+
+  // Ad-platform attribution (Meta Ads today, same shape reusable for Google/
+  // LinkedIn later) — set once, at creation, same "never touched again"
+  // rule as the Website Intelligence fields above. IDs drive the join
+  // against MetaAdEntity/MetaAdInsight in metaAdsController.js; names are
+  // denormalized copies so the CRM can display "came from campaign X"
+  // without a live lookup, even if that campaign gets deleted in Meta later.
+  adAttribution: {
+    platform:     { type: String, enum: ['', 'meta', 'google'], default: '' },
+    campaignId:   { type: String, default: '' },
+    campaignName: { type: String, default: '' },
+    adsetId:      { type: String, default: '' },
+    adsetName:    { type: String, default: '' },
+    adId:         { type: String, default: '' },
+    adName:       { type: String, default: '' },
+  },
+
+  // This lead's own ID in the separate "main CRM" agents actually work
+  // leads in — rndCRM doesn't own lead lifecycle, it's a reporting copy fed
+  // once at creation. Set by whatever created this lead (e.g. the n8n
+  // workflow) so a later status-sync webhook from the main CRM
+  // (POST /api/lead-sync/status, see leadController.syncLeadStatus) can
+  // find the right record to update. Empty for leads created directly in
+  // rndCRM, which have no external counterpart.
+  externalLeadId: { type: String, default: '', index: true },
 }, { timestamps: true });
 
 LeadSchema.statics.getNextLeadNumber = async function () {

@@ -13,22 +13,11 @@ const WitSession = require('../models/WitSession');
 const WitPageview = require('../models/WitPageview');
 const WitFormEvent = require('../models/WitFormEvent');
 const Lead = require('../models/Lead');
-const crypto = require('crypto');
 const { parseUserAgent } = require('../utils/uaParser');
 const { lookupGeo } = require('../utils/geoip');
 const { categorize, domainOf } = require('../utils/trafficSource');
 const { autoAssignLead } = require('../utils/leadAssignment');
-
-function secretsMatch(a, b) {
-  const bufA = Buffer.from(String(a || ''));
-  const bufB = Buffer.from(String(b || ''));
-  // timingSafeEqual throws on length mismatch — compare against a
-  // same-length dummy first so a wrong-length secret still takes the same
-  // code path (leaking only "wrong", never "wrong length"; length itself
-  // isn't the secret, so this is a reasonable, standard tradeoff).
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
+const { secretsMatch } = require('../utils/secretsMatch');
 
 const SESSION_TIMEOUT_MIN = 30;
 

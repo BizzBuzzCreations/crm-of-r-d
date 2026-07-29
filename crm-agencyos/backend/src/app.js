@@ -1,5 +1,6 @@
 const express     = require('express');
 const cors        = require('cors');
+const helmet      = require('helmet');
 const morgan      = require('morgan');
 const path        = require('path');
 const cookieParser= require('cookie-parser');
@@ -14,6 +15,21 @@ const app = express();
 // geo lookups — silently records 127.0.0.1 for every request in production.
 app.set('trust proxy', 1);
 
+// Baseline security headers (X-Frame-Options, X-Content-Type-Options,
+// no more X-Powered-By, etc). Two defaults deliberately overridden:
+//   - contentSecurityPolicy: off — helmet's default CSP is strict enough to
+//     break an existing app's own asset loading if turned on retroactively
+//     without a tailored policy; needs its own dedicated pass, not a
+//     drive-by default here.
+//   - crossOriginResourcePolicy: 'cross-origin' — helmet's default
+//     ('same-origin') would block the 5 tracked websites from loading
+//     /wit.js and calling /api/wit/* cross-origin, undoing the CORS work
+//     those routes already depend on.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
@@ -25,6 +41,13 @@ app.use(cookieParser());
 // the campaign tracking pixel is public, except this one needs real CORS
 // headers (fetch/sendBeacon calls, not an <img> tag).
 app.use('/api/wit', require('./routes/witPublic'));
+
+// ── Lead status-sync webhook — called server-to-server by the main CRM's
+// own backend, not a browser, so it needs no CORS handling at all (only
+// mounted early to stay consistent with the other public/webhook routes
+// above the app's own origin allowlist). Auth is a shared secret checked
+// inside leadController.syncLeadStatus, not this app's normal JWT flow.
+app.use('/api/lead-sync', require('./routes/leadSync'));
 
 // ── CORS — allow dev (localhost:5173, 5174), configured CLIENT_URL, and any LAN IP ──
 const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/$/, '') : null;
@@ -50,7 +73,13 @@ app.use(cors({
     // Allow any LAN IP (192.168.x.x or 10.x.x.x) on any port
     if (/^https?:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(normalizedOrigin)) return callback(null, true);
     
-    callback(new Error(`CORS blocked: ${origin}`));
+    // 403, not the default 500 — this is a rejected/untrusted request, not a
+    // server malfunction. Also keeps it out of logger.error's >=500 gate, so
+    // routine bot/scanner noise (constant on any public API) stops flooding
+    // System Monitor's error feed as if something were actually broken.
+    const err = new Error(`CORS blocked: ${origin}`);
+    err.statusCode = 403;
+    callback(err);
   },
   credentials: true,
   methods:     ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],

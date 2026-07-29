@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
@@ -348,6 +348,75 @@ function MemberTimer({ open }) {
   );
 }
 
+// ── Expandable nav group (e.g. "Ads Monitoring" → Meta Ads, Google Ads, …) ──
+function NavGroup({ item, role, sidebarOpen, isExpanded, onToggle, activePath }) {
+  const children = item.children.filter((c) => c.roles.includes(role));
+  if (!children.length) return null;
+  const hasActiveChild = children.some((c) => c.path === activePath);
+
+  // Collapsed sidebar has no room for a submenu — link straight to the
+  // first child instead, same as any other icon-only nav item.
+  if (!sidebarOpen) {
+    return (
+      <NavLink
+        to={children[0].path}
+        title={item.label}
+        className={cn(
+          'relative flex items-center justify-center px-0 py-2 rounded-lg cursor-pointer transition-all duration-150 select-none',
+          hasActiveChild ? 'bg-indigo-600/20 text-indigo-300' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]'
+        )}
+      >
+        {hasActiveChild && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-indigo-400 rounded-r" />
+        )}
+        <item.icon size={16} />
+      </NavLink>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        onClick={onToggle}
+        className={cn(
+          'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-150 select-none',
+          hasActiveChild ? 'text-indigo-300' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]'
+        )}
+      >
+        <item.icon size={16} className="flex-shrink-0" />
+        <span className="flex-1 text-[13px] font-medium truncate text-left">{item.label}</span>
+        <ChevronDown size={13} className={cn('flex-shrink-0 transition-transform duration-150', !isExpanded && '-rotate-90')} />
+      </button>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-0.5 space-y-0.5">
+              {children.map((child) => (
+                <NavLink
+                  key={child.path}
+                  to={child.path}
+                  className={({ isActive }) => cn(
+                    'flex items-center gap-2.5 pl-9 pr-2.5 py-1.5 rounded-lg cursor-pointer transition-all duration-150 select-none text-[12.5px] font-medium',
+                    isActive ? 'bg-indigo-600/20 text-indigo-300' : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.06]'
+                  )}
+                >
+                  <child.icon size={13} className="flex-shrink-0" />
+                  <span className="truncate">{child.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ── Nav ───────────────────────────────────────────────────────
 const NAV = [
   {
@@ -365,7 +434,14 @@ const NAV = [
       { path: '/clients',   label: 'Clients & Projects',   icon: Users,           roles: ['admin','manager','client_relations'] },
       { path: '/leads',     label: 'Leads Pipeline',       icon: Target,          roles: ['admin','manager','client_relations','member'] },
       { path: '/campaigns', label: 'Campaigns',            icon: Mail,            roles: ['admin','manager'], permissionKey: 'campaignsAccess' },
-      { path: '/meta-ads',  label: 'Meta Ads',             icon: Megaphone,       roles: ['admin','manager'] },
+      {
+        key: 'ads-monitoring', label: 'Ads Monitoring', icon: Megaphone, roles: ['admin','manager'],
+        // More platforms (Google, LinkedIn, etc.) get added here as sibling
+        // entries later — each is its own future page, not built yet.
+        children: [
+          { path: '/meta-ads', label: 'Meta Ads', icon: Megaphone, roles: ['admin','manager'] },
+        ],
+      },
       { path: '/website-intelligence', label: 'Website Intelligence', icon: Globe2, roles: ['admin','manager'] },
       { path: '/messages',  label: 'Messages',             icon: MessageSquare,   roles: ['admin','manager','member','client_relations','client'], badge: true },
       { path: '/meetings',  label: 'Meetings',             icon: Video,           roles: ['admin','manager','member','client_relations'] },
@@ -396,11 +472,26 @@ export default function Sidebar() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const messages    = useAppStore((s) => s.messages);
   const logout      = useAppStore((s) => s.logout);
+  const location    = useLocation();
 
   const role        = authUser?.role;
   const isMember    = role === 'member';
   const isClient    = role === 'client';
   const totalUnread = [...messages.channels, ...messages.dms].reduce((a, c) => a + (c.unread || 0), 0);
+
+  // ── Expandable nav groups (e.g. "Ads Monitoring") ──────────────
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  useEffect(() => {
+    const activeGroup = NAV.flatMap((s) => s.items).find((item) =>
+      item.children?.some((c) => c.path === location.pathname)
+    );
+    if (activeGroup) setExpandedGroups((prev) => new Set(prev).add(activeGroup.key));
+  }, [location.pathname]);
+  const toggleGroup = (key) => setExpandedGroups((prev) => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
   return (
     <motion.aside
@@ -455,7 +546,17 @@ export default function Sidebar() {
                 )}
               </AnimatePresence>
 
-              {visible.map((item) => (
+              {visible.map((item) => item.children ? (
+                <NavGroup
+                  key={item.key}
+                  item={item}
+                  role={role}
+                  sidebarOpen={sidebarOpen}
+                  isExpanded={expandedGroups.has(item.key)}
+                  onToggle={() => toggleGroup(item.key)}
+                  activePath={location.pathname}
+                />
+              ) : (
                 <NavLink
                   key={item.path}
                   to={item.path}
