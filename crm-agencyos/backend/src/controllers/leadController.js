@@ -136,6 +136,25 @@ exports.createLead = async (req, res, next) => {
   try {
     const { companyName, contactPerson, email, phone, website, dealValue, status, assignedTo, contacts, source, nextFollowUpDate, tags, customFields, adAttribution, externalLeadId } = req.body;
 
+    // Idempotency guard — an automation (n8n workflow re-execution, a
+    // trigger re-firing on the same row, a retry after a transient error)
+    // can call this endpoint more than once for the same real lead.
+    // Without this, every re-call creates another full duplicate of the
+    // same person. Matching on externalLeadId (the main CRM's own ID for
+    // this lead) and returning the EXISTING record — untouched — rather
+    // than erroring, keeps the caller's flow simple (still gets a 2xx with
+    // lead data back) and never clobbers whatever an agent has since done
+    // with it (status changes, notes, assignment).
+    if (externalLeadId) {
+      const existing = await Lead.findOne({ externalLeadId }).populate('assignedTo', 'name email avatar color initials position');
+      if (existing) {
+        const enriched = existing.toObject();
+        enriched.healthScore = calculateHealthScore(existing);
+        if (!enriched.leadId) enriched.leadId = `LD-${String(existing._id).slice(-4).toUpperCase()}`;
+        return res.status(200).json({ success: true, duplicate: true, data: enriched });
+      }
+    }
+
     // No explicit assignee — hand it to the Lead Distribution algorithm
     // configured in Settings > Lead Routing (round-robin / least-loaded /
     // off). Returns null if auto-distribution is off or nobody's eligible.
@@ -172,7 +191,7 @@ exports.createLead = async (req, res, next) => {
       // The main CRM's own ID for this same lead — lets a later status-sync
       // webhook find this record. Optional; leads created without it just
       // can't be status-synced later.
-      externalLeadId: externalLeadId || '',
+      externalLeadId: externalLeadId || undefined,
     });
 
     // Log creation activity
