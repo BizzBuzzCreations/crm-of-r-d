@@ -409,6 +409,7 @@ export const witAPI = {
   summary:           (params)         => api.get('/website-intelligence/summary', { params }),
   trends:            (params)         => api.get('/website-intelligence/trends', { params }),
   trafficSources:    (params)         => api.get('/website-intelligence/traffic-sources', { params }),
+  countries:         (params)         => api.get('/website-intelligence/countries', { params }),
   devices:           (params)         => api.get('/website-intelligence/devices', { params }),
   pages:             (params)         => api.get('/website-intelligence/pages', { params }),
   landingPages:      (params)         => api.get('/website-intelligence/landing-pages', { params }),

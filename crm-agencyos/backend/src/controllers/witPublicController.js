@@ -13,10 +13,22 @@ const WitSession = require('../models/WitSession');
 const WitPageview = require('../models/WitPageview');
 const WitFormEvent = require('../models/WitFormEvent');
 const Lead = require('../models/Lead');
+const crypto = require('crypto');
 const { parseUserAgent } = require('../utils/uaParser');
 const { lookupGeo } = require('../utils/geoip');
 const { categorize, domainOf } = require('../utils/trafficSource');
 const { autoAssignLead } = require('../utils/leadAssignment');
+
+function secretsMatch(a, b) {
+  const bufA = Buffer.from(String(a || ''));
+  const bufB = Buffer.from(String(b || ''));
+  // timingSafeEqual throws on length mismatch — compare against a
+  // same-length dummy first so a wrong-length secret still takes the same
+  // code path (leaking only "wrong", never "wrong length"; length itself
+  // isn't the secret, so this is a reasonable, standard tradeoff).
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 const SESSION_TIMEOUT_MIN = 30;
 
@@ -89,6 +101,7 @@ exports.pageview = async (req, res) => {
           country: geo?.country || visitor.country || '',
           region: geo?.region || visitor.region || '',
           city: geo?.city || visitor.city || '',
+          ip,
         },
         $inc: { pageCount: 1 },
         $set: { exitPage: path, lastSeenAt: now },
@@ -203,7 +216,7 @@ exports.captureLead = async (req, res) => {
       return res.status(400).json({ success: false, message: 'trackingId and apiSecret are required' });
     }
     const website = await TrackedWebsite.findOne({ trackingId, isActive: true }).select('+apiSecretEncrypted');
-    if (!website || website.apiSecret !== apiSecret) {
+    if (!website || !secretsMatch(website.apiSecret, apiSecret)) {
       return res.status(401).json({ success: false, message: 'Invalid tracking credentials' });
     }
     if (!companyName || !contactPerson) {
@@ -212,11 +225,17 @@ exports.captureLead = async (req, res) => {
 
     const session = sessionId ? await WitSession.findOne({ sessionId, websiteId: website._id }) : null;
 
+    // Number(malformed string) is NaN, and NaN silently poisons every
+    // revenue aggregate that later sums this field (bucket.revenue += NaN
+    // turns the WHOLE report NaN, not just this one lead) — never store it.
+    const parsedDealValue = Number(dealValue);
+    const safeDealValue = Number.isFinite(parsedDealValue) ? parsedDealValue : 0;
+
     const assignedTo = await autoAssignLead();
     const lead = await Lead.create({
       companyName, contactPerson,
       email: email || '', phone: phone || '',
-      dealValue: dealValue ? Number(dealValue) : 0,
+      dealValue: safeDealValue,
       status: 'New Lead',
       source: 'Web Form',
       assignedTo,

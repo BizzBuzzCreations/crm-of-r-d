@@ -273,7 +273,15 @@ module.exports.metaAds = metaAdsRouter;
 const cors = require('cors');
 const witPublicCtrl = require('../controllers/witPublicController');
 const witPublicRouter = express.Router();
-witPublicRouter.use(cors({ origin: true }));
+// credentials: true is required here even though these routes don't use
+// cookie auth — navigator.sendBeacon() (used by pageend) always sends with
+// credentials mode "include" per spec, so without Access-Control-Allow-
+// Credentials: true in the response, every cross-origin pageend beacon
+// silently fails CORS preflight and is never sent (sendBeacon has no error
+// callback, so this is invisible from the page). origin:true still reflects
+// the exact request origin rather than "*", which is required alongside
+// credentials:true anyway.
+witPublicRouter.use(cors({ origin: true, credentials: true }));
 witPublicRouter.post('/pageview',   witPublicCtrl.pageview);
 witPublicRouter.post('/pageend',    witPublicCtrl.pageend);
 witPublicRouter.post('/ping',       witPublicCtrl.ping);
@@ -294,6 +302,7 @@ witRouter.delete('/websites/:id',              witCtrl.deleteWebsite);
 witRouter.get('/summary',           witCtrl.getSummary);
 witRouter.get('/trends',            witCtrl.getTrends);
 witRouter.get('/traffic-sources',   witCtrl.getTrafficSources);
+witRouter.get('/countries',         witCtrl.getCountries);
 witRouter.get('/devices',           witCtrl.getDevices);
 witRouter.get('/pages',             witCtrl.getPages);
 witRouter.get('/landing-pages',     witCtrl.getLandingPages);

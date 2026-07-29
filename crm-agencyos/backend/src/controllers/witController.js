@@ -35,7 +35,10 @@ function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 // @GET /api/website-intelligence/websites
 exports.getWebsites = async (req, res, next) => {
   try {
-    const websites = await TrackedWebsite.find({}).sort({ createdAt: -1 }).lean();
+    // apiSecretEncrypted is select:false on the schema — must opt back in
+    // here to compute hasSecret, or it's always undefined and hasSecret is
+    // always false regardless of whether a secret is actually configured.
+    const websites = await TrackedWebsite.find({}).select('+apiSecretEncrypted').sort({ createdAt: -1 }).lean();
     res.json({ success: true, data: websites.map((w) => ({ ...w, hasSecret: !!w.apiSecretEncrypted, apiSecretEncrypted: undefined })) });
   } catch (err) { next(err); }
 };
@@ -241,6 +244,54 @@ exports.getTrafficSources = async (req, res, next) => {
       .sort((a, b) => b.visitors - a.visitors);
 
     res.json({ success: true, data: { range: { from, to }, sources: rows } });
+  } catch (err) { next(err); }
+};
+
+// ══════════════════════════════════════════════════════════════
+// Country Distribution — visitors/leads/revenue grouped by country.
+// Country comes from a best-effort IP geolocation lookup done once per new
+// session (see geoip.js) — expect some "Unknown" rows for lookup failures,
+// and note that req.ip only resolves to the real visitor address in
+// production because app.js sets `trust proxy` for the nginx hop in front.
+// ══════════════════════════════════════════════════════════════
+
+// @GET /api/website-intelligence/countries?websiteId&from&to
+exports.getCountries = async (req, res, next) => {
+  try {
+    const { from, to } = resolveRange(req);
+    const { fromDate, toDate } = rangeToDates(from, to);
+    const site = siteFilter(req);
+
+    const sessions = await WitSession.find({ ...site, startedAt: { $gte: fromDate, $lte: toDate } })
+      .select('sessionId visitorId country').lean();
+
+    const sessionIds = sessions.map((s) => s.sessionId);
+    const leads = await Lead.find({ websiteSessionId: { $in: sessionIds } }).select('websiteSessionId status dealValue').lean();
+    const leadsBySession = new Map(leads.map((l) => [l.websiteSessionId, l]));
+
+    const byCountry = new Map();
+    sessions.forEach((s) => {
+      const key = s.country || 'Unknown';
+      const bucket = byCountry.get(key) || { country: key, visitors: new Set(), sessions: 0, leads: 0, customers: 0, revenue: 0 };
+      bucket.visitors.add(s.visitorId);
+      bucket.sessions += 1;
+      const lead = leadsBySession.get(s.sessionId);
+      if (lead) {
+        bucket.leads += 1;
+        if (lead.status === 'Won') { bucket.customers += 1; bucket.revenue += lead.dealValue || 0; }
+      }
+      byCountry.set(key, bucket);
+    });
+
+    const rows = Array.from(byCountry.values())
+      .map((b) => ({
+        country: b.country, visitors: b.visitors.size, sessions: b.sessions,
+        leads: b.leads, customers: b.customers, revenue: round2(b.revenue),
+        conversionRate: b.visitors.size ? round2((b.leads / b.visitors.size) * 100) : 0,
+      }))
+      .sort((a, b) => b.visitors - a.visitors);
+
+    res.json({ success: true, data: { range: { from, to }, countries: rows } });
   } catch (err) { next(err); }
 };
 
@@ -461,6 +512,7 @@ exports.getFunnel = async (req, res, next) => {
     const sessions = await WitSession.find({ ...site, startedAt: { $gte: fromDate, $lte: toDate } })
       .select('sessionId visitorId pageCount leadId').lean();
     const sessionIds = sessions.map((s) => s.sessionId);
+    const sessionIdSet = new Set(sessionIds); // O(1) membership checks below, not O(n) Array#includes
 
     const formStartSessions = await WitFormEvent.distinct('sessionId', { ...site, type: 'start', createdAt: { $gte: fromDate, $lte: toDate } });
     const formSubmitSessions = await WitFormEvent.distinct('sessionId', { ...site, type: 'submit', createdAt: { $gte: fromDate, $lte: toDate } });
@@ -469,8 +521,8 @@ exports.getFunnel = async (req, res, next) => {
 
     const visitors = new Set(sessions.map((s) => s.visitorId)).size;
     const engagedSessions = sessions.filter((s) => s.pageCount >= 2).length;
-    const formStarted = new Set(formStartSessions.filter((id) => sessionIds.includes(id))).size;
-    const formSubmitted = new Set(formSubmitSessions.filter((id) => sessionIds.includes(id))).size;
+    const formStarted = formStartSessions.filter((id) => sessionIdSet.has(id)).length;
+    const formSubmitted = formSubmitSessions.filter((id) => sessionIdSet.has(id)).length;
     const leadsCreated = leads.length;
     const qualified = leads.filter((l) => l.status !== 'New Lead').length;
     const won = leads.filter((l) => l.status === 'Won').length;
@@ -529,8 +581,8 @@ exports.getLeadAttribution = async (req, res, next) => {
         companyName: l.companyName,
         contactPerson: l.contactPerson,
         status: l.status,
-        dealValue: l.dealValue,
-        revenue: l.status === 'Won' ? l.dealValue : 0,
+        dealValue: l.dealValue || 0,
+        revenue: l.status === 'Won' ? (l.dealValue || 0) : 0,
         salesperson: l.assignedTo?.name || 'Unassigned',
         website: l.websiteId?.name || '',
         landingPageUrl: l.landingPageUrl,
@@ -569,15 +621,22 @@ exports.getRepeatVisitors = async (req, res, next) => {
     const limit = Math.min(200, Number(req.query.limit) || 100);
 
     const sessions = await WitSession.find({ ...site, startedAt: { $gte: fromDate, $lte: toDate } })
-      .select('visitorId startedAt deviceType browser country')
+      .select('visitorId startedAt deviceType browser country ip')
       .sort({ startedAt: -1 })
       .lean();
 
-    const byVisitor = new Map(); // visitorId -> { visitsInRange, latestSession }
+    // visitorId -> { visitsInRange, latestSession, visits: [{startedAt, ip}], ipSet }
+    const byVisitor = new Map();
     sessions.forEach((s) => {
       const entry = byVisitor.get(s.visitorId);
-      if (!entry) byVisitor.set(s.visitorId, { visitsInRange: 1, latestSession: s });
-      else entry.visitsInRange += 1; // sessions are pre-sorted desc, so the first one seen per visitor is already the latest
+      const visit = { startedAt: s.startedAt, ip: s.ip || '' };
+      if (!entry) {
+        byVisitor.set(s.visitorId, { visitsInRange: 1, latestSession: s, visits: [visit], ipSet: new Set(s.ip ? [s.ip] : []) });
+      } else {
+        entry.visitsInRange += 1; // sessions are pre-sorted desc, so the first one seen per visitor is already the latest
+        entry.visits.push(visit);
+        if (s.ip) entry.ipSet.add(s.ip);
+      }
     });
 
     const visitorIds = Array.from(byVisitor.keys());
@@ -602,6 +661,12 @@ exports.getRepeatVisitors = async (req, res, next) => {
         deviceType: entry.latestSession.deviceType,
         browser: entry.latestSession.browser,
         country: entry.latestSession.country,
+        // Every visit in the selected range, most recent first — exact
+        // timestamp + the IP that request came from — plus the deduplicated
+        // set of IPs (a visitor's IP can change across visits: mobile data
+        // vs wifi, VPN, a different location entirely).
+        visits: entry.visits.map((v) => ({ at: v.startedAt, ip: v.ip })),
+        uniqueIps: Array.from(entry.ipSet),
         lead: lead ? { leadId: vDoc.leadId, companyName: lead.companyName, contactPerson: lead.contactPerson, status: lead.status } : null,
       };
     }).sort((a, b) => b.visitsInRange - a.visitsInRange).slice(0, limit);

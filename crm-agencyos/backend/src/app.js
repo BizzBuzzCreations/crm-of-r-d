@@ -7,6 +7,13 @@ const errorHandler= require('./middleware/errorHandler');
 
 const app = express();
 
+// Trust exactly one hop (the nginx reverse proxy in front of this process)
+// so req.ip resolves to the real visitor's address from X-Forwarded-For,
+// not nginx's own loopback IP. Without this, every req.ip read anywhere in
+// the app — audit log IPs, campaign open-tracking IPs, Website Intelligence
+// geo lookups — silently records 127.0.0.1 for every request in production.
+app.set('trust proxy', 1);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
