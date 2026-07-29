@@ -1,6 +1,7 @@
 const { SystemSettings } = require('../models/index');
 const User = require('../models/User');
 const { getSheetsClient, isConfigured } = require('../utils/googleSheetsClient');
+const { invalidateLimitsCache } = require('../middleware/rateLimiters');
 
 // Defaults that must exist in every document — used to patch legacy docs
 const FIELD_DEFAULTS = {
@@ -77,6 +78,10 @@ exports.updateSystemSettings = async (req, res, next) => {
       { $set: updateData },
       { new: true, runValidators: true }
     );
+
+    // A changed rate-limit cap should apply to the very next request, not
+    // wait out the middleware's own cache TTL.
+    if (updateData.rateLimits) invalidateLimitsCache();
 
     // Broadcast live update to all sockets for real-time config sync!
     const io = req.app.get('io');

@@ -45,6 +45,15 @@ const SystemSettingsSchema = new mongoose.Schema({
   enforce2FA:          { type: Boolean, default: false },
   ipWhitelist:         [{ type: String }],
 
+  // Rate limiting — request-count caps only (not the time window; see
+  // rateLimiters.js for why). loginMax guards POST /api/auth/login against
+  // credential-guessing; witPublicMax guards the public Website
+  // Intelligence tracking endpoints against flooding/abuse.
+  rateLimits: {
+    loginMax:     { type: Number, default: 30, min: 1 },
+    witPublicMax: { type: Number, default: 100, min: 1 },
+  },
+
   // Lead & Pipeline Stages
   pipelines: {
     type: [PipelineSchema],

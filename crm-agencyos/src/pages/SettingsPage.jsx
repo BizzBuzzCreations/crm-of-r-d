@@ -207,7 +207,9 @@ function SecurityConfigSection({ settings, onSave }) {
     defaultValues: {
       passwordComplexity: settings?.passwordComplexity || 'medium',
       sessionTimeout:     settings?.sessionTimeout || 120,
-      enforce2FA:         !!settings?.enforce2FA
+      enforce2FA:         !!settings?.enforce2FA,
+      loginMax:           settings?.rateLimits?.loginMax || 30,
+      witPublicMax:       settings?.rateLimits?.witPublicMax || 100,
     }
   });
 
@@ -223,7 +225,12 @@ function SecurityConfigSection({ settings, onSave }) {
   };
 
   const onSubmit = (data) => {
-    onSave({ ...data, ipWhitelist: ipList });
+    const { loginMax, witPublicMax, ...rest } = data;
+    onSave({
+      ...rest,
+      ipWhitelist: ipList,
+      rateLimits: { loginMax: Number(loginMax) || 30, witPublicMax: Number(witPublicMax) || 100 },
+    });
   };
 
   return (
@@ -252,6 +259,25 @@ function SecurityConfigSection({ settings, onSave }) {
         <div className="flex items-center justify-between">
           <p className="text-[13px] text-slate-500 dark:text-slate-400">Enforce all CRM team members and sales representatives to complete 2FA login verification.</p>
           <input type="checkbox" className="w-5 h-5 accent-indigo-500" {...register('enforce2FA')} />
+        </div>
+      </div>
+
+      <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
+        <h4 className="text-[14px] font-bold text-slate-800 dark:text-slate-200 mb-1.5">Rate Limiting</h4>
+        <p className="text-[12.5px] text-slate-400 mb-3">
+          Caps how many requests one IP can make before getting blocked, without a redeploy. Takes effect on the very next request after saving.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-350 mb-1.5">Login attempts (per 15 min, per IP)</label>
+            <input type="number" min="1" className="form-input text-[13.5px] py-2" {...register('loginMax')} />
+            <p className="text-[11.5px] text-slate-400 mt-1">Guards <code>/api/auth/login</code> against password guessing. Raise this if a legitimate automation (e.g. n8n) needs to log in repeatedly and keeps getting blocked.</p>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-slate-700 dark:text-slate-350 mb-1.5">Tracking requests (per minute, per IP)</label>
+            <input type="number" min="1" className="form-input text-[13.5px] py-2" {...register('witPublicMax')} />
+            <p className="text-[11.5px] text-slate-400 mt-1">Guards the public Website Intelligence tracking endpoints against flooding. Many real visitors can share one IP (offices, mobile carriers) — keep this generous.</p>
+          </div>
         </div>
       </div>
 
