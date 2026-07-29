@@ -5,6 +5,7 @@
 const express = require('express');
 const { protect, authorize, authorizeRoles, authorizeOrFlag, denyClientWrites } = require('../middleware/auth');
 const upload  = require('../middleware/upload');
+const { loginLimiter, witPublicLimiter } = require('../middleware/rateLimiters');
 
 const auth = require('../controllers/authController');
 const ctrl = require('../controllers/mainControllers');
@@ -16,7 +17,7 @@ const billing = require('../controllers/billingController');
 
 // ── Auth routes ───────────────────────────────────────────────
 const authRouter = express.Router();
-authRouter.post('/login',    auth.login);
+authRouter.post('/login',    loginLimiter, auth.login);
 authRouter.post('/logout',   auth.logout);
 authRouter.post('/refresh',  auth.refresh);
 authRouter.get('/me',        protect, auth.me);
@@ -134,6 +135,14 @@ leadsRouter.post('/:id/email',  leadCtrl.sendLeadEmail);
 leadsRouter.get('/:id/emails',  leadCtrl.getLeadEmails);     // email history log
 leadsRouter.delete('/:id',      authorize('admin','manager'), leadCtrl.deleteLead);
 module.exports.leads = leadsRouter;
+
+// ── Lead sync — public webhook from the main CRM (not a browser, no user
+// session; own shared-secret auth inside the controller). Deliberately its
+// own router at a distinct base path, not nested under /api/leads, so it
+// never inherits leadsRouter's `protect`.
+const leadSyncRouter = express.Router();
+leadSyncRouter.post('/status', leadCtrl.syncLeadStatus);
+module.exports.leadSync = leadSyncRouter;
 
 // ── Client Portal routes (role: client only) ──────────────────
 const portalCtrl = require('../controllers/portalController');
@@ -282,6 +291,7 @@ const witPublicRouter = express.Router();
 // the exact request origin rather than "*", which is required alongside
 // credentials:true anyway.
 witPublicRouter.use(cors({ origin: true, credentials: true }));
+witPublicRouter.use(witPublicLimiter);
 witPublicRouter.post('/pageview',   witPublicCtrl.pageview);
 witPublicRouter.post('/pageend',    witPublicCtrl.pageend);
 witPublicRouter.post('/ping',       witPublicCtrl.ping);

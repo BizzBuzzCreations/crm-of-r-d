@@ -5,6 +5,7 @@ const notifService = require('../services/notificationService');
 const { addEmailToQueue, EMAIL_TYPES } = require('../queues/emailQueue');
 const audit = require('../services/auditService');
 const { autoAssignLead } = require('../utils/leadAssignment');
+const { secretsMatch } = require('../utils/secretsMatch');
 
 // Helper to calculate Lead Health Score dynamically
 const calculateHealthScore = (lead) => {
@@ -133,7 +134,7 @@ exports.getLeads = async (req, res, next) => {
 // @POST /api/leads
 exports.createLead = async (req, res, next) => {
   try {
-    const { companyName, contactPerson, email, phone, website, dealValue, status, assignedTo, contacts, source, nextFollowUpDate, tags, customFields } = req.body;
+    const { companyName, contactPerson, email, phone, website, dealValue, status, assignedTo, contacts, source, nextFollowUpDate, tags, customFields, adAttribution, externalLeadId } = req.body;
 
     // No explicit assignee — hand it to the Lead Distribution algorithm
     // configured in Settings > Lead Routing (round-robin / least-loaded /
@@ -154,7 +155,24 @@ exports.createLead = async (req, res, next) => {
       contacts: contacts || [],
       nextFollowUpDate: nextFollowUpDate || null,
       tags: tags || [],
-      customFields: customFields || {}
+      customFields: customFields || {},
+      // Optional — n8n (or any external integration) can pass this so this
+      // lead counts toward the right campaign/adset/ad in the Meta Ads
+      // dashboard's attribution numbers. Silently ignored if platform isn't
+      // a recognized value, rather than rejecting the whole lead over it.
+      adAttribution: (adAttribution && ['meta', 'google'].includes(adAttribution.platform)) ? {
+        platform: adAttribution.platform,
+        campaignId: adAttribution.campaignId || '',
+        campaignName: adAttribution.campaignName || '',
+        adsetId: adAttribution.adsetId || '',
+        adsetName: adAttribution.adsetName || '',
+        adId: adAttribution.adId || '',
+        adName: adAttribution.adName || '',
+      } : undefined,
+      // The main CRM's own ID for this same lead — lets a later status-sync
+      // webhook find this record. Optional; leads created without it just
+      // can't be status-synced later.
+      externalLeadId: externalLeadId || '',
     });
 
     // Log creation activity
@@ -222,6 +240,53 @@ exports.createLead = async (req, res, next) => {
     }
 
     res.status(201).json({ success: true, data: enriched });
+  } catch (err) { next(err); }
+};
+
+// @POST /api/lead-sync/status — called by the MAIN CRM's own backend (not a
+// browser, no CRM user session), whenever a lead it owns changes status or
+// deal value. rndCRM only ever sees a lead once at creation (via
+// createLead's externalLeadId) — without this webhook, "Qualified Leads" /
+// "Won Customers" / "Revenue" / "ROI" / "ROAS" in the Meta Ads dashboard
+// would stay stuck at whatever the lead's status was the moment it was
+// created, forever. Auth is a shared secret (LEAD_SYNC_WEBHOOK_SECRET),
+// same pattern as witPublicController's apiSecret — fails closed if the
+// env var isn't configured, rather than accepting an empty secret.
+exports.syncLeadStatus = async (req, res, next) => {
+  try {
+    const { secret, externalLeadId, status, dealValue } = req.body || {};
+    const expectedSecret = process.env.LEAD_SYNC_WEBHOOK_SECRET;
+    if (!expectedSecret || !secretsMatch(secret, expectedSecret)) {
+      return res.status(401).json({ success: false, message: 'Invalid webhook secret' });
+    }
+    if (!externalLeadId) {
+      return res.status(400).json({ success: false, message: 'externalLeadId is required' });
+    }
+
+    const lead = await Lead.findOne({ externalLeadId });
+    if (!lead) {
+      return res.status(404).json({ success: false, message: 'No rndCRM lead found with that externalLeadId' });
+    }
+
+    const VALID_STATUSES = ['New Lead', 'First Contact', 'Proposal Sent', 'Won', 'Lost'];
+    const changes = [];
+    if (status !== undefined) {
+      if (!VALID_STATUSES.includes(status)) {
+        return res.status(400).json({ success: false, message: `status must be one of: ${VALID_STATUSES.join(', ')}` });
+      }
+      if (status !== lead.status) { changes.push(`status: ${lead.status} → ${status}`); lead.status = status; }
+    }
+    if (dealValue !== undefined) {
+      const n = Number(dealValue);
+      if (Number.isFinite(n) && n !== lead.dealValue) { changes.push(`dealValue: ${lead.dealValue} → ${n}`); lead.dealValue = n; }
+    }
+
+    if (changes.length) {
+      lead.activities.push({ type: 'status_change', text: `Synced from main CRM: ${changes.join(', ')}`, performedBy: 'System' });
+      await lead.save();
+    }
+
+    res.json({ success: true, data: { leadId: lead._id, status: lead.status, dealValue: lead.dealValue, changed: changes.length > 0 } });
   } catch (err) { next(err); }
 };
 

@@ -2,6 +2,7 @@
 const MetaAdEntity = require('../models/MetaAdEntity');
 const MetaAdInsight = require('../models/MetaAdInsight');
 const MetaAdsAccount = require('../models/MetaAdsAccount');
+const Lead = require('../models/Lead');
 const metaAdsClient = require('../utils/metaAdsClient');
 const { syncNow } = require('../cron/metaAdsSync');
 
@@ -43,19 +44,46 @@ function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-// Fields that require CRM lead-attribution data we don't collect yet — always
-// present in every response so the frontend can render them as a clearly
-// labeled "coming soon" state instead of silently omitting the KPI tile.
-const ATTRIBUTION_PLACEHOLDER = {
-  totalLeads: null,
-  qualifiedLeads: null,
-  wonCustomers: null,
-  revenueGenerated: null,
-  roi: null,
-  roas: null,
-  costPerLead: null,
-  costPerCustomer: null,
-};
+// Real Leads/Qualified/Customers/Revenue attributed to Meta ads. Requires a
+// lead to have been created with adAttribution.platform === 'meta' (set by
+// leadController.createLead when the caller — e.g. an n8n workflow reading
+// Meta's Lead Ads webhook data — passes it through). Leads created before
+// this field existed, or via any integration that doesn't send it yet,
+// simply won't appear here; that's a data-completeness gap upstream, not a
+// bug in this aggregation. "This period" is matched on the lead's own
+// createdAt, same window as the Meta spend/impression data it's compared
+// against.
+async function fetchAttributedLeads(from, to) {
+  return Lead.find({
+    'adAttribution.platform': 'meta',
+    createdAt: { $gte: new Date(from + 'T00:00:00.000Z'), $lte: new Date(to + 'T23:59:59.999Z') },
+  }).select('status dealValue adAttribution').lean();
+}
+
+function summarizeLeads(leads) {
+  return leads.reduce((acc, l) => {
+    acc.totalLeads += 1;
+    if (l.status !== 'New Lead') acc.qualifiedLeads += 1;
+    if (l.status === 'Won') { acc.wonCustomers += 1; acc.revenueGenerated += l.dealValue || 0; }
+    return acc;
+  }, { totalLeads: 0, qualifiedLeads: 0, wonCustomers: 0, revenueGenerated: 0 });
+}
+
+// spend is this same entity's (account/campaign/adset/ad) spend for the
+// same date range — ROI/ROAS/CPL/CPA are meaningless without pairing them.
+function deriveAttributionMetrics(spend, s) {
+  const revenue = round2(s.revenueGenerated || 0);
+  return {
+    totalLeads: s.totalLeads || 0,
+    qualifiedLeads: s.qualifiedLeads || 0,
+    wonCustomers: s.wonCustomers || 0,
+    revenueGenerated: revenue,
+    roi: spend > 0 ? round2(((revenue - spend) / spend) * 100) : 0,
+    roas: spend > 0 ? round2(revenue / spend) : 0,
+    costPerLead: s.totalLeads > 0 ? round2(spend / s.totalLeads) : 0,
+    costPerCustomer: s.wonCustomers > 0 ? round2(spend / s.wonCustomers) : 0,
+  };
+}
 
 // @GET /api/meta-ads/status
 exports.getStatus = async (req, res, next) => {
@@ -66,7 +94,7 @@ exports.getStatus = async (req, res, next) => {
       success: true,
       data: {
         configured,
-        attributionEnabled: false,
+        attributionEnabled: true,
         account: account ? {
           accountId: account.accountId,
           accountName: account.accountName,
@@ -199,15 +227,19 @@ exports.getSummary = async (req, res, next) => {
     }, { spend: 0, impressions: 0, reach: 0, clicks: 0, linkClicks: 0, landingPageViews: 0, conversions: 0 });
 
     const account = await MetaAdsAccount.findOne().lean();
+    const derived = deriveMetrics(agg);
+
+    const leads = await fetchAttributedLeads(from, to);
+    const attribution = deriveAttributionMetrics(derived.spend, summarizeLeads(leads));
 
     res.json({
       success: true,
       data: {
         range: { from, to },
         currency: account?.currency || 'USD',
-        ...deriveMetrics(agg),
-        ...ATTRIBUTION_PLACEHOLDER,
-        attributionEnabled: false,
+        ...derived,
+        ...attribution,
+        attributionEnabled: true,
       },
     });
   } catch (err) { next(err); }
@@ -283,6 +315,19 @@ async function buildEntityTable({ level, from, to, filter }) {
   if (filter.adsetId) entityFilter.adsetId = filter.adsetId;
   const entities = await MetaAdEntity.find(entityFilter).lean();
 
+  // Group attributed leads by the ID field matching this level, once, up
+  // front — cheaper than a per-row query, and small enough (lead volumes,
+  // not insight-row volumes) not to worry about batching.
+  const idField = level === 'campaign' ? 'campaignId' : level === 'adset' ? 'adsetId' : 'adId';
+  const attributedLeads = await fetchAttributedLeads(from, to);
+  const leadsByEntity = new Map();
+  attributedLeads.forEach((l) => {
+    const id = l.adAttribution?.[idField];
+    if (!id) return;
+    if (!leadsByEntity.has(id)) leadsByEntity.set(id, []);
+    leadsByEntity.get(id).push(l);
+  });
+
   // Union of entities we know about + entities that have spend but weren't
   // in the latest metadata pull (e.g. deleted between syncs) — never silently
   // drop spend from the table.
@@ -291,6 +336,7 @@ async function buildEntityTable({ level, from, to, filter }) {
   entities.forEach((e) => {
     seen.add(e.entityId);
     const agg = insightById.get(e.entityId) || { spend: 0, impressions: 0, reach: 0, clicks: 0, linkClicks: 0, landingPageViews: 0, conversions: 0 };
+    const derived = deriveMetrics(agg);
     rows.push({
       id: e.entityId,
       name: e.name,
@@ -302,12 +348,13 @@ async function buildEntityTable({ level, from, to, filter }) {
       adsetName: e.adsetName,
       dailyBudget: e.dailyBudget,
       lifetimeBudget: e.lifetimeBudget,
-      ...deriveMetrics(agg),
-      ...ATTRIBUTION_PLACEHOLDER,
+      ...derived,
+      ...deriveAttributionMetrics(derived.spend, summarizeLeads(leadsByEntity.get(e.entityId) || [])),
     });
   });
   insightAgg.forEach((r) => {
     if (seen.has(r._id)) return;
+    const derived = deriveMetrics(r);
     rows.push({
       id: r._id,
       name: '(unknown — removed from Meta since last sync)',
@@ -318,8 +365,8 @@ async function buildEntityTable({ level, from, to, filter }) {
       adsetName: '',
       dailyBudget: null,
       lifetimeBudget: null,
-      ...deriveMetrics(r),
-      ...ATTRIBUTION_PLACEHOLDER,
+      ...derived,
+      ...deriveAttributionMetrics(derived.spend, summarizeLeads(leadsByEntity.get(r._id) || [])),
     });
   });
 

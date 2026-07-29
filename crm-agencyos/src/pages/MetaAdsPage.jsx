@@ -47,6 +47,7 @@ function fmtCurrency(v, currency = 'USD') {
 }
 function fmtNum(v) { return v === null || v === undefined ? '—' : Number(v).toLocaleString(); }
 function fmtPct(v) { return v === null || v === undefined ? '—' : `${v}%`; }
+function fmtRatio(v) { return v === null || v === undefined ? '—' : `${v}x`; }
 
 // ── CSV / Excel / PDF export helpers ────────────────────────────────
 function downloadCSV(rows, filename) {
@@ -88,7 +89,50 @@ function printPDF(title, rows) {
 }
 
 // ── Compact KPI tile ─────────────────────────────────────────────────
-function KpiTile({ icon: Icon, label, value, sub, color = '#2a78d6', bg = '#eff6ff', deferred = false }) {
+// ── Metric glossary — full form + plain-English meaning, shown on hover ──
+const METRIC_DEFS = {
+  spend: 'Total Ad Spend — the amount Meta has actually charged you for this date range.',
+  impressions: 'Impressions — how many times your ad was displayed on a screen. The same person can generate several impressions.',
+  reach: 'Reach — the number of distinct people who saw your ad at least once. Always ≤ Impressions.',
+  clicks: 'Clicks — total clicks anywhere on the ad (image, link, text, etc), not just link clicks.',
+  landingPageViews: 'Landing Page Views — of the people who clicked, how many browsers actually finished loading your landing page (tracked via the Meta Pixel).',
+  ctr: 'CTR — Click-Through Rate. Clicks ÷ Impressions × 100. The % of times your ad was shown that resulted in a click.',
+  cpc: 'CPC — Cost Per Click. Spend ÷ Clicks. The average amount you paid per click.',
+  cpm: 'CPM — Cost Per Mille (mille = thousand). Spend ÷ Impressions × 1,000. What it costs to show your ad 1,000 times.',
+  conversions: 'Conversions — Meta\'s own count of "lead" actions it detected (e.g. Lead Ads form fills, Pixel events). Self-reported by Meta, not yet verified against your CRM pipeline.',
+  totalLeads: 'Total Leads — real leads created in your CRM Leads Pipeline, attributed back to this ad spend. Only counts leads tagged with Meta campaign/adset/ad attribution at creation time.',
+  qualifiedLeads: 'Qualified Leads — attributed leads that moved past "New Lead" status in your pipeline.',
+  wonCustomers: 'Won Customers — attributed leads that closed as Won deals.',
+  revenueGenerated: 'Revenue Generated — total deal value of Won customers attributed to this ad spend.',
+  roi: 'ROI — Return on Investment. (Revenue − Spend) ÷ Spend × 100. How much profit you made relative to what you spent.',
+  roas: 'ROAS — Return on Ad Spend. Revenue ÷ Spend. How many rupees of revenue you got back for every rupee spent.',
+  cpl: 'CPL — Cost Per Lead. Spend ÷ Total Leads. Average cost to generate one real CRM lead.',
+  cpa: 'CPA — Cost Per Customer (Acquisition). Spend ÷ Won Customers. Average cost to acquire one paying customer.',
+};
+
+// Pure-CSS hover tooltip — no JS state. Named group (group/tip) so it never
+// collides with an ancestor's own `group`. placement="top" (default) pops
+// upward — fine for KPI tiles, which sit in open page flow. Table headers
+// use placement="bottom": they're the first row inside an overflow-x-auto
+// scroll wrapper, so a tooltip popping *above* the header gets silently
+// clipped by that wrapper's top edge — popping down over the table body
+// (well within the wrapper's own bounds) avoids it entirely.
+function InfoTip({ text, children, placement = 'top' }) {
+  if (!text) return children;
+  return (
+    <span className="relative inline-flex items-center group/tip cursor-help">
+      {children}
+      <span className={cn(
+        'pointer-events-none absolute left-1/2 -translate-x-1/2 w-max max-w-[240px] opacity-0 invisible group-hover/tip:opacity-100 group-hover/tip:visible transition-opacity duration-150 z-50 text-[11px] leading-snug font-normal normal-case tracking-normal text-white bg-slate-800 dark:bg-slate-700 rounded-lg px-2.5 py-1.5 shadow-lg text-center',
+        placement === 'bottom' ? 'top-full mt-1.5' : 'bottom-full mb-1.5'
+      )}>
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function KpiTile({ icon: Icon, label, value, sub, tip, color = '#2a78d6', bg = '#eff6ff', deferred = false }) {
   return (
     <div className={cn(
       'flex items-center gap-3 px-3.5 py-3 rounded-xl border',
@@ -98,7 +142,9 @@ function KpiTile({ icon: Icon, label, value, sub, color = '#2a78d6', bg = '#eff6
         {deferred ? <Lock size={15} className="text-slate-400" /> : <Icon size={15} style={{ color }} />}
       </div>
       <div className="min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">{label}</p>
+        <InfoTip text={tip}>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">{label}</p>
+        </InfoTip>
         <p className={cn('text-[16px] font-bold leading-tight mt-0.5', deferred ? 'text-slate-400' : '')} style={deferred ? {} : { color }}>
           {deferred ? '—' : value}
         </p>
@@ -350,30 +396,28 @@ export default function MetaAdsPage() {
       {/* KPI Cards — real Meta Ads data */}
       <h3 className="text-[13px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2.5">Ad Performance</h3>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-        <KpiTile icon={DollarSign} label="Total Ad Spend" value={fmtCurrency(summary?.spend, currency)} color="#2a78d6" bg="#eff6ff" />
-        <KpiTile icon={Eye} label="Impressions" value={fmtNum(summary?.impressions)} color="#eb6834" bg="#fff4ed" />
-        <KpiTile icon={Users2} label="Reach" value={fmtNum(summary?.reach)} color="#1baf7a" bg="#effaf5" />
-        <KpiTile icon={MousePointerClick} label="Clicks" value={fmtNum(summary?.clicks)} color="#eda100" bg="#fff8e8" />
-        <KpiTile icon={Target} label="Landing Page Views" value={fmtNum(summary?.landingPageViews)} color="#4a3aa7" bg="#f3f1fc" />
-        <KpiTile icon={Percent} label="CTR" value={fmtPct(summary?.ctr)} color="#2a78d6" bg="#eff6ff" />
-        <KpiTile icon={DollarSign} label="CPC" value={fmtCurrency(summary?.cpc, currency)} color="#eb6834" bg="#fff4ed" />
-        <KpiTile icon={DollarSign} label="CPM" value={fmtCurrency(summary?.cpm, currency)} color="#1baf7a" bg="#effaf5" />
-        <KpiTile icon={TrendingUp} label="Conversions" sub="Meta-reported leads" value={fmtNum(summary?.conversions)} color="#eda100" bg="#fff8e8" />
+        <KpiTile icon={DollarSign} label="Total Ad Spend" value={fmtCurrency(summary?.spend, currency)} tip={METRIC_DEFS.spend} color="#2a78d6" bg="#eff6ff" />
+        <KpiTile icon={Eye} label="Impressions" value={fmtNum(summary?.impressions)} tip={METRIC_DEFS.impressions} color="#eb6834" bg="#fff4ed" />
+        <KpiTile icon={Users2} label="Reach" value={fmtNum(summary?.reach)} tip={METRIC_DEFS.reach} color="#1baf7a" bg="#effaf5" />
+        <KpiTile icon={MousePointerClick} label="Clicks" value={fmtNum(summary?.clicks)} tip={METRIC_DEFS.clicks} color="#eda100" bg="#fff8e8" />
+        <KpiTile icon={Target} label="Landing Page Views" value={fmtNum(summary?.landingPageViews)} tip={METRIC_DEFS.landingPageViews} color="#4a3aa7" bg="#f3f1fc" />
+        <KpiTile icon={Percent} label="CTR" value={fmtPct(summary?.ctr)} tip={METRIC_DEFS.ctr} color="#2a78d6" bg="#eff6ff" />
+        <KpiTile icon={DollarSign} label="CPC" value={fmtCurrency(summary?.cpc, currency)} tip={METRIC_DEFS.cpc} color="#eb6834" bg="#fff4ed" />
+        <KpiTile icon={DollarSign} label="CPM" value={fmtCurrency(summary?.cpm, currency)} tip={METRIC_DEFS.cpm} color="#1baf7a" bg="#effaf5" />
+        <KpiTile icon={TrendingUp} label="Conversions" sub="Meta-reported leads" value={fmtNum(summary?.conversions)} tip={METRIC_DEFS.conversions} color="#eda100" bg="#fff8e8" />
       </div>
 
-      {/* KPI Cards — lead & revenue attribution (deferred) */}
-      <h3 className="text-[13px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-        <Lock size={12} /> Lead & Revenue Attribution — coming soon
-      </h3>
+      {/* KPI Cards — lead & revenue attribution */}
+      <h3 className="text-[13px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2.5">Lead & Revenue Attribution</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <KpiTile icon={Users2} label="Total Leads" deferred />
-        <KpiTile icon={UserCheck} label="Qualified Leads" deferred />
-        <KpiTile icon={Trophy} label="Won Customers" deferred />
-        <KpiTile icon={DollarSign} label="Revenue Generated" deferred />
-        <KpiTile icon={Gauge} label="ROI" deferred />
-        <KpiTile icon={Gauge} label="ROAS" deferred />
-        <KpiTile icon={DollarSign} label="Cost per Lead (CPL)" deferred />
-        <KpiTile icon={DollarSign} label="Cost per Customer (CPA)" deferred />
+        <KpiTile icon={Users2} label="Total Leads" value={fmtNum(summary?.totalLeads)} tip={METRIC_DEFS.totalLeads} color="#2a78d6" bg="#eff6ff" />
+        <KpiTile icon={UserCheck} label="Qualified Leads" value={fmtNum(summary?.qualifiedLeads)} tip={METRIC_DEFS.qualifiedLeads} color="#eb6834" bg="#fff4ed" />
+        <KpiTile icon={Trophy} label="Won Customers" value={fmtNum(summary?.wonCustomers)} tip={METRIC_DEFS.wonCustomers} color="#1baf7a" bg="#effaf5" />
+        <KpiTile icon={DollarSign} label="Revenue Generated" value={fmtCurrency(summary?.revenueGenerated, currency)} tip={METRIC_DEFS.revenueGenerated} color="#eda100" bg="#fff8e8" />
+        <KpiTile icon={Gauge} label="ROI" value={fmtPct(summary?.roi)} tip={METRIC_DEFS.roi} color="#4a3aa7" bg="#f3f1fc" />
+        <KpiTile icon={Gauge} label="ROAS" value={fmtRatio(summary?.roas)} tip={METRIC_DEFS.roas} color="#2a78d6" bg="#eff6ff" />
+        <KpiTile icon={DollarSign} label="Cost per Lead (CPL)" value={fmtCurrency(summary?.costPerLead, currency)} tip={METRIC_DEFS.cpl} color="#eb6834" bg="#fff4ed" />
+        <KpiTile icon={DollarSign} label="Cost per Customer (CPA)" value={fmtCurrency(summary?.costPerCustomer, currency)} tip={METRIC_DEFS.cpa} color="#1baf7a" bg="#effaf5" />
       </div>
 
       {/* Marketing Funnel + Trend chart */}
@@ -482,16 +526,16 @@ export default function MetaAdsPage() {
                 <th>Name</th>
                 <th>Status</th>
                 <th>Budget</th>
-                <th>Spend</th>
-                <th>CTR</th>
-                <th>CPC</th>
-                <th>CPM</th>
-                <th>Leads</th>
-                <th>Qualified</th>
-                <th>Customers</th>
-                <th>Revenue</th>
-                <th>ROI</th>
-                <th>ROAS</th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.spend}>Spend</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.ctr}>CTR</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.cpc}>CPC</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.cpm}>CPM</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.totalLeads}>Leads</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.qualifiedLeads}>Qualified</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.wonCustomers}>Customers</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.revenueGenerated}>Revenue</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.roi}>ROI</InfoTip></th>
+                <th><InfoTip placement="bottom" text={METRIC_DEFS.roas}>ROAS</InfoTip></th>
                 {entityTab !== 'ads' && <th></th>}
               </tr>
             </thead>
@@ -514,12 +558,12 @@ export default function MetaAdsPage() {
                     <td>{fmtPct(r.ctr)}</td>
                     <td>{fmtCurrency(r.cpc, currency)}</td>
                     <td>{fmtCurrency(r.cpm, currency)}</td>
-                    <td className="text-slate-400 italic">N/A</td>
-                    <td className="text-slate-400 italic">N/A</td>
-                    <td className="text-slate-400 italic">N/A</td>
-                    <td className="text-slate-400 italic">N/A</td>
-                    <td className="text-slate-400 italic">N/A</td>
-                    <td className="text-slate-400 italic">N/A</td>
+                    <td>{fmtNum(r.totalLeads)}</td>
+                    <td>{fmtNum(r.qualifiedLeads)}</td>
+                    <td>{fmtNum(r.wonCustomers)}</td>
+                    <td>{fmtCurrency(r.revenueGenerated, currency)}</td>
+                    <td>{fmtPct(r.roi)}</td>
+                    <td>{fmtRatio(r.roas)}</td>
                     {entityTab === 'campaigns' && (
                       <td><button onClick={() => handleDrillIntoCampaign(r)} className="text-[11.5px] font-semibold text-indigo-600 hover:underline">View Ad Sets →</button></td>
                     )}

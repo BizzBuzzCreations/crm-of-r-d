@@ -174,18 +174,19 @@ exports.getTrends = async (req, res, next) => {
       return d.toISOString().split('T')[0];
     };
 
-    const sessions = await WitSession.find({ ...site, startedAt: { $gte: fromDate, $lte: toDate } }).select('visitorId startedAt').lean();
+    const sessions = await WitSession.find({ ...site, startedAt: { $gte: fromDate, $lte: toDate } }).select('visitorId startedAt isNewVisitor').lean();
     const leads = await Lead.find({ ...(site.websiteId ? { websiteId: site.websiteId } : { websiteId: { $ne: null } }), createdAt: { $gte: fromDate, $lte: toDate } })
       .select('status dealValue createdAt').lean();
 
     const buckets = new Map();
     const ensure = (key) => {
-      if (!buckets.has(key)) buckets.set(key, { date: key, visitors: new Set(), sessions: 0, leads: 0, revenue: 0 });
+      if (!buckets.has(key)) buckets.set(key, { date: key, visitors: new Set(), newVisitors: new Set(), sessions: 0, leads: 0, revenue: 0 });
       return buckets.get(key);
     };
     sessions.forEach((s) => {
       const b = ensure(bucketKey(s.startedAt));
       b.visitors.add(s.visitorId);
+      if (s.isNewVisitor) b.newVisitors.add(s.visitorId);
       b.sessions += 1;
     });
     leads.forEach((l) => {
@@ -194,9 +195,18 @@ exports.getTrends = async (req, res, next) => {
       if (l.status === 'Won') b.revenue += l.dealValue || 0;
     });
 
+    // returningVisitors mirrors getSummary's exact method: total distinct
+    // visitors in the bucket minus those whose isNewVisitor session landed
+    // here — not a separately-tracked set, so the two numbers can't drift.
     const trend = Array.from(buckets.values())
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map((b) => ({ date: b.date, visitors: b.visitors.size, sessions: b.sessions, leads: b.leads, revenue: round2(b.revenue) }));
+      .map((b) => ({
+        date: b.date,
+        visitors: b.visitors.size,
+        newVisitors: b.newVisitors.size,
+        returningVisitors: Math.max(0, b.visitors.size - b.newVisitors.size),
+        sessions: b.sessions, leads: b.leads, revenue: round2(b.revenue),
+      }));
 
     res.json({ success: true, data: { granularity, range: { from, to }, trend } });
   } catch (err) { next(err); }
