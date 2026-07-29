@@ -97,7 +97,11 @@ const LeadSchema = new mongoose.Schema({
   // (POST /api/lead-sync/status, see leadController.syncLeadStatus) can
   // find the right record to update. Empty for leads created directly in
   // rndCRM, which have no external counterpart.
-  externalLeadId: { type: String, default: '', index: true },
+  // No `default: ''` deliberately — sparse only excludes documents where
+  // the field is genuinely absent, not ones where it's an empty string; a
+  // default would make every lead without one collide on "" under the
+  // unique index below.
+  externalLeadId: { type: String, unique: true, sparse: true },
 }, { timestamps: true });
 
 LeadSchema.statics.getNextLeadNumber = async function () {
