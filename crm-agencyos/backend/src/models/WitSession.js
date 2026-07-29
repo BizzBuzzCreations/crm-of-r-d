@@ -42,6 +42,7 @@ const WitSessionSchema = new mongoose.Schema({
   country: { type: String, default: '' },
   region:  { type: String, default: '' },
   city:    { type: String, default: '' },
+  ip:      { type: String, default: '' },
 
   leadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', default: null },
 }, { timestamps: true });

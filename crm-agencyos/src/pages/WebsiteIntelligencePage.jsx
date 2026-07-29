@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import {
@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
   Globe, Users2, UserCheck, Repeat, Layers, Clock, LogOut, Target, Percent, DollarSign,
-  FileSpreadsheet, FileText, Download, Calendar, X,
+  FileSpreadsheet, FileText, Download, Calendar, X, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { Page, Button, Badge } from '../components/ui';
 import { cn } from '../utils/helpers';
@@ -31,6 +31,10 @@ function fmtDuration(sec) {
   if (sec === null || sec === undefined) return '—';
   const m = Math.floor(sec / 60), s = Math.round(sec % 60);
   return `${m}m ${s}s`;
+}
+function fmtDateTime(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 // ── Export helpers ───────────────────────────────────────────────────
@@ -107,6 +111,7 @@ const TREND_METRICS = [
 
 const DETAIL_TABS = [
   { id: 'traffic', label: 'Traffic Sources' },
+  { id: 'countries', label: 'Countries' },
   { id: 'devices', label: 'Devices' },
   { id: 'pages', label: 'Page Analytics' },
   { id: 'landing', label: 'Landing Pages' },
@@ -134,6 +139,7 @@ export default function WebsiteIntelligencePage() {
 
   const [detailTab, setDetailTab] = useState('traffic');
   const [trafficSources, setTrafficSources] = useState([]);
+  const [countries, setCountries] = useState([]);
   const [devices, setDevices] = useState(null);
   const [pages, setPages] = useState([]);
   const [landingPages, setLandingPages] = useState([]);
@@ -170,6 +176,7 @@ export default function WebsiteIntelligencePage() {
     setDetailLoading(true);
     try {
       if (detailTab === 'traffic') setTrafficSources((await witAPI.trafficSources(params)).data.data.sources);
+      else if (detailTab === 'countries') setCountries((await witAPI.countries(params)).data.data.countries);
       else if (detailTab === 'devices') setDevices((await witAPI.devices(params)).data.data);
       else if (detailTab === 'pages') setPages((await witAPI.pages(params)).data.data.pages);
       else if (detailTab === 'landing') setLandingPages((await witAPI.landingPages(params)).data.data.landingPages);
@@ -189,6 +196,10 @@ export default function WebsiteIntelligencePage() {
       header = ['Source', 'Visitors', 'Sessions', 'Leads', 'Customers', 'Revenue', 'Conversion Rate'];
       rows = trafficSources.map((s) => [s.label, s.visitors, s.sessions, s.leads, s.customers, s.revenue, `${s.conversionRate}%`]);
       title = 'Traffic Sources';
+    } else if (detailTab === 'countries') {
+      header = ['Country', 'Visitors', 'Sessions', 'Leads', 'Customers', 'Revenue', 'Conversion Rate'];
+      rows = countries.map((c) => [c.country, c.visitors, c.sessions, c.leads, c.customers, c.revenue, `${c.conversionRate}%`]);
+      title = 'Country Distribution';
     } else if (detailTab === 'pages') {
       header = ['Path', 'Views', 'Unique Visitors', 'Avg Time on Page (s)', 'Avg Scroll Depth', 'Bounce Rate', 'Exit Rate', 'Conversion Rate'];
       rows = pages.map((p) => [p.path, p.views, p.uniqueVisitors, p.avgTimeOnPage, `${p.avgScrollDepth}%`, p.bounceRate ?? 'N/A', `${p.exitRate}%`, p.conversionRate ?? 'N/A']);
@@ -206,11 +217,12 @@ export default function WebsiteIntelligencePage() {
       rows = leadAttribution.map((l) => [l.leadRef, l.companyName, l.status, l.salesperson, l.revenue, l.landingPageUrl, l.utmCampaign, new Date(l.createdAt).toLocaleDateString(), l.timeToConversionHours ?? 'N/A']);
       title = 'Lead Attribution';
     } else if (detailTab === 'repeat') {
-      header = ['Visitor', 'Visits in Period', 'Lifetime Visits', 'First Seen', 'Last Seen', 'Device', 'Country', 'Lead'];
+      header = ['Visitor', 'Visits in Period', 'Lifetime Visits', 'First Seen', 'Last Seen', 'Device', 'Country', 'Unique IPs', 'IP Addresses', 'Lead'];
       rows = (repeatVisitors?.visitors || []).map((v) => [
         v.lead ? v.lead.companyName : v.visitorId, v.visitsInRange, v.lifetimeVisits,
-        v.firstSeenAt ? new Date(v.firstSeenAt).toLocaleDateString() : '', v.lastSeenAt ? new Date(v.lastSeenAt).toLocaleDateString() : '',
-        v.deviceType, v.country || 'Unknown', v.lead ? `${v.lead.contactPerson} (${v.lead.status})` : 'Not converted',
+        v.firstSeenAt ? new Date(v.firstSeenAt).toLocaleString() : '', v.lastSeenAt ? new Date(v.lastSeenAt).toLocaleString() : '',
+        v.deviceType, v.country || 'Unknown', v.uniqueIps?.length || 0, (v.uniqueIps || []).join('; '),
+        v.lead ? `${v.lead.contactPerson} (${v.lead.status})` : 'Not converted',
       ]);
       title = 'Repeat Visitors';
     } else {
@@ -333,7 +345,7 @@ export default function WebsiteIntelligencePage() {
               </button>
             ))}
           </div>
-          {['traffic', 'pages', 'landing', 'forms', 'attribution', 'repeat'].includes(detailTab) && (
+          {['traffic', 'countries', 'pages', 'landing', 'forms', 'attribution', 'repeat'].includes(detailTab) && (
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => handleExport('csv')} className="flex items-center gap-1"><FileSpreadsheet size={12} className="text-emerald-500" /> CSV</Button>
               <Button size="sm" variant="outline" onClick={() => handleExport('excel')} className="flex items-center gap-1"><Download size={12} className="text-emerald-600" /> Excel</Button>
@@ -348,6 +360,7 @@ export default function WebsiteIntelligencePage() {
           ) : (
             <>
               {detailTab === 'traffic' && <TrafficSourcesTable rows={trafficSources} />}
+              {detailTab === 'countries' && <CountriesTable rows={countries} />}
               {detailTab === 'devices' && <DevicesPanel data={devices} />}
               {detailTab === 'pages' && <PagesTable rows={pages} />}
               {detailTab === 'landing' && <LandingPagesTable rows={landingPages} />}
@@ -384,6 +397,40 @@ function TrafficSourcesTable({ rows }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+function CountriesTable({ rows }) {
+  if (!rows.length) return <EmptyState label="No visitor location data in this period yet." />;
+  const max = Math.max(1, ...rows.map((c) => c.visitors));
+  return (
+    <div>
+      <div className="space-y-2 mb-5 max-w-xl">
+        {rows.slice(0, 10).map((c) => (
+          <div key={c.country}>
+            <div className="flex items-center justify-between mb-1 text-[12.5px]">
+              <span className={cn('font-medium', c.country === 'Unknown' ? 'text-slate-400 italic' : 'text-slate-600 dark:text-slate-400')}>{c.country}</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">{fmtNum(c.visitors)}</span>
+            </div>
+            <div className="h-4 rounded-lg bg-slate-100 dark:bg-slate-800 overflow-hidden">
+              <div className="h-full rounded-lg bg-indigo-500 transition-all" style={{ width: `${Math.max(3, (c.visitors / max) * 100)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <table className="crm-table">
+        <thead><tr><th>Country</th><th>Visitors</th><th>Sessions</th><th>Leads</th><th>Customers</th><th>Revenue</th><th>Conversion Rate</th></tr></thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr key={c.country}>
+              <td className={cn('font-semibold', c.country === 'Unknown' ? 'text-slate-400 italic font-normal' : 'text-slate-800 dark:text-slate-200')}>{c.country}</td>
+              <td>{fmtNum(c.visitors)}</td><td>{fmtNum(c.sessions)}</td><td>{fmtNum(c.leads)}</td><td>{fmtNum(c.customers)}</td>
+              <td className="font-semibold">{fmtCurrency(c.revenue)}</td><td>{fmtPct(c.conversionRate)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -546,6 +593,7 @@ const FREQUENCY_COLORS_DARK  = ['#6da7ec', '#3987e5', '#256abf', '#184f95'];
 function RepeatVisitorsPanel({ data }) {
   const darkMode = document.documentElement.classList.contains('dark') || document.documentElement.dataset.theme === 'dark';
   const colors = darkMode ? FREQUENCY_COLORS_DARK : FREQUENCY_COLORS_LIGHT;
+  const [expanded, setExpanded] = useState(null); // visitorId currently expanded
 
   if (!data || data.visitors.length === 0) return <EmptyState label="No visitor data in this period yet." />;
   const max = Math.max(1, ...data.distribution.map((d) => d.visitors));
@@ -571,29 +619,66 @@ function RepeatVisitorsPanel({ data }) {
 
       <div>
         <h4 className="text-[12.5px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">Most Frequent Visitors</h4>
+        <p className="text-[11.5px] text-slate-400 mb-2">Click a row to see every visit's exact time and IP address.</p>
         <table className="crm-table">
-          <thead><tr><th>Visitor</th><th>Visits in Period</th><th>Lifetime Visits</th><th>First Seen</th><th>Last Seen</th><th>Device</th><th>Country</th></tr></thead>
+          <thead><tr><th></th><th>Visitor</th><th>Visits in Period</th><th>Lifetime Visits</th><th>First Seen</th><th>Last Seen</th><th>Device</th><th>Country</th><th>IPs</th></tr></thead>
           <tbody>
-            {data.visitors.map((v) => (
-              <tr key={v.visitorId}>
-                <td>
-                  {v.lead ? (
-                    <>
-                      <p className="font-semibold text-slate-800 dark:text-slate-200">{v.lead.companyName}</p>
-                      <p className="text-[11px] text-slate-450">{v.lead.contactPerson} · <Badge variant="neutral">{v.lead.status}</Badge></p>
-                    </>
-                  ) : (
-                    <p className="text-slate-500 dark:text-slate-400 italic text-[12.5px]">Anonymous visitor</p>
+            {data.visitors.map((v) => {
+              const isOpen = expanded === v.visitorId;
+              return (
+                <Fragment key={v.visitorId}>
+                  <tr onClick={() => setExpanded(isOpen ? null : v.visitorId)} className="cursor-pointer">
+                    <td className="w-6">{isOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}</td>
+                    <td>
+                      {v.lead ? (
+                        <>
+                          <p className="font-semibold text-slate-800 dark:text-slate-200">{v.lead.companyName}</p>
+                          <p className="text-[11px] text-slate-450">{v.lead.contactPerson} · <Badge variant="neutral">{v.lead.status}</Badge></p>
+                        </>
+                      ) : (
+                        <p className="text-slate-500 dark:text-slate-400 italic text-[12.5px]">Anonymous visitor</p>
+                      )}
+                    </td>
+                    <td className="font-bold">{v.visitsInRange}</td>
+                    <td>{v.lifetimeVisits}</td>
+                    <td className="text-[12px]">{fmtDateTime(v.firstSeenAt)}</td>
+                    <td className="text-[12px]">{fmtDateTime(v.lastSeenAt)}</td>
+                    <td className="capitalize">{v.deviceType}</td>
+                    <td>{v.country || 'Unknown'}</td>
+                    <td>{v.uniqueIps?.length || 0}</td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={9} className="bg-slate-50 dark:bg-slate-900/30 p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-[11px] font-bold text-slate-450 uppercase tracking-wider mb-1.5">Unique IP Addresses ({v.uniqueIps?.length || 0})</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(v.uniqueIps || []).length === 0
+                                ? <span className="text-[12px] text-slate-400 italic">No IP recorded</span>
+                                : v.uniqueIps.map((ip) => (
+                                  <span key={ip} className="font-mono text-[11.5px] px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">{ip}</span>
+                                ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-[11px] font-bold text-slate-450 uppercase tracking-wider mb-1.5">Visit History (most recent first)</p>
+                            <div className="max-h-40 overflow-y-auto space-y-1">
+                              {(v.visits || []).map((visit, i) => (
+                                <div key={i} className="flex items-center justify-between text-[12px] px-2 py-1 rounded-lg bg-white dark:bg-slate-900/60">
+                                  <span className="text-slate-700 dark:text-slate-300">{fmtDateTime(visit.at)}</span>
+                                  <span className="font-mono text-slate-450">{visit.ip || 'Unknown IP'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                </td>
-                <td className="font-bold">{v.visitsInRange}</td>
-                <td>{v.lifetimeVisits}</td>
-                <td>{v.firstSeenAt ? new Date(v.firstSeenAt).toLocaleDateString() : '—'}</td>
-                <td>{v.lastSeenAt ? new Date(v.lastSeenAt).toLocaleDateString() : '—'}</td>
-                <td className="capitalize">{v.deviceType}</td>
-                <td>{v.country || 'Unknown'}</td>
-              </tr>
-            ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

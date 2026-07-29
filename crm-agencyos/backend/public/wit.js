@@ -68,9 +68,18 @@
     }
   }
 
-  // ── Pageview ─────────────────────────────────────────────────────
+  // ── Pageview (initial load + SPA client-side navigation) ───────────
+  // React Router / Vue Router / any history-API-based router never
+  // triggers a real page load on navigation, so a single fire-once
+  // pageview call would only ever see a visitor's FIRST page — every
+  // session would wrongly look like a 1-page bounce. Patching
+  // pushState/replaceState + listening for popstate is the standard
+  // router-agnostic way to detect these transitions (same approach
+  // GA/Plausible use), with no framework-specific integration required.
   var pageEnteredAt = Date.now();
   var maxScrollDepth = 0;
+  var currentPath = location.pathname;
+  var firstPageview = true;
 
   function currentScrollDepth() {
     var doc = document.documentElement;
@@ -89,22 +98,50 @@
     }, 250);
   }, { passive: true });
 
-  send('pageview', {
-    trackingId: trackingId, visitorId: visitorId, sessionId: session.sessionId, isNewSession: session.isNewSession,
-    url: location.href, path: location.pathname, title: document.title,
-    referrer: document.referrer, utm: parseUtm(),
-  });
-
-  function sendPageEnd() {
+  function sendPageEnd(path) {
     send('pageend', {
-      trackingId: trackingId, sessionId: session.sessionId, path: location.pathname,
+      trackingId: trackingId, sessionId: session.sessionId, path: path,
       duration: Math.round((Date.now() - pageEnteredAt) / 1000), maxScrollDepth: maxScrollDepth,
     }, true);
   }
+
+  function sendPageview() {
+    send('pageview', {
+      trackingId: trackingId, visitorId: visitorId, sessionId: session.sessionId,
+      isNewSession: firstPageview && session.isNewSession,
+      url: location.href, path: location.pathname, title: document.title,
+      referrer: firstPageview ? document.referrer : '', utm: firstPageview ? parseUtm() : {},
+    });
+    firstPageview = false;
+  }
+
+  sendPageview();
+
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') sendPageEnd();
+    if (document.visibilityState === 'hidden') sendPageEnd(currentPath);
   });
-  window.addEventListener('pagehide', sendPageEnd);
+  window.addEventListener('pagehide', function () { sendPageEnd(currentPath); });
+
+  function onLocationChange() {
+    if (location.pathname === currentPath) return; // pushState/replaceState with no real path change (scroll restoration, query-only updates, etc.)
+    sendPageEnd(currentPath);
+    currentPath = location.pathname;
+    pageEnteredAt = Date.now();
+    maxScrollDepth = 0;
+    sendPageview();
+  }
+
+  var _pushState = history.pushState;
+  history.pushState = function () {
+    _pushState.apply(history, arguments);
+    onLocationChange();
+  };
+  var _replaceState = history.replaceState;
+  history.replaceState = function () {
+    _replaceState.apply(history, arguments);
+    onLocationChange();
+  };
+  window.addEventListener('popstate', onLocationChange);
 
   // ── Heartbeat (keeps "Active Visitors" accurate between pageviews) ──
   var pingTimer = setInterval(function () {
