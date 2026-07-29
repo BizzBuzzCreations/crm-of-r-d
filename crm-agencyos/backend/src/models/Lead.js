@@ -101,16 +101,20 @@ const LeadSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 LeadSchema.statics.getNextLeadNumber = async function () {
-  const existing = await this.find({ leadId: { $regex: /^LD-\d+$/ } })
-    .select('leadId')
-    .lean();
-
-  const maxNum = existing.reduce((max, lead) => {
-    const match = String(lead.leadId || '').match(/^LD-(\d+)$/);
-    return match ? Math.max(max, Number(match[1])) : max;
-  }, 1000);
-
-  return maxNum + 1;
+  // Atomic $inc on the shared Counter model (already used the same way by
+  // Task.taskNumber and Invoice.invoiceNumber — see models/index.js).
+  // Replaces the previous "scan all leads, compute max, use max+1"
+  // approach, which raced under concurrent creates (e.g. an n8n batch
+  // import creating several leads within milliseconds of each other) and
+  // could hand out the same "next" number to two requests, failing the
+  // second one's save with a duplicate-key error on leadId.
+  const Counter = mongoose.model('Counter');
+  const counter = await Counter.findOneAndUpdate(
+    { id: 'leadId' },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+  return counter.seq;
 };
 
 // Pre-save to auto-initialize SLA Response Deadline and generate sequential Lead ID
