@@ -401,3 +401,42 @@ exports.getAds = async (req, res, next) => {
     res.json({ success: true, data: { range: { from, to }, ads: rows } });
   } catch (err) { next(err); }
 };
+
+// @GET /api/meta-ads/leads?from&to&limit — the individual leads behind the
+// aggregate numbers on the rest of this page. Campaign/adset/ad tables show
+// counts; this is the actual list, so a rep can see who Andrea Carruthers
+// is, not just that "campaign dfp2 → 7 leads".
+exports.getLeadDetails = async (req, res, next) => {
+  try {
+    const { from, to } = resolveRange(req);
+    const { fromDate, toDate } = { fromDate: new Date(from + 'T00:00:00.000Z'), toDate: new Date(to + 'T23:59:59.999Z') };
+    const limit = Math.min(500, Number(req.query.limit) || 200);
+
+    const leads = await Lead.find({
+      'adAttribution.platform': 'meta',
+      createdAt: { $gte: fromDate, $lte: toDate },
+    })
+      .populate('assignedTo', 'name')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const rows = leads.map((l) => ({
+      leadId: l._id,
+      leadRef: l.leadId,
+      companyName: l.companyName,
+      contactPerson: l.contactPerson,
+      email: l.email || '',
+      phone: l.phone || '',
+      status: l.status,
+      dealValue: l.dealValue || 0,
+      salesperson: l.assignedTo?.name || 'Unassigned',
+      campaignName: l.adAttribution?.campaignName || '',
+      adsetName: l.adAttribution?.adsetName || '',
+      adName: l.adAttribution?.adName || '',
+      createdAt: l.createdAt,
+    }));
+
+    res.json({ success: true, data: { range: { from, to }, leads: rows } });
+  } catch (err) { next(err); }
+};

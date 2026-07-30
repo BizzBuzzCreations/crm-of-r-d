@@ -141,6 +141,7 @@ module.exports.leads = leadsRouter;
 // own router at a distinct base path, not nested under /api/leads, so it
 // never inherits leadsRouter's `protect`.
 const leadSyncRouter = express.Router();
+leadSyncRouter.get('/pending', leadCtrl.getPendingSyncLeads);
 leadSyncRouter.post('/status', leadCtrl.syncLeadStatus);
 module.exports.leadSync = leadSyncRouter;
 
@@ -272,6 +273,7 @@ metaAdsRouter.get('/trends',          metaAdsCtrl.getTrends);
 metaAdsRouter.get('/campaigns',       metaAdsCtrl.getCampaigns);
 metaAdsRouter.get('/adsets',          metaAdsCtrl.getAdSets);
 metaAdsRouter.get('/ads',             metaAdsCtrl.getAds);
+metaAdsRouter.get('/leads',           metaAdsCtrl.getLeadDetails);
 module.exports.metaAds = metaAdsRouter;
 
 // ── Website Intelligence — public tracking endpoints ────────────────

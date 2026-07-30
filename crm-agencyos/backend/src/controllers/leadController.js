@@ -112,7 +112,13 @@ const parseAndNotifyMentions = async (req, lead, noteText) => {
 // @GET /api/leads
 exports.getLeads = async (req, res, next) => {
   try {
-    const leads = await Lead.find({}).populate('assignedTo', 'name email avatar color initials position');
+    // Meta Ads leads are a reporting copy, not something agents work here —
+    // they get worked in the main CRM, and rndCRM's own detail view for
+    // them is Meta Ads → Lead Details, not the general pipeline. Excluded
+    // by name here rather than by scoping the query to only known sources,
+    // so any other source keeps showing up in the pipeline without needing
+    // this list updated every time a new source gets added elsewhere.
+    const leads = await Lead.find({ source: { $ne: 'Meta Ads' } }).populate('assignedTo', 'name email avatar color initials position');
     
     // Auto-update SLA breaches in the background
     await autoCheckSLA(leads);
@@ -262,6 +268,82 @@ exports.createLead = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// Vicidial disposition code → rndCRM Lead status, per the main CRM's own
+// "Lead Status Classification" (Settings there — Non-Connected / Connected
+// / Potential buckets). Kept server-side rather than in the n8n workflow so
+// there's exactly one place to update if the classification changes, and
+// n8n/the main CRM never need to know rndCRM's status vocabulary — they
+// just forward whatever disposition code Vicidial recorded.
+//
+// XFR-suffix codes specifically mean a completed, accepted transfer to the
+// FCA partner (confirmed with the client) — everything else in "Potential"
+// is still in progress (a callback, a warm lead, not yet transferred) and
+// maps to Proposal Sent instead of Won.
+const DISPOSITION_STATUS_MAP = {
+  // NON-CONNECTED — no answer, busy, dropped: no meaningful contact yet
+  A: 'New Lead', AA: 'New Lead', AB: 'New Lead', ADC: 'New Lead', AFTHRS: 'New Lead',
+  AL: 'New Lead', AM: 'New Lead', B: 'New Lead', DAIR: 'New Lead', DED: 'New Lead',
+  DNCC: 'New Lead', DROP: 'New Lead', NA: 'New Lead', NC: 'New Lead', NEW: 'New Lead',
+  PDROP: 'New Lead', TIMEOT: 'New Lead',
+
+  // CONNECTED, still open — a real contact happened and nothing's ruled it out yet
+  ALIVA: 'First Contact', CNA: 'First Contact', DRO: 'First Contact', HNP: 'First Contact',
+  INCALL: 'First Contact', IRATE: 'First Contact', LD: 'First Contact', LGBR: 'First Contact',
+  ND: 'First Contact', NDD: 'First Contact', NOSTRG: 'First Contact',
+
+  // CONNECTED, but disqualified/declined — a real contact happened and the
+  // outcome was negative (bankrupt, explicitly not interested, hoax, wrong
+  // number, already on a plan elsewhere, etc). These used to get lumped in
+  // with First Contact, which meant "Qualified Leads" silently included a
+  // pile of dead leads alongside genuinely-still-open ones.
+  ALDMP: 'Lost', BBHD: 'Lost', BIZNO: 'Lost', BNKRPT: 'Lost', DNC: 'Lost',
+  HOAX: 'Lost', NI: 'Lost', NP: 'Lost', NQ: 'Lost', NQBB: 'Lost', WN: 'Lost',
+  // Spelling variant seen in one source but not the other — support both.
+  NIB: 'Lost', NIBB: 'Lost',
+
+  // POTENTIAL, not yet transferred — callback / warm lead, still in progress
+  CBHOLD: 'Proposal Sent', HDHNP: 'Proposal Sent',
+  HDNI: 'Proposal Sent', IVAIN: 'Proposal Sent', PREVCL: 'Proposal Sent',
+  // Spelling variant seen in one source but not the other — support both.
+  CRITY: 'Proposal Sent', CHRTY: 'Proposal Sent',
+
+  // POTENTIAL, XFR-suffix — an actual completed transfer to the FCA partner
+  DMXFR: 'Won', IVAXFR: 'Won', LNXFR: 'Won', LNXFER: 'Won',
+};
+
+// @GET /api/lead-sync/pending — called by the polling n8n workflow BEFORE it
+// touches the main CRM, so it never has to fetch/filter that system's full
+// lead list. Returns only leads rndCRM is still waiting to hear about: ones
+// with an externalLeadId (created via the main CRM) whose status hasn't
+// already reached a terminal state. Once a lead is Won or Lost it drops out
+// of this list on its own — no further syncing needed, keeps the list from
+// growing forever. Same shared-secret auth as the status-sync endpoint,
+// passed as a query param since this is a GET.
+exports.getPendingSyncLeads = async (req, res, next) => {
+  try {
+    const expectedSecret = process.env.LEAD_SYNC_WEBHOOK_SECRET;
+    if (!expectedSecret || !secretsMatch(req.query.secret, expectedSecret)) {
+      return res.status(401).json({ success: false, message: 'Invalid webhook secret' });
+    }
+
+    const leads = await Lead.find({
+      externalLeadId: { $exists: true, $ne: '' },
+      status: { $nin: ['Won', 'Lost'] },
+    }).select('externalLeadId phone status').lean();
+
+    res.json({
+      success: true,
+      // phone is included because the main CRM's lookup endpoint only
+      // accepts id/uid/phone — not an arbitrary external ID string — so
+      // that's what the caller needs to look this lead up over there.
+      // externalLeadId travels back through unchanged, for the sync-back
+      // call afterward (that one matches against rndCRM's own record, which
+      // does know its externalLeadId).
+      data: leads.map((l) => ({ externalLeadId: l.externalLeadId, phone: l.phone, status: l.status })),
+    });
+  } catch (err) { next(err); }
+};
+
 // @POST /api/lead-sync/status — called by the MAIN CRM's own backend (not a
 // browser, no CRM user session), whenever a lead it owns changes status or
 // deal value. rndCRM only ever sees a lead once at creation (via
@@ -273,7 +355,7 @@ exports.createLead = async (req, res, next) => {
 // env var isn't configured, rather than accepting an empty secret.
 exports.syncLeadStatus = async (req, res, next) => {
   try {
-    const { secret, externalLeadId, status, dealValue } = req.body || {};
+    const { secret, externalLeadId, status: explicitStatus, disposition, dealValue } = req.body || {};
     const expectedSecret = process.env.LEAD_SYNC_WEBHOOK_SECRET;
     if (!expectedSecret || !secretsMatch(secret, expectedSecret)) {
       return res.status(401).json({ success: false, message: 'Invalid webhook secret' });
@@ -287,13 +369,28 @@ exports.syncLeadStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'No rndCRM lead found with that externalLeadId' });
     }
 
+    // Prefer an already-mapped status if the caller sends one explicitly;
+    // otherwise resolve it from the raw Vicidial disposition code, so the
+    // caller (n8n) never has to know rndCRM's status vocabulary at all.
     const VALID_STATUSES = ['New Lead', 'First Contact', 'Proposal Sent', 'Won', 'Lost'];
+    let status = explicitStatus;
+    if (status === undefined && disposition !== undefined) {
+      const mapped = DISPOSITION_STATUS_MAP[String(disposition).toUpperCase().trim()];
+      if (!mapped) {
+        return res.status(400).json({ success: false, message: `Unrecognized disposition code: "${disposition}"` });
+      }
+      status = mapped;
+    }
+
     const changes = [];
     if (status !== undefined) {
       if (!VALID_STATUSES.includes(status)) {
         return res.status(400).json({ success: false, message: `status must be one of: ${VALID_STATUSES.join(', ')}` });
       }
-      if (status !== lead.status) { changes.push(`status: ${lead.status} → ${status}`); lead.status = status; }
+      if (status !== lead.status) {
+        changes.push(`status: ${lead.status} → ${status}${disposition ? ` (disposition: ${disposition})` : ''}`);
+        lead.status = status;
+      }
     }
     if (dealValue !== undefined) {
       const n = Number(dealValue);
