@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Flame, MessageSquareText, Inbox, UserX, ArrowRightCircle, Eye, Mail, Clock,
+  Flame, MessageSquareText, Inbox, UserX, ArrowRightCircle, Eye, Mail, Clock, Megaphone,
 } from 'lucide-react';
 import { Avatar, Badge, Button } from '../components/ui';
 import { cn, getId } from '../utils/helpers';
@@ -66,10 +66,25 @@ function SignalBadges({ lead }) {
 // ── Main ─────────────────────────────────────────────────────
 export default function EmailLeadsView({ leads, users, onSelectLead, onUpdate }) {
   const [movingId, setMovingId] = useState(null);
+  const [campaignFilter, setCampaignFilter] = useState('all');
+
+  // Distinct campaigns present in this lead set, so leads from different
+  // campaigns can be viewed separately instead of always mixed together.
+  const campaignOptions = useMemo(() => {
+    const names = new Set();
+    leads.forEach((l) => { if (l.campaignAttribution?.name) names.add(l.campaignAttribution.name); });
+    return [...names].sort();
+  }, [leads]);
+
+  const campaignFiltered = useMemo(() => {
+    if (campaignFilter === 'all') return leads;
+    if (campaignFilter === 'none') return leads.filter((l) => !l.campaignAttribution?.name);
+    return leads.filter((l) => l.campaignAttribution?.name === campaignFilter);
+  }, [leads, campaignFilter]);
 
   const sorted = useMemo(
-    () => [...leads].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
-    [leads]
+    () => [...campaignFiltered].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
+    [campaignFiltered]
   );
 
   const handleMoveToPipeline = async (lead) => {
@@ -83,7 +98,30 @@ export default function EmailLeadsView({ leads, users, onSelectLead, onUpdate })
 
   return (
     <div>
-      <EmailLeadsSummary leads={leads} />
+      <EmailLeadsSummary leads={campaignFiltered} />
+
+      {campaignOptions.length > 1 && (
+        <div className="flex items-center gap-2 mb-4">
+          <Megaphone size={14} className="text-slate-450" />
+          <select
+            className="form-input text-[12.5px] py-1.5 w-auto"
+            value={campaignFilter}
+            onChange={(e) => setCampaignFilter(e.target.value)}
+          >
+            <option value="all">All campaigns ({leads.length})</option>
+            {campaignOptions.map((name) => (
+              <option key={name} value={name}>
+                {name} ({leads.filter((l) => l.campaignAttribution?.name === name).length})
+              </option>
+            ))}
+            {leads.some((l) => !l.campaignAttribution?.name) && (
+              <option value="none">
+                Unknown campaign ({leads.filter((l) => !l.campaignAttribution?.name).length})
+              </option>
+            )}
+          </select>
+        </div>
+      )}
 
       <div className="card overflow-hidden">
         {sorted.length === 0 ? (
@@ -100,6 +138,7 @@ export default function EmailLeadsView({ leads, users, onSelectLead, onUpdate })
             <thead>
               <tr>
                 <th>Company / Contact</th>
+                <th>Campaign</th>
                 <th>Email</th>
                 <th>Signal</th>
                 <th>Opens</th>
@@ -115,6 +154,9 @@ export default function EmailLeadsView({ leads, users, onSelectLead, onUpdate })
                   <td>
                     <p className="font-semibold text-slate-800 dark:text-slate-200">{lead.companyName}</p>
                     <p className="text-[11.5px] text-slate-500">{lead.contactPerson}</p>
+                  </td>
+                  <td className="text-[12.5px] text-slate-600 dark:text-slate-400 max-w-[160px] truncate">
+                    {lead.campaignAttribution?.name || <span className="text-slate-400 italic">Unknown</span>}
                   </td>
                   <td className="text-[12.5px] text-slate-600 dark:text-slate-400">{lead.email || '—'}</td>
                   <td><SignalBadges lead={lead} /></td>

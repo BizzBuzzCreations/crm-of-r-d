@@ -403,6 +403,13 @@ exports.syncLeadStatus = async (req, res, next) => {
         lead.status = status;
       }
     }
+    // Raw main-CRM status text, kept verbatim regardless of whether it moved
+    // the collapsed `status` bucket — e.g. "IVA Agreed" -> "Full Docs Back"
+    // are both First Contact, but reps should still see the exact stage.
+    if (disposition !== undefined && disposition !== lead.externalStatusLabel) {
+      changes.push(`stage: ${lead.externalStatusLabel || '(none)'} → ${disposition}`);
+      lead.externalStatusLabel = disposition;
+    }
     if (dealValue !== undefined) {
       const n = Number(dealValue);
       if (Number.isFinite(n) && n !== lead.dealValue) { changes.push(`dealValue: ${lead.dealValue} → ${n}`); lead.dealValue = n; }
@@ -413,7 +420,13 @@ exports.syncLeadStatus = async (req, res, next) => {
       await lead.save();
     }
 
-    res.json({ success: true, data: { leadId: lead._id, status: lead.status, dealValue: lead.dealValue, changed: changes.length > 0 } });
+    res.json({
+      success: true,
+      data: {
+        leadId: lead._id, status: lead.status, externalStatusLabel: lead.externalStatusLabel,
+        dealValue: lead.dealValue, changed: changes.length > 0,
+      },
+    });
   } catch (err) { next(err); }
 };
 

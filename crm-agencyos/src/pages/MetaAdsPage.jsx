@@ -307,13 +307,13 @@ export default function MetaAdsPage() {
   // ── Export current table ──────────────────────────────────────────
   const activeRows = entityTab === 'campaigns' ? campaigns : entityTab === 'adsets' ? adsets : entityTab === 'ads' ? ads : leadDetails;
   const exportHeader = entityTab === 'leads'
-    ? ['Lead', 'Company', 'Contact', 'Email', 'Phone', 'Status', 'Salesperson', 'Campaign', 'Ad Set', 'Ad', 'Created']
+    ? ['Lead', 'Company', 'Contact', 'Email', 'Phone', 'Status', 'Exact Stage', 'Salesperson', 'Campaign', 'Ad Set', 'Ad', 'Created']
     : ['Name', 'Status', 'Budget', 'Spend', 'Impressions', 'Reach', 'Clicks', 'CTR %', 'CPC', 'CPM', 'Landing Page Views', 'Conversions', 'Leads Generated', 'Qualified Leads', 'Customers Acquired'];
   const exportRows = () => [
     exportHeader,
     ...(entityTab === 'leads'
       ? leadDetails.map((l) => [
-          l.leadRef, l.companyName, l.contactPerson, l.email, l.phone, l.status,
+          l.leadRef, l.companyName, l.contactPerson, l.email, l.phone, l.status, l.externalStatusLabel || '',
           l.salesperson, l.campaignName, l.adsetName, l.adName,
           new Date(l.createdAt).toLocaleString(),
         ])
@@ -561,6 +561,9 @@ export default function MetaAdsPage() {
                           l.status === 'Proposal Sent' ? 'badge-warning' : l.status === 'First Contact' ? 'badge-info' : 'badge-neutral')}>
                           {l.status}
                         </span>
+                        {l.externalStatusLabel && (
+                          <p className="text-[11px] text-slate-450 mt-0.5" title="Exact stage in main CRM">{l.externalStatusLabel}</p>
+                        )}
                       </td>
                       <td className="text-[12.5px]">{l.email || '—'}</td>
                       <td className="text-[12.5px]">{l.phone || '—'}</td>
