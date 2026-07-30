@@ -140,7 +140,7 @@ exports.getLeads = async (req, res, next) => {
 // @POST /api/leads
 exports.createLead = async (req, res, next) => {
   try {
-    const { companyName, contactPerson, email, phone, website, dealValue, status, assignedTo, contacts, source, nextFollowUpDate, tags, customFields, adAttribution, externalLeadId } = req.body;
+    const { companyName, contactPerson, email, phone, website, dealValue, status, assignedTo, contacts, source, nextFollowUpDate, tags, customFields, adAttribution, externalLeadId, externalAssignedToName } = req.body;
 
     // Idempotency guard — an automation (n8n workflow re-execution, a
     // trigger re-firing on the same row, a retry after a transient error)
@@ -198,6 +198,7 @@ exports.createLead = async (req, res, next) => {
       // webhook find this record. Optional; leads created without it just
       // can't be status-synced later.
       externalLeadId: externalLeadId || undefined,
+      externalAssignedToName: externalAssignedToName || '',
     });
 
     // Log creation activity
@@ -366,7 +367,7 @@ exports.getPendingSyncLeads = async (req, res, next) => {
 // env var isn't configured, rather than accepting an empty secret.
 exports.syncLeadStatus = async (req, res, next) => {
   try {
-    const { secret, externalLeadId, status: explicitStatus, disposition, dealValue } = req.body || {};
+    const { secret, externalLeadId, status: explicitStatus, disposition, dealValue, externalAssignedToName } = req.body || {};
     const expectedSecret = process.env.LEAD_SYNC_WEBHOOK_SECRET;
     if (!expectedSecret || !secretsMatch(secret, expectedSecret)) {
       return res.status(401).json({ success: false, message: 'Invalid webhook secret' });
@@ -414,6 +415,10 @@ exports.syncLeadStatus = async (req, res, next) => {
       const n = Number(dealValue);
       if (Number.isFinite(n) && n !== lead.dealValue) { changes.push(`dealValue: ${lead.dealValue} → ${n}`); lead.dealValue = n; }
     }
+    if (externalAssignedToName !== undefined && externalAssignedToName !== lead.externalAssignedToName) {
+      changes.push(`assigned agent: ${lead.externalAssignedToName || '(none)'} → ${externalAssignedToName}`);
+      lead.externalAssignedToName = externalAssignedToName;
+    }
 
     if (changes.length) {
       lead.activities.push({ type: 'status_change', text: `Synced from main CRM: ${changes.join(', ')}`, performedBy: 'System' });
@@ -424,7 +429,7 @@ exports.syncLeadStatus = async (req, res, next) => {
       success: true,
       data: {
         leadId: lead._id, status: lead.status, externalStatusLabel: lead.externalStatusLabel,
-        dealValue: lead.dealValue, changed: changes.length > 0,
+        dealValue: lead.dealValue, externalAssignedToName: lead.externalAssignedToName, changed: changes.length > 0,
       },
     });
   } catch (err) { next(err); }

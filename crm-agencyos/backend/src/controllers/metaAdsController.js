@@ -431,7 +431,10 @@ exports.getLeadDetails = async (req, res, next) => {
       status: l.status,
       externalStatusLabel: l.externalStatusLabel || '',
       dealValue: l.dealValue || 0,
-      salesperson: l.assignedTo?.name || 'Unassigned',
+      // rndCRM's own assignedTo (a real rndCRM user) takes priority — falls
+      // back to whoever main CRM says is working it, since these leads are
+      // rarely assigned to an rndCRM user at all.
+      salesperson: l.assignedTo?.name || l.externalAssignedToName || 'Unassigned',
       campaignName: l.adAttribution?.campaignName || '',
       adsetName: l.adAttribution?.adsetName || '',
       adName: l.adAttribution?.adName || '',
