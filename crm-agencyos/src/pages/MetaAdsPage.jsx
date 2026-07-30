@@ -7,7 +7,7 @@ import {
 import {
   Megaphone, DollarSign, Eye, Users2, MousePointerClick, Percent, TrendingUp,
   FileSpreadsheet, FileText, Download, RefreshCw, Lock, Calendar, X,
-  Target, UserCheck, Trophy, Gauge, ArrowLeft,
+  Target, UserCheck, Trophy, ArrowLeft,
 } from 'lucide-react';
 import { Page, Button } from '../components/ui';
 import { cn } from '../utils/helpers';
@@ -47,7 +47,10 @@ function fmtCurrency(v, currency = 'USD') {
 }
 function fmtNum(v) { return v === null || v === undefined ? '—' : Number(v).toLocaleString(); }
 function fmtPct(v) { return v === null || v === undefined ? '—' : `${v}%`; }
-function fmtRatio(v) { return v === null || v === undefined ? '—' : `${v}x`; }
+function fmtDateTime(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
 
 // ── CSV / Excel / PDF export helpers ────────────────────────────────
 function downloadCSV(rows, filename) {
@@ -103,11 +106,7 @@ const METRIC_DEFS = {
   totalLeads: 'Total Leads — real leads created in your CRM Leads Pipeline, attributed back to this ad spend. Only counts leads tagged with Meta campaign/adset/ad attribution at creation time.',
   qualifiedLeads: 'Qualified Leads — attributed leads that moved past "New Lead" status in your pipeline.',
   wonCustomers: 'Won Customers — attributed leads that closed as Won deals.',
-  revenueGenerated: 'Revenue Generated — total deal value of Won customers attributed to this ad spend.',
-  roi: 'ROI — Return on Investment. (Revenue − Spend) ÷ Spend × 100. How much profit you made relative to what you spent.',
-  roas: 'ROAS — Return on Ad Spend. Revenue ÷ Spend. How many rupees of revenue you got back for every rupee spent.',
   cpl: 'CPL — Cost Per Lead. Spend ÷ Total Leads. Average cost to generate one real CRM lead.',
-  cpa: 'CPA — Cost Per Customer (Acquisition). Spend ÷ Won Customers. Average cost to acquire one paying customer.',
 };
 
 // Pure-CSS hover tooltip — no JS state. Named group (group/tip) so it never
@@ -194,6 +193,7 @@ const ENTITY_TABS = [
   { id: 'campaigns', label: 'Campaign Performance' },
   { id: 'adsets', label: 'Ad Set Performance' },
   { id: 'ads', label: 'Ad Performance' },
+  { id: 'leads', label: 'Lead Details' },
 ];
 
 export default function MetaAdsPage() {
@@ -215,6 +215,7 @@ export default function MetaAdsPage() {
   const [campaigns, setCampaigns] = useState([]);
   const [adsets, setAdsets] = useState([]);
   const [ads, setAds] = useState([]);
+  const [leadDetails, setLeadDetails] = useState([]);
   const [drillCampaign, setDrillCampaign] = useState(null); // { id, name } — filters adsets tab
   const [drillAdset, setDrillAdset] = useState(null);       // { id, name } — filters ads tab
   const [tableLoading, setTableLoading] = useState(false);
@@ -262,9 +263,12 @@ export default function MetaAdsPage() {
       } else if (entityTab === 'adsets') {
         const { data } = await metaAdsAPI.adsets({ from, to, campaignId: drillCampaign?.id });
         setAdsets(data.data.adsets);
-      } else {
+      } else if (entityTab === 'ads') {
         const { data } = await metaAdsAPI.ads({ from, to, adsetId: drillAdset?.id });
         setAds(data.data.ads);
+      } else {
+        const { data } = await metaAdsAPI.leads({ from, to });
+        setLeadDetails(data.data.leads);
       }
     } catch {
       toast.error('Failed to load performance table');
@@ -301,16 +305,24 @@ export default function MetaAdsPage() {
   };
 
   // ── Export current table ──────────────────────────────────────────
-  const activeRows = entityTab === 'campaigns' ? campaigns : entityTab === 'adsets' ? adsets : ads;
-  const exportHeader = ['Name', 'Status', 'Budget', 'Spend', 'Impressions', 'Reach', 'Clicks', 'CTR %', 'CPC', 'CPM', 'Landing Page Views', 'Conversions', 'Leads Generated', 'Qualified Leads', 'Customers Acquired', 'Revenue Generated', 'ROI %', 'ROAS'];
+  const activeRows = entityTab === 'campaigns' ? campaigns : entityTab === 'adsets' ? adsets : entityTab === 'ads' ? ads : leadDetails;
+  const exportHeader = entityTab === 'leads'
+    ? ['Lead', 'Company', 'Contact', 'Email', 'Phone', 'Status', 'Deal Value', 'Salesperson', 'Campaign', 'Ad Set', 'Ad', 'Created']
+    : ['Name', 'Status', 'Budget', 'Spend', 'Impressions', 'Reach', 'Clicks', 'CTR %', 'CPC', 'CPM', 'Landing Page Views', 'Conversions', 'Leads Generated', 'Qualified Leads', 'Customers Acquired'];
   const exportRows = () => [
     exportHeader,
-    ...activeRows.map((r) => [
-      r.name, r.status,
-      r.dailyBudget ? `${fmtCurrency(r.dailyBudget, currency)}/day` : r.lifetimeBudget ? `${fmtCurrency(r.lifetimeBudget, currency)} lifetime` : '—',
-      r.spend, r.impressions, r.reach, r.clicks, r.ctr, r.cpc, r.cpm, r.landingPageViews, r.conversions,
-      r.totalLeads ?? 'N/A', r.qualifiedLeads ?? 'N/A', r.wonCustomers ?? 'N/A', r.revenueGenerated ?? 'N/A', r.roi ?? 'N/A', r.roas ?? 'N/A',
-    ]),
+    ...(entityTab === 'leads'
+      ? leadDetails.map((l) => [
+          l.leadRef, l.companyName, l.contactPerson, l.email, l.phone, l.status,
+          l.dealValue, l.salesperson, l.campaignName, l.adsetName, l.adName,
+          new Date(l.createdAt).toLocaleString(),
+        ])
+      : activeRows.map((r) => [
+          r.name, r.status,
+          r.dailyBudget ? `${fmtCurrency(r.dailyBudget, currency)}/day` : r.lifetimeBudget ? `${fmtCurrency(r.lifetimeBudget, currency)} lifetime` : '—',
+          r.spend, r.impressions, r.reach, r.clicks, r.ctr, r.cpc, r.cpm, r.landingPageViews, r.conversions,
+          r.totalLeads ?? 'N/A', r.qualifiedLeads ?? 'N/A', r.wonCustomers ?? 'N/A',
+        ])),
   ];
   const exportFilenameBase = `meta-ads-${entityTab}-${from}_to_${to}`;
   const handleExportCSV = () => { downloadCSV(exportRows(), `${exportFilenameBase}.csv`); toast.success('CSV downloaded'); };
@@ -408,16 +420,12 @@ export default function MetaAdsPage() {
       </div>
 
       {/* KPI Cards — lead & revenue attribution */}
-      <h3 className="text-[13px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2.5">Lead & Revenue Attribution</h3>
+      <h3 className="text-[13px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2.5">Lead Attribution</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <KpiTile icon={Users2} label="Total Leads" value={fmtNum(summary?.totalLeads)} tip={METRIC_DEFS.totalLeads} color="#2a78d6" bg="#eff6ff" />
         <KpiTile icon={UserCheck} label="Qualified Leads" value={fmtNum(summary?.qualifiedLeads)} tip={METRIC_DEFS.qualifiedLeads} color="#eb6834" bg="#fff4ed" />
         <KpiTile icon={Trophy} label="Won Customers" value={fmtNum(summary?.wonCustomers)} tip={METRIC_DEFS.wonCustomers} color="#1baf7a" bg="#effaf5" />
-        <KpiTile icon={DollarSign} label="Revenue Generated" value={fmtCurrency(summary?.revenueGenerated, currency)} tip={METRIC_DEFS.revenueGenerated} color="#eda100" bg="#fff8e8" />
-        <KpiTile icon={Gauge} label="ROI" value={fmtPct(summary?.roi)} tip={METRIC_DEFS.roi} color="#4a3aa7" bg="#f3f1fc" />
-        <KpiTile icon={Gauge} label="ROAS" value={fmtRatio(summary?.roas)} tip={METRIC_DEFS.roas} color="#2a78d6" bg="#eff6ff" />
-        <KpiTile icon={DollarSign} label="Cost per Lead (CPL)" value={fmtCurrency(summary?.costPerLead, currency)} tip={METRIC_DEFS.cpl} color="#eb6834" bg="#fff4ed" />
-        <KpiTile icon={DollarSign} label="Cost per Customer (CPA)" value={fmtCurrency(summary?.costPerCustomer, currency)} tip={METRIC_DEFS.cpa} color="#1baf7a" bg="#effaf5" />
+        <KpiTile icon={DollarSign} label="Cost per Lead (CPL)" value={fmtCurrency(summary?.costPerLead, currency)} tip={METRIC_DEFS.cpl} color="#eda100" bg="#fff8e8" />
       </div>
 
       {/* Marketing Funnel + Trend chart */}
@@ -519,63 +527,109 @@ export default function MetaAdsPage() {
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="crm-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Status</th>
-                <th>Budget</th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.spend}>Spend</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.ctr}>CTR</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.cpc}>CPC</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.cpm}>CPM</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.totalLeads}>Leads</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.qualifiedLeads}>Qualified</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.wonCustomers}>Customers</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.revenueGenerated}>Revenue</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.roi}>ROI</InfoTip></th>
-                <th><InfoTip placement="bottom" text={METRIC_DEFS.roas}>ROAS</InfoTip></th>
-                {entityTab !== 'ads' && <th></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {tableLoading ? (
-                <tr><td colSpan={14} className="text-center py-8 text-slate-400">Loading…</td></tr>
-              ) : activeRows.length === 0 ? (
-                <tr><td colSpan={14} className="text-center py-8 text-slate-400">No {entityTab} data for this period yet — try Sync Now, or widen the date range.</td></tr>
-              ) : (
-                activeRows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-semibold text-slate-800 dark:text-slate-200 max-w-[220px] truncate">{r.name}</td>
-                    <td>
-                      <span className={cn('badge', r.status === 'ACTIVE' ? 'badge-success' : r.status === 'PAUSED' ? 'badge-warning' : 'badge-neutral')}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="text-[12.5px]">{r.dailyBudget ? `${fmtCurrency(r.dailyBudget, currency)}/day` : r.lifetimeBudget ? `${fmtCurrency(r.lifetimeBudget, currency)} total` : '—'}</td>
-                    <td className="font-semibold">{fmtCurrency(r.spend, currency)}</td>
-                    <td>{fmtPct(r.ctr)}</td>
-                    <td>{fmtCurrency(r.cpc, currency)}</td>
-                    <td>{fmtCurrency(r.cpm, currency)}</td>
-                    <td>{fmtNum(r.totalLeads)}</td>
-                    <td>{fmtNum(r.qualifiedLeads)}</td>
-                    <td>{fmtNum(r.wonCustomers)}</td>
-                    <td>{fmtCurrency(r.revenueGenerated, currency)}</td>
-                    <td>{fmtPct(r.roi)}</td>
-                    <td>{fmtRatio(r.roas)}</td>
-                    {entityTab === 'campaigns' && (
-                      <td><button onClick={() => handleDrillIntoCampaign(r)} className="text-[11.5px] font-semibold text-indigo-600 hover:underline">View Ad Sets →</button></td>
-                    )}
-                    {entityTab === 'adsets' && (
-                      <td><button onClick={() => handleDrillIntoAdset(r)} className="text-[11.5px] font-semibold text-indigo-600 hover:underline">View Ads →</button></td>
-                    )}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {entityTab === 'leads' ? (
+          <div className="overflow-x-auto">
+            <table className="crm-table">
+              <thead>
+                <tr>
+                  <th>Lead</th>
+                  <th>Status</th>
+                  <th>Email</th>
+                  <th>Phone</th>
+                  <th>Campaign</th>
+                  <th>Ad Set</th>
+                  <th>Ad</th>
+                  <th>Salesperson</th>
+                  <th>Deal Value</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tableLoading ? (
+                  <tr><td colSpan={10} className="text-center py-8 text-slate-400">Loading…</td></tr>
+                ) : leadDetails.length === 0 ? (
+                  <tr><td colSpan={10} className="text-center py-8 text-slate-400">No leads for this period yet — leads show up here once n8n starts sending adAttribution.</td></tr>
+                ) : (
+                  leadDetails.map((l) => (
+                    <tr key={l.leadId}>
+                      <td className="max-w-[200px]">
+                        <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{l.companyName}</p>
+                        <p className="text-[11.5px] text-slate-450 truncate">{l.contactPerson}</p>
+                      </td>
+                      <td>
+                        <span className={cn('badge',
+                          l.status === 'Won' ? 'badge-success' : l.status === 'Lost' ? 'badge-danger' :
+                          l.status === 'Proposal Sent' ? 'badge-warning' : l.status === 'First Contact' ? 'badge-info' : 'badge-neutral')}>
+                          {l.status}
+                        </span>
+                      </td>
+                      <td className="text-[12.5px]">{l.email || '—'}</td>
+                      <td className="text-[12.5px]">{l.phone || '—'}</td>
+                      <td className="text-[12.5px] max-w-[160px] truncate">{l.campaignName || '—'}</td>
+                      <td className="text-[12.5px] max-w-[160px] truncate">{l.adsetName || '—'}</td>
+                      <td className="text-[12.5px] max-w-[160px] truncate">{l.adName || '—'}</td>
+                      <td className="text-[12.5px]">{l.salesperson}</td>
+                      <td className="font-semibold">{l.dealValue ? fmtCurrency(l.dealValue, currency) : '—'}</td>
+                      <td className="text-[12.5px] whitespace-nowrap">{fmtDateTime(l.createdAt)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="crm-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Status</th>
+                  <th>Budget</th>
+                  <th><InfoTip placement="bottom" text={METRIC_DEFS.spend}>Spend</InfoTip></th>
+                  <th><InfoTip placement="bottom" text={METRIC_DEFS.ctr}>CTR</InfoTip></th>
+                  <th><InfoTip placement="bottom" text={METRIC_DEFS.cpc}>CPC</InfoTip></th>
+                  <th><InfoTip placement="bottom" text={METRIC_DEFS.cpm}>CPM</InfoTip></th>
+                  <th><InfoTip placement="bottom" text={METRIC_DEFS.totalLeads}>Leads</InfoTip></th>
+                  <th><InfoTip placement="bottom" text={METRIC_DEFS.qualifiedLeads}>Qualified</InfoTip></th>
+                  <th><InfoTip placement="bottom" text={METRIC_DEFS.wonCustomers}>Customers</InfoTip></th>
+                  {entityTab !== 'ads' && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {tableLoading ? (
+                  <tr><td colSpan={11} className="text-center py-8 text-slate-400">Loading…</td></tr>
+                ) : activeRows.length === 0 ? (
+                  <tr><td colSpan={11} className="text-center py-8 text-slate-400">No {entityTab} data for this period yet — try Sync Now, or widen the date range.</td></tr>
+                ) : (
+                  activeRows.map((r) => (
+                    <tr key={r.id}>
+                      <td className="font-semibold text-slate-800 dark:text-slate-200 max-w-[220px] truncate">{r.name}</td>
+                      <td>
+                        <span className={cn('badge', r.status === 'ACTIVE' ? 'badge-success' : r.status === 'PAUSED' ? 'badge-warning' : 'badge-neutral')}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="text-[12.5px]">{r.dailyBudget ? `${fmtCurrency(r.dailyBudget, currency)}/day` : r.lifetimeBudget ? `${fmtCurrency(r.lifetimeBudget, currency)} total` : '—'}</td>
+                      <td className="font-semibold">{fmtCurrency(r.spend, currency)}</td>
+                      <td>{fmtPct(r.ctr)}</td>
+                      <td>{fmtCurrency(r.cpc, currency)}</td>
+                      <td>{fmtCurrency(r.cpm, currency)}</td>
+                      <td>{fmtNum(r.totalLeads)}</td>
+                      <td>{fmtNum(r.qualifiedLeads)}</td>
+                      <td>{fmtNum(r.wonCustomers)}</td>
+                      {entityTab === 'campaigns' && (
+                        <td><button onClick={() => handleDrillIntoCampaign(r)} className="text-[11.5px] font-semibold text-indigo-600 hover:underline">View Ad Sets →</button></td>
+                      )}
+                      {entityTab === 'adsets' && (
+                        <td><button onClick={() => handleDrillIntoAdset(r)} className="text-[11.5px] font-semibold text-indigo-600 hover:underline">View Ads →</button></td>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </Page>
   );

@@ -395,6 +395,7 @@ export const metaAdsAPI = {
   campaigns:      (params)         => api.get('/meta-ads/campaigns', { params }),
   adsets:         (params)         => api.get('/meta-ads/adsets', { params }),
   ads:            (params)         => api.get('/meta-ads/ads', { params }),
+  leads:          (params)         => api.get('/meta-ads/leads', { params }),
 };
 
 // ─────────────────────────────────────────────────────────────
