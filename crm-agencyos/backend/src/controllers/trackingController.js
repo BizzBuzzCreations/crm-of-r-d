@@ -44,6 +44,34 @@ exports.trackOpen = async (req, res) => {
   res.send(PIXEL);
 };
 
+// GET /api/campaigns/track/call-request/:token — a dedicated "Request a
+// Call" button recipients click when they want a callback, instead of
+// replying "CALL" to the email (the previous, reply-only way to signal
+// this). Deliberately a separate endpoint from trackClick: a generic link
+// click only bumps clickCount/clicks, it never surfaces the lead into the
+// B2B pipeline — this one does, at the same "fires meaningfully once" tier
+// as an actual reply, so sales can see exactly who wants to be called.
+exports.requestCall = async (req, res) => {
+  const token = String(req.params.token || '');
+  const now = new Date();
+  CampaignLead.findOneAndUpdate(
+    { token },
+    { $set: { callRequested: true, callRequestedAt: now } },
+    { new: true }
+  ).then((updated) => {
+    if (updated) syncCampaignLeadToPipeline(updated, 'call_requested').catch(() => {});
+  }).catch(() => {});
+
+  // The public "thank you for reaching out" page recipients actually land
+  // on — a separate site (debtfreepath), not this CRM. Configurable via env
+  // so it can be changed without a code deploy; CLIENT_URL is only a
+  // fallback so a misconfigured env var fails soft (redirects somewhere
+  // real) instead of erroring the recipient's click.
+  const dest = process.env.CALL_REQUEST_REDIRECT_URL
+    || (process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, '');
+  res.redirect(302, dest);
+};
+
 // GET /api/campaigns/track/click/:token?url=...
 exports.trackClick = async (req, res) => {
   const { token } = req.params;

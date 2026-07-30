@@ -9,7 +9,7 @@ import {
   ArrowLeft, Play, Pause, Trash2, Upload, Send, MailOpen, MousePointerClick,
   Users, XCircle, AlertTriangle, Ban, MessageSquareOff, Settings2, ListChecks,
   FileSpreadsheet, UserPlus, ShieldCheck, ShieldAlert, ShieldQuestion, RefreshCw, Loader2,
-  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download, Flame,
+  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download, Flame, PhoneCall,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Page, Button, Tabs, Input, Toggle, Select, StatCard, EmptyState, ConfirmDialog, Modal } from '../components/ui';
@@ -706,6 +706,7 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
   const pendingLeads = leads.filter((l) => l.status === 'pending');
   const sentOrPendingLeads = leads.filter((l) => l.status === 'sent' || l.status === 'pending');
   const hotLeads = leads.filter((l) => (l.openCount || 0) >= HOT_OPEN_THRESHOLD);
+  const callRequestedLeads = leads.filter((l) => l.callRequested);
 
   const exportSlug = (campaign.name || 'campaign').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const handleExport = (list, tag) => downloadLeadsCSV(list, `${exportSlug}-${tag}-leads.csv`);
@@ -856,10 +857,18 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
                     <Flame size={12} /> {hotLeads.length} hot
                   </span>
                 )}
+                {callRequestedLeads.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-blue-600 dark:text-blue-400">
+                    <PhoneCall size={12} /> {callRequestedLeads.length} requested a call
+                  </span>
+                )}
               </span>
               <div className="flex items-center gap-1.5">
                 <Button variant="ghost" size="sm" disabled={!hotLeads.length} onClick={() => handleExport(hotLeads, 'hot')}>
                   <Flame size={12} className="text-orange-500" /> Hot ({hotLeads.length})
+                </Button>
+                <Button variant="ghost" size="sm" disabled={!callRequestedLeads.length} onClick={() => handleExport(callRequestedLeads, 'call-requested')}>
+                  <PhoneCall size={12} className="text-blue-500" /> Call Requested ({callRequestedLeads.length})
                 </Button>
                 <Button variant="ghost" size="sm" disabled={!sentLeads.length} onClick={() => handleExport(sentLeads, 'sent')}>
                   <Download size={12} /> Sent ({sentLeads.length})
@@ -893,6 +902,7 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
                     <th className="px-4 py-2.5 font-medium text-center">Opens</th>
                     <th className="px-4 py-2.5 font-medium">Last Opened</th>
                     <th className="px-4 py-2.5 font-medium text-center">Clicks</th>
+                    <th className="px-4 py-2.5 font-medium text-center">Call Req.</th>
                     <th className="px-4 py-2.5 font-medium">Sent</th>
                     <th className="px-4 py-2.5 font-medium"></th>
                   </tr>
@@ -929,6 +939,18 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
                           {l.openedAt ? new Date(l.openedAt).toLocaleString() : '—'}
                         </td>
                         <td className="px-4 py-2.5 text-center text-slate-600 dark:text-slate-400">{l.clickCount || 0}</td>
+                        <td className="px-4 py-2.5 text-center">
+                          {l.callRequested ? (
+                            <span
+                              title={l.callRequestedAt ? `Requested a call — ${new Date(l.callRequestedAt).toLocaleString()}` : 'Requested a call'}
+                              className="inline-flex items-center text-blue-600 dark:text-blue-400 cursor-help"
+                            >
+                              <PhoneCall size={13} />
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 dark:text-slate-700">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">
                           {l.sentAt ? new Date(l.sentAt).toLocaleDateString() : '—'}
                         </td>
@@ -983,6 +1005,13 @@ function ComposeTab({ campaign, onSave }) {
   const spamCheck = useMemo(() => checkSpamContent(subject, body), [subject, body]);
 
   const insertTag = (tag) => editorRef.current?.insertText(tag);
+  // Inserts a real, pre-styled <a> button with the merge tag wired directly
+  // into its href — NOT via the toolbar's link tool, which force-prefixes
+  // anything not already starting with "http" with "https://" and would
+  // corrupt "{{call_request_url}}" into "https://{{call_request_url}}".
+  const insertCallRequestButton = () => editorRef.current?.insertText(
+    '<a href="{{call_request_url}}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-family:Arial,sans-serif;font-size:14px;">Request a Call</a>'
+  );
 
   const handleApplyTemplate = (t) => {
     setSubject(t.subject || '');
@@ -1017,6 +1046,14 @@ function ComposeTab({ campaign, onSave }) {
               {tag}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={insertCallRequestButton}
+            title="Insert a button that tracks who wants a callback — click flows into Email Leads as 'Call Requested'"
+            className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+          >
+            <PhoneCall size={11} /> Request a Call button
+          </button>
         </div>
         <RichTextEditor
           ref={editorRef}

@@ -93,7 +93,15 @@ function renderMergeTags(template, lead) {
   return String(template || '')
     .replace(/\{\{\s*first_?name\s*\}\}/gi, lead.firstName || 'there')
     .replace(/\{\{\s*last_?name\s*\}\}/gi, lead.lastName || '')
-    .replace(/\{\{\s*email\s*\}\}/gi, lead.email || '');
+    .replace(/\{\{\s*email\s*\}\}/gi, lead.email || '')
+    // Lets a campaign's own template design a "Request a Call" button
+    // wherever it wants (e.g. `<a href="{{call_request_url}}">Request a
+    // Call</a>`) instead of only being able to reply "CALL" to the email —
+    // resolves to trackingController.requestCall, which logs the signal,
+    // surfaces the lead into the pipeline, then redirects to the real
+    // thank-you page. `lead` here is the CampaignLead doc, so `.token`
+    // (used for open/click/unsubscribe tracking already) is available.
+    .replace(/\{\{\s*call_request_url\s*\}\}/gi, `${apiBase}/api/campaigns/track/call-request/${lead.token}`);
 }
 
 // ── Tracking / unsubscribe injection ─────────────────────────────────────
@@ -117,7 +125,13 @@ if (!process.env.CAMPAIGN_TRACK_BASE_URL && (!process.env.CLIENT_URL || apiBase.
 }
 
 function rewriteLinksForClickTracking(html, token) {
-  return html.replace(/href="(https?:\/\/[^"]+)"/gi, (_m, url) => {
+  return html.replace(/href="(https?:\/\/[^"]+)"/gi, (m, url) => {
+    // Don't double-wrap a link that's already one of our own tracking
+    // endpoints (e.g. {{call_request_url}}, resolved earlier by
+    // renderMergeTags) — it's already tracked as its own distinct signal,
+    // wrapping it again would just add a redundant hop and inflate
+    // clickCount alongside the more specific signal it already recorded.
+    if (url.startsWith(apiBase)) return m;
     const redirect = `${apiBase}/api/campaigns/track/click/${token}?url=${encodeURIComponent(url)}`;
     return `href="${redirect}"`;
   });

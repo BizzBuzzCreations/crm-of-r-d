@@ -38,7 +38,9 @@ function companyGuess(campaignLead) {
   return domain ? domain.charAt(0).toUpperCase() + domain.slice(1) : 'Unknown Company';
 }
 
-// reason: 'hot' (3+ opens, safe to call repeatedly) | 'replied' (fires once, on the status transition)
+// reason: 'hot' (3+ opens, safe to call repeatedly) | 'replied' | 'call_requested'
+// (both fire meaningfully once, on the first crossing — see the `already*`
+// guards below)
 async function doSync(campaignLead, reason) {
   const campaign = await Campaign.findById(campaignLead.campaign).select('name').lean();
   const campaignName = campaign?.name || 'a campaign';
@@ -46,32 +48,33 @@ async function doSync(campaignLead, reason) {
 
   if (!existing) {
     const assignedTo = await autoAssignLead();
+    const isEngagementOnly = reason === 'hot'; // 'hot' alone doesn't imply the lead has actually engaged back yet
+    const tag = reason === 'hot' ? 'Hot' : reason === 'replied' ? 'Replied' : 'Call Requested';
+    const noteText = reason === 'hot'
+      ? `Auto-created — opened campaign "${campaignName}" ${campaignLead.openCount}+ times.`
+      : reason === 'replied'
+        ? `Auto-created — replied to campaign "${campaignName}".`
+        : `Auto-created — requested a call via campaign "${campaignName}".`;
+    const activityText = reason === 'hot'
+      ? '🔥 Auto-added to pipeline as Hot from campaign engagement'
+      : reason === 'replied'
+        ? '📨 Auto-added to pipeline from campaign reply'
+        : '📞 Auto-added to pipeline — requested a call';
     return Lead.create({
       companyName: companyGuess(campaignLead),
       contactPerson: displayName(campaignLead),
       email: campaignLead.email,
       source: 'Campaign',
-      status: reason === 'replied' ? 'First Contact' : 'New Lead',
+      status: isEngagementOnly ? 'New Lead' : 'First Contact',
       campaignAttribution: { id: campaignLead.campaign, name: campaignName },
       assignedTo,
       emailOpens: campaignLead.openCount || 0,
-      interactionsCount: reason === 'replied' ? 1 : 0,
-      tags: reason === 'replied' ? ['Campaign', 'Replied'] : ['Campaign', 'Hot'],
+      interactionsCount: isEngagementOnly ? 0 : 1,
+      tags: ['Campaign', tag],
       lastContactDate: new Date(),
-      notes: [{
-        text: reason === 'replied'
-          ? `Auto-created — replied to campaign "${campaignName}".`
-          : `Auto-created — opened campaign "${campaignName}" ${campaignLead.openCount}+ times.`,
-        authorName: 'System',
-      }],
+      notes: [{ text: noteText, authorName: 'System' }],
       activities: [
-        {
-          type: 'create',
-          text: reason === 'replied'
-            ? '📨 Auto-added to pipeline from campaign reply'
-            : '🔥 Auto-added to pipeline as Hot from campaign engagement',
-          performedBy: 'System',
-        },
+        { type: 'create', text: activityText, performedBy: 'System' },
         ...(assignedTo ? [{ type: 'assign', text: 'Auto-assigned via Lead Distribution rules', performedBy: 'System' }] : []),
       ],
     });
@@ -108,23 +111,23 @@ async function doSync(campaignLead, reason) {
     return existing;
   }
 
-  // reason === 'replied'
-  const alreadyReplied = existing.tags?.includes('Replied');
+  // reason === 'replied' | 'call_requested' — both fire meaningfully once
+  const tag = reason === 'replied' ? 'Replied' : 'Call Requested';
+  const already = existing.tags?.includes(tag);
   await Lead.updateOne({ _id: existing._id }, {
     $set: attributionSet,
-    $addToSet: { tags: { $each: ['Campaign', 'Replied'] } },
+    $addToSet: { tags: { $each: ['Campaign', tag] } },
   });
-  if (!alreadyReplied) {
-    // Only the first reply bumps the interaction count and logs a note —
+  if (!already) {
+    // Only the first crossing bumps the interaction count and logs a note —
     // repeat calls (e.g. a re-run of the historical backfill script) must
     // not keep incrementing, same as the "hot" branch's alreadyHot guard.
+    const activityText = reason === 'replied'
+      ? `📨 Replied to campaign "${campaignName}"`
+      : `📞 Requested a call via campaign "${campaignName}"`;
     await Lead.updateOne({ _id: existing._id }, {
       $inc: { interactionsCount: 1 },
-      $push: { activities: {
-        type: 'note',
-        text: `📨 Replied to campaign "${campaignName}"`,
-        performedBy: 'System',
-      } },
+      $push: { activities: { type: 'note', text: activityText, performedBy: 'System' } },
     });
   }
   return existing;
