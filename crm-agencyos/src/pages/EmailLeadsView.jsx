@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Flame, MessageSquareText, Inbox, UserX, ArrowRightCircle, Eye, Mail, Clock, Megaphone,
+  Flame, MessageSquareText, Inbox, UserX, ArrowRightCircle, Eye, Mail, Clock, Megaphone, PhoneCall,
 } from 'lucide-react';
 import { Avatar, Badge, Button } from '../components/ui';
 import { cn, getId } from '../utils/helpers';
@@ -12,19 +12,21 @@ function EmailLeadsSummary({ leads }) {
     const total = leads.length;
     const hot = leads.filter((l) => l.tags?.includes('Hot')).length;
     const replied = leads.filter((l) => l.tags?.includes('Replied')).length;
+    const callRequested = leads.filter((l) => l.tags?.includes('Call Requested')).length;
     const unassigned = leads.filter((l) => !l.assignedTo).length;
-    return { total, hot, replied, unassigned };
+    return { total, hot, replied, callRequested, unassigned };
   }, [leads]);
 
   const tiles = [
     { icon: Inbox, label: 'Total Email Leads', value: stats.total, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/30' },
     { icon: Flame, label: 'Hot (3+ Opens)', value: stats.hot, color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-900/20' },
     { icon: MessageSquareText, label: 'Replied', value: stats.replied, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+    { icon: PhoneCall, label: 'Requested a Call', value: stats.callRequested, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
     { icon: UserX, label: 'Unassigned', value: stats.unassigned, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
       {tiles.map((t) => {
         const Icon = t.icon;
         return (
@@ -46,6 +48,7 @@ function EmailLeadsSummary({ leads }) {
 function SignalBadges({ lead }) {
   const isHot = lead.tags?.includes('Hot');
   const isReplied = lead.tags?.includes('Replied');
+  const isCallRequested = lead.tags?.includes('Call Requested');
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       {isHot && (
@@ -58,7 +61,12 @@ function SignalBadges({ lead }) {
           <MessageSquareText size={10} /> Replied
         </span>
       )}
-      {!isHot && !isReplied && <span className="text-[11px] text-slate-400 italic">—</span>}
+      {isCallRequested && (
+        <span className="inline-flex items-center gap-1 text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
+          <PhoneCall size={10} /> Call Requested
+        </span>
+      )}
+      {!isHot && !isReplied && !isCallRequested && <span className="text-[11px] text-slate-400 italic">—</span>}
     </div>
   );
 }

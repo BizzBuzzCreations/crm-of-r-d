@@ -46,6 +46,12 @@ const CampaignLeadSchema = new mongoose.Schema({
   clicks:         { type: [ClickEventSchema], default: [] }, // full history, capped — see trackingController
   repliedAt:      { type: Date, default: null },
   unsubscribedAt: { type: Date, default: null },
+  // Clicked the "Request a Call" button in the email (see trackingController
+  // .requestCall) — a deliberate, purpose-built CTA distinct from a generic
+  // link click, so it can trigger the pipeline sync as its own strong signal
+  // (same tier as an actual reply) instead of just adding to clickCount.
+  callRequested:   { type: Boolean, default: false },
+  callRequestedAt: { type: Date, default: null },
   error:          { type: String, default: '' },
 
   // Single opaque token used for the open pixel, click redirects, and the
