@@ -268,47 +268,58 @@ exports.createLead = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// Vicidial disposition code → rndCRM Lead status, per the main CRM's own
-// "Lead Status Classification" (Settings there — Non-Connected / Connected
-// / Potential buckets). Kept server-side rather than in the n8n workflow so
-// there's exactly one place to update if the classification changes, and
-// n8n/the main CRM never need to know rndCRM's status vocabulary — they
-// just forward whatever disposition code Vicidial recorded.
+// Main CRM's own lead-status name → rndCRM Lead status. Replaces an earlier,
+// wrong guess at this table (generic Vicidial disposition codes that don't
+// actually match this system) with the real list the client pulled directly
+// from their CRM's status settings, each already bucketed into one of 5
+// categories (Not Confirmed / Lost / In Progress / Potential / Converted)
+// that map cleanly 1:1 onto rndCRM's own 5 statuses. Kept server-side rather
+// than in the n8n workflow so there's exactly one place to update if the
+// client adds/renames a status, and n8n/the main CRM never need to know
+// rndCRM's status vocabulary — they just forward whatever status name is on
+// the lead.
 //
-// XFR-suffix codes specifically mean a completed, accepted transfer to the
-// FCA partner (confirmed with the client) — everything else in "Potential"
-// is still in progress (a callback, a warm lead, not yet transferred) and
-// maps to Proposal Sent instead of Won.
+// "In Progress" is a wide bucket (everything from a fresh callback to
+// paperwork-stage names like "IVA Agreed"/"Full Docs Back") — mapped
+// uniformly to First Contact rather than guessing per-name which are closer
+// to a done deal. Only "Converted" (an actual confirmed win — IVA verified,
+// pack back, PBS sold) maps to Won; only "Potential" (on hold, awaiting next
+// step) maps to Proposal Sent. Revisit if finer granularity is wanted later.
 const DISPOSITION_STATUS_MAP = {
-  // NON-CONNECTED — no answer, busy, dropped: no meaningful contact yet
-  A: 'New Lead', AA: 'New Lead', AB: 'New Lead', ADC: 'New Lead', AFTHRS: 'New Lead',
-  AL: 'New Lead', AM: 'New Lead', B: 'New Lead', DAIR: 'New Lead', DED: 'New Lead',
-  DNCC: 'New Lead', DROP: 'New Lead', NA: 'New Lead', NC: 'New Lead', NEW: 'New Lead',
-  PDROP: 'New Lead', TIMEOT: 'New Lead',
+  // NOT CONFIRMED — call happened but outcome isn't confirmed yet
+  '3 WAY CALLS': 'New Lead', ALDMP: 'New Lead', DNC: 'New Lead',
 
-  // CONNECTED, still open — a real contact happened and nothing's ruled it out yet
-  ALIVA: 'First Contact', CNA: 'First Contact', DRO: 'First Contact', HNP: 'First Contact',
-  INCALL: 'First Contact', IRATE: 'First Contact', LD: 'First Contact', LGBR: 'First Contact',
-  ND: 'First Contact', NDD: 'First Contact', NOSTRG: 'First Contact',
+  // LOST — disqualified, declined, or already handled elsewhere
+  'ALREADY IN IVA': 'Lost', 'ALREADY IN TRUST DEED': 'Lost', CHARITY: 'Lost',
+  'CHARITY DUPLICATE': 'Lost', 'CLAW BACK': 'Lost', DRO: 'Lost', 'HIGH DI': 'Lost',
+  HOAX: 'Lost', 'HOME OWNER': 'Lost', IRATE: 'Lost', 'LANGUAGE BARRIER': 'Lost',
+  'LOW DEBTS': 'Lost', 'LOW INCOME': 'Lost', 'NOT INTERESTED': 'Lost',
+  'NOT STRUGGLING': 'Lost', 'PRIVATE TENANT': 'Lost', 'SIP FAILED': 'Lost',
+  UNQUALIFIED: 'Lost',
 
-  // CONNECTED, but disqualified/declined — a real contact happened and the
-  // outcome was negative (bankrupt, explicitly not interested, hoax, wrong
-  // number, already on a plan elsewhere, etc). These used to get lumped in
-  // with First Contact, which meant "Qualified Leads" silently included a
-  // pile of dead leads alongside genuinely-still-open ones.
-  ALDMP: 'Lost', BBHD: 'Lost', BIZNO: 'Lost', BNKRPT: 'Lost', DNC: 'Lost',
-  HOAX: 'Lost', NI: 'Lost', NP: 'Lost', NQ: 'Lost', NQBB: 'Lost', WN: 'Lost',
-  // Spelling variant seen in one source but not the other — support both.
-  NIB: 'Lost', NIBB: 'Lost',
+  // IN PROGRESS — a real contact/engagement is happening, not yet resolved
+  'ANSWERING MACHINE': 'First Contact', APPROVALS: 'First Contact',
+  'AWAITING MORE DOCS': 'First Contact', 'AWAITING PICTURES': 'First Contact',
+  'CALL BACK': 'First Contact', CHASE: 'First Contact',
+  'CONTACTED OVER THE PHONE': 'First Contact', DMP: 'First Contact',
+  'DMP AGREED': 'First Contact', 'DMP XFER': 'First Contact',
+  "DOC'S BACK": 'First Contact', 'DUPLICATE LEAD': 'First Contact',
+  'EMAIL / WHTATSAPP CHASED': 'First Contact', 'EXTERNAL LEAD': 'First Contact',
+  'FULL DOCS BACK': 'First Contact', 'HANG UP HAS DEBTS': 'First Contact',
+  'HAS DEBTS BUSY': 'First Contact', 'HAS DEBTS NOT INTERESTED': 'First Contact',
+  'HOTKEY DONE': 'First Contact', 'IP QUERIES': 'First Contact',
+  'IVA AGREED': 'First Contact', 'IVA XFER': 'First Contact', 'LEAD IN': 'First Contact',
+  'MI NEEDED': 'First Contact', 'MI RESOLVED': 'First Contact', 'NO CONTACT': 'First Contact',
+  'PART PACK BACK': 'First Contact', 'PICTURES RECEIVED': 'First Contact',
+  'SENT TO CLEAR START': 'First Contact', 'SENT TO IP': 'First Contact',
+  'SIP BOOKED': 'First Contact', 'STRUCTURE COMPLETED': 'First Contact',
+  'TRYING RECONNECT': 'First Contact', 'VOICE MAIL / BUSY': 'First Contact',
 
-  // POTENTIAL, not yet transferred — callback / warm lead, still in progress
-  CBHOLD: 'Proposal Sent', HDHNP: 'Proposal Sent',
-  HDNI: 'Proposal Sent', IVAIN: 'Proposal Sent', PREVCL: 'Proposal Sent',
-  // Spelling variant seen in one source but not the other — support both.
-  CRITY: 'Proposal Sent', CHRTY: 'Proposal Sent',
+  // POTENTIAL — on hold / awaiting the next step, still live
+  'IVA HOLD': 'Proposal Sent', 'ON HOLD': 'Proposal Sent', 'PACK OUT': 'Proposal Sent',
 
-  // POTENTIAL, XFR-suffix — an actual completed transfer to the FCA partner
-  DMXFR: 'Won', IVAXFR: 'Won', LNXFR: 'Won', LNXFER: 'Won',
+  // CONVERTED — an actual confirmed win
+  'IVA IN HOUSE VERIFIED': 'Won', 'PACK BACK': 'Won', 'PBS SOLD': 'Won', VERIFIED: 'Won',
 };
 
 // @GET /api/lead-sync/pending — called by the polling n8n workflow BEFORE it
