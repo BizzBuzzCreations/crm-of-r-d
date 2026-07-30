@@ -307,14 +307,14 @@ export default function MetaAdsPage() {
   // ── Export current table ──────────────────────────────────────────
   const activeRows = entityTab === 'campaigns' ? campaigns : entityTab === 'adsets' ? adsets : entityTab === 'ads' ? ads : leadDetails;
   const exportHeader = entityTab === 'leads'
-    ? ['Lead', 'Company', 'Contact', 'Email', 'Phone', 'Status', 'Deal Value', 'Salesperson', 'Campaign', 'Ad Set', 'Ad', 'Created']
+    ? ['Lead', 'Company', 'Contact', 'Email', 'Phone', 'Status', 'Salesperson', 'Campaign', 'Ad Set', 'Ad', 'Created']
     : ['Name', 'Status', 'Budget', 'Spend', 'Impressions', 'Reach', 'Clicks', 'CTR %', 'CPC', 'CPM', 'Landing Page Views', 'Conversions', 'Leads Generated', 'Qualified Leads', 'Customers Acquired'];
   const exportRows = () => [
     exportHeader,
     ...(entityTab === 'leads'
       ? leadDetails.map((l) => [
           l.leadRef, l.companyName, l.contactPerson, l.email, l.phone, l.status,
-          l.dealValue, l.salesperson, l.campaignName, l.adsetName, l.adName,
+          l.salesperson, l.campaignName, l.adsetName, l.adName,
           new Date(l.createdAt).toLocaleString(),
         ])
       : activeRows.map((r) => [
@@ -540,15 +540,14 @@ export default function MetaAdsPage() {
                   <th>Ad Set</th>
                   <th>Ad</th>
                   <th>Salesperson</th>
-                  <th>Deal Value</th>
                   <th>Created</th>
                 </tr>
               </thead>
               <tbody>
                 {tableLoading ? (
-                  <tr><td colSpan={10} className="text-center py-8 text-slate-400">Loading…</td></tr>
+                  <tr><td colSpan={9} className="text-center py-8 text-slate-400">Loading…</td></tr>
                 ) : leadDetails.length === 0 ? (
-                  <tr><td colSpan={10} className="text-center py-8 text-slate-400">No leads for this period yet — leads show up here once n8n starts sending adAttribution.</td></tr>
+                  <tr><td colSpan={9} className="text-center py-8 text-slate-400">No leads for this period yet — leads show up here once n8n starts sending adAttribution.</td></tr>
                 ) : (
                   leadDetails.map((l) => (
                     <tr key={l.leadId}>
@@ -569,7 +568,6 @@ export default function MetaAdsPage() {
                       <td className="text-[12.5px] max-w-[160px] truncate">{l.adsetName || '—'}</td>
                       <td className="text-[12.5px] max-w-[160px] truncate">{l.adName || '—'}</td>
                       <td className="text-[12.5px]">{l.salesperson}</td>
-                      <td className="font-semibold">{l.dealValue ? fmtCurrency(l.dealValue, currency) : '—'}</td>
                       <td className="text-[12.5px] whitespace-nowrap">{fmtDateTime(l.createdAt)}</td>
                     </tr>
                   ))
