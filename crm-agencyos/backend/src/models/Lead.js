@@ -121,6 +121,15 @@ const LeadSchema = new mongoose.Schema({
   // stands without losing any of that existing logic. Set by
   // leadController.syncLeadStatus; empty for leads with no externalLeadId.
   externalStatusLabel: { type: String, default: '' },
+
+  // The main CRM's own assigned agent name at last sync (e.g. "DebtFree
+  // Path") — display-only, same reasoning as externalStatusLabel above.
+  // `assignedTo` (ObjectId, below) refers to an rndCRM User and is never
+  // set automatically for synced leads (nobody in rndCRM actually owns
+  // them), so without this the Salesperson column would just say
+  // "Unassigned" even though someone in the main CRM is actively working
+  // the lead. Set by leadController.createLead / syncLeadStatus.
+  externalAssignedToName: { type: String, default: '' },
 }, { timestamps: true });
 
 LeadSchema.statics.getNextLeadNumber = async function () {
