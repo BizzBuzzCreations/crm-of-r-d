@@ -90,6 +90,16 @@ const LeadSchema = new mongoose.Schema({
     adName:       { type: String, default: '' },
   },
 
+  // Which email Campaign (see models/Campaign.js) originally made this a
+  // "Hot"/"Replied" lead — set once, at creation, by leadPipelineSync.js's
+  // doSync(), same "never touched again" rule as adAttribution above. Lets
+  // the Email Leads tab filter/group by campaign instead of mixing every
+  // campaign's engaged leads into one flat list.
+  campaignAttribution: {
+    id:   { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign', default: null },
+    name: { type: String, default: '' },
+  },
+
   // This lead's own ID in the separate "main CRM" agents actually work
   // leads in — rndCRM doesn't own lead lifecycle, it's a reporting copy fed
   // once at creation. Set by whatever created this lead (e.g. the n8n
@@ -102,6 +112,15 @@ const LeadSchema = new mongoose.Schema({
   // default would make every lead without one collide on "" under the
   // unique index below.
   externalLeadId: { type: String, unique: true, sparse: true },
+
+  // The main CRM's own raw status name at last sync (e.g. "IVA Agreed",
+  // "Full Docs Back") — kept verbatim alongside the collapsed 5-value
+  // `status` above, which stays coarse on purpose (Kanban columns, Won/Lost
+  // metrics elsewhere in the app depend on exactly those 5 values). This
+  // field is display-only, so a rep can see exactly where a synced lead
+  // stands without losing any of that existing logic. Set by
+  // leadController.syncLeadStatus; empty for leads with no externalLeadId.
+  externalStatusLabel: { type: String, default: '' },
 }, { timestamps: true });
 
 LeadSchema.statics.getNextLeadNumber = async function () {

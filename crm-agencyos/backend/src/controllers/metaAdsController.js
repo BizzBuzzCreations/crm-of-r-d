@@ -429,6 +429,7 @@ exports.getLeadDetails = async (req, res, next) => {
       email: l.email || '',
       phone: l.phone || '',
       status: l.status,
+      externalStatusLabel: l.externalStatusLabel || '',
       dealValue: l.dealValue || 0,
       salesperson: l.assignedTo?.name || 'Unassigned',
       campaignName: l.adAttribution?.campaignName || '',

@@ -52,6 +52,7 @@ async function doSync(campaignLead, reason) {
       email: campaignLead.email,
       source: 'Campaign',
       status: reason === 'replied' ? 'First Contact' : 'New Lead',
+      campaignAttribution: { id: campaignLead.campaign, name: campaignName },
       assignedTo,
       emailOpens: campaignLead.openCount || 0,
       interactionsCount: reason === 'replied' ? 1 : 0,
@@ -77,10 +78,20 @@ async function doSync(campaignLead, reason) {
   }
 
   // Already in the pipeline — reinforce the signal instead of duplicating.
+  // A lead from a source other than this campaign (Manual, Web Form, an
+  // earlier campaign) may not carry campaign attribution yet — backfill it
+  // here so the Email Leads tab can still group/filter it, without
+  // overwriting attribution that's already set (first campaign wins, same
+  // "never touched again" rule as new-lead creation above).
+  const attributionSet = { lastContactDate: new Date() };
+  if (!existing.campaignAttribution?.name) {
+    attributionSet.campaignAttribution = { id: campaignLead.campaign, name: campaignName };
+  }
+
   if (reason === 'hot') {
     const alreadyHot = existing.tags?.includes('Hot');
     await Lead.updateOne({ _id: existing._id }, {
-      $set: { lastContactDate: new Date() },
+      $set: attributionSet,
       $max: { emailOpens: campaignLead.openCount || 0 },
       $addToSet: { tags: { $each: alreadyHot ? ['Campaign'] : ['Campaign', 'Hot'] } },
     });
@@ -100,7 +111,7 @@ async function doSync(campaignLead, reason) {
   // reason === 'replied'
   const alreadyReplied = existing.tags?.includes('Replied');
   await Lead.updateOne({ _id: existing._id }, {
-    $set: { lastContactDate: new Date() },
+    $set: attributionSet,
     $addToSet: { tags: { $each: ['Campaign', 'Replied'] } },
   });
   if (!alreadyReplied) {
