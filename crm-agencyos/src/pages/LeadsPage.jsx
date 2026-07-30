@@ -955,11 +955,18 @@ export default function LeadsPage() {
   // main pipeline's grid, stats, and Kanban/Forecast views, until someone
   // explicitly moves one in ("Move to Pipeline" — flips source away from 'Campaign').
   const pipelineLeads = useMemo(() => filteredLeads.filter((l) => l.source !== 'Campaign'), [filteredLeads]);
-  const emailLeadsList = useMemo(() => filteredLeads.filter((l) => l.source === 'Campaign'), [filteredLeads]);
+  // A lead counts as an "email lead" either because it originated from a
+  // campaign (source === 'Campaign') OR because it's since gone Hot from
+  // campaign engagement (leadPipelineSync tags existing leads — from any
+  // original source — 'Hot' on repeat opens without changing their
+  // source, so a strict source-only filter was hiding exactly the leads
+  // this tab exists to surface).
+  const isEmailLead = (l) => l.source === 'Campaign' || l.tags?.includes('Hot');
+  const emailLeadsList = useMemo(() => filteredLeads.filter(isEmailLead), [filteredLeads]);
   // Unfiltered pools — tab badge counts and the pipeline sub-views' "allLeads"
   // fallback (archive lookups etc.) shouldn't shift with the search box.
   const pipelineAllLeads = useMemo(() => leads.filter((l) => l.source !== 'Campaign'), [leads]);
-  const emailLeadsAllCount = useMemo(() => leads.filter((l) => l.source === 'Campaign').length, [leads]);
+  const emailLeadsAllCount = useMemo(() => leads.filter(isEmailLead).length, [leads]);
 
   // ── Multi-Column Sorting Logic ──
   const sortedLeads = useMemo(() => {
