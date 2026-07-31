@@ -94,14 +94,16 @@ function renderMergeTags(template, lead) {
     .replace(/\{\{\s*first_?name\s*\}\}/gi, lead.firstName || 'there')
     .replace(/\{\{\s*last_?name\s*\}\}/gi, lead.lastName || '')
     .replace(/\{\{\s*email\s*\}\}/gi, lead.email || '')
-    // Lets a campaign's own template design a "Request a Call" button
-    // wherever it wants (e.g. `<a href="{{call_request_url}}">Request a
-    // Call</a>`) instead of only being able to reply "CALL" to the email —
-    // resolves to trackingController.requestCall, which logs the signal,
-    // surfaces the lead into the pipeline, then redirects to the real
-    // thank-you page. `lead` here is the CampaignLead doc, so `.token`
-    // (used for open/click/unsubscribe tracking already) is available.
-    .replace(/\{\{\s*call_request_url\s*\}\}/gi, `${apiBase}/api/campaigns/track/call-request/${lead.token}`);
+    // Generic tracked-CTA redirect tag — lets a campaign's own template
+    // design any button wherever it wants (e.g. `<a href="{{redirect_url}}">
+    // Request a Call</a>`), not just this one "Request a Call" use case.
+    // Resolves to trackingController.requestCall, which logs the click,
+    // surfaces the lead into the pipeline as "Call Requested" (today's only
+    // use of this tag), then redirects to the campaign's configured
+    // destination (Settings tab → "Redirect URL"). `lead` here is the
+    // CampaignLead doc, so `.token` (used for open/click/unsubscribe
+    // tracking already) is available.
+    .replace(/\{\{\s*redirect_url\s*\}\}/gi, `${apiBase}/api/campaigns/track/call-request/${lead.token}`);
 }
 
 // ── Tracking / unsubscribe injection ─────────────────────────────────────
@@ -127,7 +129,7 @@ if (!process.env.CAMPAIGN_TRACK_BASE_URL && (!process.env.CLIENT_URL || apiBase.
 function rewriteLinksForClickTracking(html, token) {
   return html.replace(/href="(https?:\/\/[^"]+)"/gi, (m, url) => {
     // Don't double-wrap a link that's already one of our own tracking
-    // endpoints (e.g. {{call_request_url}}, resolved earlier by
+    // endpoints (e.g. {{redirect_url}}, resolved earlier by
     // renderMergeTags) — it's already tracked as its own distinct signal,
     // wrapping it again would just add a redundant hop and inflate
     // clickCount alongside the more specific signal it already recorded.

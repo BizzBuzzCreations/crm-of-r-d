@@ -83,8 +83,9 @@ export function buildStepSummary(leads) {
   const opened = leads.filter((l) => l.openCount > 0).length;
   const clicked = leads.filter((l) => l.clickCount > 0).length;
   const replied = leads.filter((l) => l.repliedAt).length;
+  const callRequested = leads.filter((l) => l.callRequested).length;
   return {
-    sent, opened, clicked, replied,
+    sent, opened, clicked, replied, callRequested,
     openRate: sent ? (opened / sent) * 100 : 0,
     clickRate: sent ? (clicked / sent) * 100 : 0,
     replyRate: sent ? (replied / sent) * 100 : 0,

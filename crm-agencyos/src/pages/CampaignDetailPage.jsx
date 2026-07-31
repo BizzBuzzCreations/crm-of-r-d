@@ -555,7 +555,7 @@ function AnalyticsTab({ campaign, leads, darkMode }) {
           color={linkTrackingOn ? '#e87ba4' : '#94a3b8'}
           bg={linkTrackingOn ? '#fdf2f8' : '#f1f5f9'}
         />
-        <StatCard icon={MessageSquareOff} label="Replied" value={stepSummary.replied} color="#eda100" bg="#fffbeb" />
+        <StatCard icon={PhoneCall} label="Call Requested" value={stepSummary.callRequested} color="#2563eb" bg="#eff6ff" />
         <StatCard icon={MailX} label="Bounced" value={bounces.length} color="#dc2626" bg="#fef2f2" />
       </div>
 
@@ -1005,13 +1005,6 @@ function ComposeTab({ campaign, onSave }) {
   const spamCheck = useMemo(() => checkSpamContent(subject, body), [subject, body]);
 
   const insertTag = (tag) => editorRef.current?.insertText(tag);
-  // Inserts a real, pre-styled <a> button with the merge tag wired directly
-  // into its href — NOT via the toolbar's link tool, which force-prefixes
-  // anything not already starting with "http" with "https://" and would
-  // corrupt "{{call_request_url}}" into "https://{{call_request_url}}".
-  const insertCallRequestButton = () => editorRef.current?.insertText(
-    '<a href="{{call_request_url}}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-family:Arial,sans-serif;font-size:14px;">Request a Call</a>'
-  );
 
   const handleApplyTemplate = (t) => {
     setSubject(t.subject || '');
@@ -1041,19 +1034,17 @@ function ComposeTab({ campaign, onSave }) {
       <div>
         <label className="form-label">Email body</label>
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {['{{first_name}}', '{{last_name}}', '{{email}}'].map((tag) => (
-            <button key={tag} type="button" onClick={() => insertTag(tag)} className="text-[11px] font-mono px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+          {['{{first_name}}', '{{last_name}}', '{{email}}', '{{redirect_url}}'].map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => insertTag(tag)}
+              title={tag === '{{redirect_url}}' ? 'A click on any link using this as its href flows into Email Leads as \'Call Requested\' and redirects to this campaign\'s configured Redirect URL' : undefined}
+              className="text-[11px] font-mono px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+            >
               {tag}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={insertCallRequestButton}
-            title="Insert a button that tracks who wants a callback — click flows into Email Leads as 'Call Requested'"
-            className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-          >
-            <PhoneCall size={11} /> Request a Call button
-          </button>
         </div>
         <RichTextEditor
           ref={editorRef}
@@ -1111,6 +1102,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
   const [openTracking, setOpenTracking] = useState(s.openTracking ?? true);
   const [linkTracking, setLinkTracking] = useState(s.linkTracking ?? false);
   const [includeUnsubscribeLink, setIncludeUnsubscribeLink] = useState(s.includeUnsubscribeLink ?? true);
+  const [redirectUrl, setRedirectUrl] = useState(s.redirectUrl ?? '');
   const [textOnly, setTextOnly] = useState(s.textOnly ?? false);
   const [firstEmailTextOnly, setFirstEmailTextOnly] = useState(s.firstEmailTextOnly ?? false);
   const [dailyLimit, setDailyLimit] = useState(s.dailyLimit ?? 30);
@@ -1130,6 +1122,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
     setOpenTracking(s.openTracking ?? true);
     setLinkTracking(s.linkTracking ?? false);
     setIncludeUnsubscribeLink(s.includeUnsubscribeLink ?? true);
+    setRedirectUrl(s.redirectUrl ?? '');
     setTextOnly(s.textOnly ?? false);
     setFirstEmailTextOnly(s.firstEmailTextOnly ?? false);
     setDailyLimit(s.dailyLimit ?? 30);
@@ -1164,6 +1157,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
     try {
       await onSave({
         accounts, stopOnReply, openTracking, linkTracking, includeUnsubscribeLink, textOnly, firstEmailTextOnly,
+        redirectUrl: redirectUrl.trim(),
         dailyLimit: Number(dailyLimit),
         minGapMinutes: Number(minGapMinutes) || 0,
         randomGapMinutes: Number(randomGapMinutes) || 0,
@@ -1224,6 +1218,17 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
               Commercial email is legally required to include an opt-out mechanism in most jurisdictions (e.g. CAN-SPAM). Turning this off is your call to make, not a deliverability trick — Gmail/Yahoo also penalize bulk senders that lack it.
             </p>
           )}
+        </div>
+        <div className="py-2">
+          <Input
+            label="Redirect URL"
+            placeholder="https://debtfreepath.co.uk/request-a-call-thankyou.html?src=email-cta"
+            value={redirectUrl}
+            onChange={(e) => setRedirectUrl(e.target.value)}
+          />
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Where recipients land after clicking a tracked CTA button ({'{{redirect_url}}'}) in this campaign's email — not limited to "Request a Call," any button using that tag redirects here. Leave blank to use the server default.
+          </p>
         </div>
       </div>
 

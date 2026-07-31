@@ -14,7 +14,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, List, ListOrdered,
   AlignLeft, AlignCenter, AlignRight, Link as LinkIcon, Image as ImageIcon,
-  Undo2, Redo2, Code2, Eye, Loader2, X,
+  Undo2, Redo2, Code2, Eye, Loader2, X, Braces,
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import useAppStore from '../../store/useAppStore';
@@ -287,6 +287,27 @@ const ImageExt = TiptapImage.extend({
   },
 });
 
+// Same problem as ImageExt above, on <a> instead of <img>: TipTap's stock
+// Link extension only recognizes href/target/rel/class in its schema, so an
+// arbitrary `style` attribute (the ONLY thing making a "Request a Call"
+// button look like a button — background color, padding, rounded corners —
+// rather than a plain underlined link) gets silently dropped every time the
+// content round-trips through the parser: typing near it, pasting, applying
+// a saved template, or toggling in/out of HTML source mode all reparse the
+// whole document through this same schema.
+const LinkExt = Link.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      style: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('style'),
+        renderHTML: (attributes) => (attributes.style ? { style: attributes.style } : {}),
+      },
+    };
+  },
+});
+
 function ToolbarButton({ active, onClick, disabled, title, children }) {
   return (
     <button
@@ -399,12 +420,57 @@ function ImagePopover({ editor, onClose, onUploadImage }) {
   );
 }
 
+// Browsable snippet list usable from EITHER editing surface — the visual
+// editor already has the ";"-trigger Suggestion popup (SnippetSuggestionList
+// above), but that's a TipTap plugin and doesn't exist inside HTML source
+// mode's plain <textarea>. This is a separate, always-available toolbar
+// button so snippets work the same way regardless of which mode you're in.
+function SnippetPicker({ snippets, onSelect, onClose }) {
+  const [query, setQuery] = useState('');
+  const q = query.toLowerCase();
+  const filtered = snippets
+    .filter((s) => (s.trigger || '').toLowerCase().includes(q) || (s.text || '').toLowerCase().includes(q))
+    .slice(0, 20);
+
+  return (
+    <div className="absolute z-20 top-full mt-1 left-0 w-72 max-h-72 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-modal p-2 space-y-1">
+      <input
+        autoFocus
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search snippets…"
+        className="form-input text-[12.5px] py-1.5 mb-1"
+      />
+      {snippets.length === 0 ? (
+        <p className="text-[11.5px] text-slate-400 text-center py-3 px-2">No snippets saved yet — add some in Settings → Communication.</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-[11.5px] text-slate-400 text-center py-3">No matches</p>
+      ) : (
+        filtered.map((s) => (
+          <button
+            key={s.trigger}
+            type="button"
+            onMouseDown={(e) => e.preventDefault()} // keep focus/selection (esp. textarea cursor) intact
+            onClick={() => { onSelect(s); onClose(); }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 flex flex-col gap-0.5"
+          >
+            <span className="font-mono text-[11.5px] font-semibold text-primary-600 dark:text-primary-400">{s.trigger}</span>
+            <span className="text-[11.5px] text-slate-500 dark:text-slate-400 truncate">{s.text}</span>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
 const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onUploadImage, placeholder }, ref) {
   const [showLinkPopover, setShowLinkPopover] = useState(false);
   const [showImagePopover, setShowImagePopover] = useState(false);
   const [showColors, setShowColors] = useState(false);
+  const [showSnippetPicker, setShowSnippetPicker] = useState(false);
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState(value || '');
+  const sourceTextareaRef = useRef(null);
 
   // Kept fresh via effect below so SnippetExpander's getter (captured once,
   // at editor-creation time) always sees the current library, not whatever
@@ -458,7 +524,7 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
       TextStyle,
       Color,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      Link.configure({ openOnClick: false, autolink: false }),
+      LinkExt.configure({ openOnClick: false, autolink: false }),
       ImageExt,
       Placeholder.configure({ placeholder: placeholder || 'Write your email…' }),
       SnippetExpander.configure({ getSnippets: () => snippetsRef.current }),
@@ -467,6 +533,22 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
     onUpdate: ({ editor: ed }) => onChange(ed.getHTML()),
     editorProps: {
       attributes: { class: 'rte-content' },
+      // A real HTML clipboard payload (copying from a formatted email or
+      // webpage) already has ProseMirror's default paste handling parse it
+      // correctly — only intervene when the clipboard has ONLY plain text
+      // that itself looks like raw markup (e.g. pasted from a chat message,
+      // which never carries a text/html payload). Left to the default
+      // behavior, that plain text gets inserted as literal, visible
+      // characters — "<p>Hi {{first_name}}..." shown on screen instead of
+      // an actual formatted paragraph — which is exactly what produces
+      // stray "<" characters when someone then tries to backspace through it.
+      handlePaste: (_view, event) => {
+        if (event.clipboardData?.getData('text/html')) return false;
+        const text = event.clipboardData?.getData('text/plain') || '';
+        if (!/^\s*<[a-z!][\s\S]*>\s*$/i.test(text)) return false;
+        editor.chain().focus().insertContent(text).run();
+        return true;
+      },
     },
   });
 
@@ -480,9 +562,33 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
 
   useEffect(() => { setSourceHtml(value || ''); }, [value]);
 
+  // Shared by the merge-tag/CTA-button chips (via the insertText imperative
+  // handle below) AND the snippet picker — mode-aware so both actually work
+  // in HTML source mode too, not just the visual editor. Routing chip clicks
+  // through the (unmounted while in source mode) TipTap editor previously
+  // meant they silently did nothing visible until switching back to visual.
+  const insertAtCursor = (text) => {
+    if (sourceMode) {
+      const ta = sourceTextareaRef.current;
+      const start = ta ? ta.selectionStart ?? sourceHtml.length : sourceHtml.length;
+      const end = ta ? ta.selectionEnd ?? sourceHtml.length : sourceHtml.length;
+      const next = sourceHtml.slice(0, start) + text + sourceHtml.slice(end);
+      setSourceHtml(next);
+      onChange(next);
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        const pos = start + text.length;
+        ta.setSelectionRange(pos, pos);
+      });
+    } else {
+      editor?.chain().focus().insertContent(text).run();
+    }
+  };
+
   useImperativeHandle(ref, () => ({
-    insertText: (text) => editor?.chain().focus().insertContent(text).run(),
-  }), [editor]);
+    insertText: insertAtCursor,
+  }), [editor, sourceMode, sourceHtml]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!editor) return null;
 
@@ -558,6 +664,16 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
           <ToolbarButton title="Insert image" onClick={() => { setShowLinkPopover(false); setShowImagePopover((s) => !s); }}><ImageIcon size={14} /></ToolbarButton>
           {showImagePopover && <ImagePopover editor={editor} onClose={() => setShowImagePopover(false)} onUploadImage={onUploadImage} />}
         </div>
+        <div className="relative">
+          <ToolbarButton title="Insert saved snippet — works in both visual and HTML source mode" active={showSnippetPicker} onClick={() => setShowSnippetPicker((s) => !s)}><Braces size={14} /></ToolbarButton>
+          {showSnippetPicker && (
+            <SnippetPicker
+              snippets={snippetLibrary}
+              onSelect={(s) => insertAtCursor(s.text || '')}
+              onClose={() => setShowSnippetPicker(false)}
+            />
+          )}
+        </div>
 
         <div className="w-px h-5 bg-slate-300 dark:bg-slate-600 mx-1" />
 
@@ -574,6 +690,7 @@ const RichTextEditor = forwardRef(function RichTextEditor({ value, onChange, onU
       <div style={boxSize ? { height: boxSize.height - 45, overflow: 'auto' } : undefined}>
         {sourceMode ? (
           <textarea
+            ref={sourceTextareaRef}
             value={sourceHtml}
             onChange={(e) => {
               // Push straight to the parent on every keystroke, not just when
