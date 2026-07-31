@@ -4,6 +4,7 @@
 // page). No `protect` middleware on this router; identity comes entirely
 // from the unguessable per-lead `token`.
 const CampaignLead = require('../models/CampaignLead');
+const Campaign = require('../models/Campaign');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 
 // A lead that opens a campaign email this many times or more is a strong
@@ -54,21 +55,34 @@ exports.trackOpen = async (req, res) => {
 exports.requestCall = async (req, res) => {
   const token = String(req.params.token || '');
   const now = new Date();
-  CampaignLead.findOneAndUpdate(
+
+  // Unlike trackOpen's pixel (which can't wait on anything before
+  // responding), the redirect destination here genuinely depends on which
+  // campaign the click belongs to, so this lookup has to be awaited.
+  const updated = await CampaignLead.findOneAndUpdate(
     { token },
     { $set: { callRequested: true, callRequestedAt: now } },
     { new: true }
-  ).then((updated) => {
-    if (updated) syncCampaignLeadToPipeline(updated, 'call_requested').catch(() => {});
-  }).catch(() => {});
+  ).catch(() => null);
 
-  // The public "thank you for reaching out" page recipients actually land
-  // on — a separate site (debtfreepath), not this CRM. Configurable via env
-  // so it can be changed without a code deploy; CLIENT_URL is only a
-  // fallback so a misconfigured env var fails soft (redirects somewhere
-  // real) instead of erroring the recipient's click.
-  const dest = process.env.CALL_REQUEST_REDIRECT_URL
-    || (process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, '');
+  if (updated) syncCampaignLeadToPipeline(updated, 'call_requested').catch(() => {});
+
+  // The public destination page recipients actually land on — a separate
+  // site (e.g. debtfreepath), not this CRM. Per-campaign setting first
+  // (Settings tab → "Redirect URL" — different campaigns/sending sites can
+  // point at different destination pages with no server .env edit or
+  // restart needed), then CALL_REQUEST_REDIRECT_URL in .env as a fallback
+  // for campaigns that haven't set one, then this app's own URL as a last
+  // resort so a misconfiguration never errors the recipient's click.
+  let dest = '';
+  if (updated) {
+    const campaign = await Campaign.findById(updated.campaign).select('settings.redirectUrl').lean().catch(() => null);
+    dest = campaign?.settings?.redirectUrl?.trim() || '';
+  }
+  if (!dest) {
+    dest = process.env.CALL_REQUEST_REDIRECT_URL
+      || (process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, '');
+  }
   res.redirect(302, dest);
 };
 

@@ -11,6 +11,15 @@ const CampaignSettingsSchema = new mongoose.Schema({
   // Gmail/Yahoo increasingly penalize bulk senders that lack List-Unsubscribe.
   // Defaults true so disabling it is always a deliberate, informed action.
   includeUnsubscribeLink: { type: Boolean, default: true },
+  // Where recipients land after clicking a tracked CTA button using the
+  // {{redirect_url}} merge tag (today: "Request a Call", but the mechanism
+  // isn't specific to that one button — any tracked-click-then-redirect CTA
+  // can reuse it) — configurable per campaign since different campaigns/
+  // sending sites can point at different destination pages, without ever
+  // needing a server .env edit + restart. Falls back to
+  // CALL_REQUEST_REDIRECT_URL in .env when left blank — see
+  // trackingController.requestCall.
+  redirectUrl: { type: String, default: '' },
   textOnly:           { type: Boolean, default: false },
   firstEmailTextOnly: { type: Boolean, default: false },
   dailyLimit:         { type: Number, default: 30 },
