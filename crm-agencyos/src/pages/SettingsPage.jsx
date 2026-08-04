@@ -6,7 +6,7 @@ import {
   Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock, 
   Layers, Plus, Trash2, X, Edit2, Zap, Palette, Smartphone, Globe, BarChart3, 
   PenTool, Clapperboard, Camera, Wrench, Lightbulb, Shield, Rocket, HelpCircle, 
-  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Code, Info, ArrowUpRight, Megaphone
+  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Info, ArrowUpRight, Megaphone
 } from 'lucide-react';
 import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -469,127 +469,6 @@ function PipelinesStagesSection({ settings, onSave }) {
 
       <Button variant="primary" onClick={handleSave}>
         <Save size={14} /> Persist Pipeline Configuration
-      </Button>
-    </div>
-  );
-}
-
-// 5. Custom Fields Config (Admin Only)
-function CustomFieldsSection({ settings, onSave }) {
-  const [fields, setFields] = useState(settings?.customFields || []);
-  const [module, setModule] = useState('Contacts');
-  const [name, setName] = useState('');
-  const [label, setLabel] = useState('');
-  const [type, setType] = useState('text');
-  const [required, setRequired] = useState(false);
-  const [options, setOptions] = useState('');
-
-  const handleAddField = () => {
-    if (!name.trim() || !label.trim()) {
-      toast.error('Field name and label are required');
-      return;
-    }
-    const newField = {
-      module,
-      name: name.trim().replace(/\s+/g, '_').toLowerCase(),
-      label: label.trim(),
-      type,
-      required,
-      options: options ? options.split(',').map(o => o.trim()) : []
-    };
-    setFields([...fields, newField]);
-    setName('');
-    setLabel('');
-    setOptions('');
-    setRequired(false);
-  };
-
-  const handleRemoveField = (index) => {
-    setFields(fields.filter((_, i) => i !== index));
-  };
-
-  const handleSave = () => {
-    onSave({ customFields: fields });
-  };
-
-  return (
-    <div className="space-y-6">
-      <h3 className="text-[16px] font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-200 dark:border-slate-700/60 flex items-center gap-2">
-        <Code size={18} className="text-indigo-500" /> Database Custom Fields Configuration
-      </h3>
-
-      <div className="space-y-4">
-        <h4 className="text-[14px] font-bold text-slate-800 dark:text-slate-200">Active Database Extensible Fields</h4>
-        
-        {fields.length === 0 ? (
-          <p className="text-[13px] text-slate-400 italic">No custom fields have been added yet.</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {fields.map((f, i) => (
-              <div key={i} className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-900/30">
-                <div>
-                  <span className="badge badge-indigo text-[10px] font-bold px-2 py-0.5 mr-2">{f.module}</span>
-                  <span className="text-[14px] font-bold text-slate-800 dark:text-slate-200">{f.label} ({f.name})</span>
-                  <span className="text-[12px] text-slate-450 ml-3">Type: <span className="capitalize">{f.type}</span> {f.required && <span className="text-amber-500 font-bold">*Required</span>}</span>
-                </div>
-                <button 
-                  onClick={() => handleRemoveField(i)} 
-                  className="text-slate-400 hover:text-red-500 p-1 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Add custom fields form */}
-        <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-750 space-y-4">
-          <h5 className="text-[13.5px] font-bold text-slate-800 dark:text-slate-200">Create Extensible Custom Input Field</h5>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-[12.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Target CRM Module</label>
-              <select className="form-input text-[13px] py-1.5" value={module} onChange={(e) => setModule(e.target.value)}>
-                <option value="Contacts">Contacts / Client Representatives</option>
-                <option value="Companies">Companies / Corporate Clients</option>
-                <option value="Deals">Deals & Opportunities</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[12.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Field Label (Visible)</label>
-              <input placeholder="e.g. Secondary Contact" className="form-input text-[13px] py-1.5" value={label} onChange={(e) => setLabel(e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-[12.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Field DB Name (API)</label>
-              <input placeholder="e.g. secondary_contact" className="form-input text-[13px] py-1.5" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-[12.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Field Type</label>
-              <select className="form-input text-[13px] py-1.5" value={type} onChange={(e) => setType(e.target.value)}>
-                <option value="text">Single Line Text</option>
-                <option value="number">Numeric Value</option>
-                <option value="date">Date Picker</option>
-                <option value="boolean">Checkbox / Toggle</option>
-                <option value="select">Dropdown Select</option>
-              </select>
-            </div>
-            {type === 'select' && (
-              <div className="sm:col-span-2">
-                <label className="block text-[12.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Dropdown Options (Comma separated)</label>
-                <input placeholder="Option 1, Option 2, Option 3" className="form-input text-[13px] py-1.5" value={options} onChange={(e) => setOptions(e.target.value)} />
-              </div>
-            )}
-            <div className="flex items-center gap-2 h-10 mt-6">
-              <input type="checkbox" id="reqCheckbox" className="w-4 h-4 accent-indigo-500" checked={required} onChange={(e) => setRequired(e.target.checked)} />
-              <label htmlFor="reqCheckbox" className="text-[12.5px] font-semibold text-slate-700 dark:text-slate-350 cursor-pointer">Enforce Required</label>
-            </div>
-          </div>
-          <Button variant="outline" onClick={handleAddField} className="px-4"><Plus size={14} className="mr-1" /> Add Custom Field</Button>
-        </div>
-      </div>
-
-      <Button variant="primary" onClick={handleSave}>
-        <Save size={14} /> Update Extensible Modules
       </Button>
     </div>
   );
@@ -1905,7 +1784,6 @@ export default function SettingsPage() {
         { id: 'billing',        label: 'CRM Subscription',icon: Rocket },
         { id: 'security_config',label: 'Auth Controls',   icon: Shield },
         { id: 'pipelines',      label: 'Sales Pipelines', icon: Sliders },
-        { id: 'custom_fields',  label: 'Custom Fields',   icon: Code },
         { id: 'services',       label: 'Services Dir',    icon: Layers }
       ]});
     }
@@ -2085,9 +1963,6 @@ export default function SettingsPage() {
           )}
           {isAdmin && activeTab === 'pipelines' && (
             <PipelinesStagesSection settings={systemSettings} onSave={handleUpdateSystemSettings} />
-          )}
-          {isAdmin && activeTab === 'custom_fields' && (
-            <CustomFieldsSection settings={systemSettings} onSave={handleUpdateSystemSettings} />
           )}
           {isAdmin && activeTab === 'services' && (
             <ServicesSection />
