@@ -32,6 +32,15 @@ const loadWorkLogLS = (uid)  => {
   } catch { return []; }
 };
 
+// Any single tick gap longer than this is treated as real sleep/hibernation (or a
+// forgotten check-out) and capped rather than fully credited — see tickTimer().
+const IDLE_GAP_CAP_S = 4 * 3600;
+
+// Hard daily ceiling — the only automatic stop left. Start is manual (button) and
+// stop is manual (logout); this exists purely so a forgotten logout can't run the
+// clock forever.
+const MAX_WORK_SECONDS_PER_DAY = 10 * 3600;
+
 function initialTimer() {
   return { active:false, workSeconds:0, sessionDate:null, sessionStart:null, breaks:[], breakActive:false, currentBreak:null, targetSeconds: 8 * 3600, lastTickTime: null };
 }
@@ -61,7 +70,10 @@ const getSocketUrl = () => {
   return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
 };
 
-// Flush the timer to the DB using sendBeacon (fires even when tab closes)
+// Flush the timer to the DB using sendBeacon (fires even when tab closes).
+// Closing/refreshing a tab is NOT a check-out — only the explicit Logout action (or
+// the 10h auto-stop safety net in tickTimer) may set active:false. This just makes
+// sure the last few unsynced seconds aren't lost before the page unloads.
 function flushTimerToDb(store) {
   const { timer, authUser } = store.getState();
   if (!timer || !authUser) return;
@@ -74,7 +86,8 @@ function flushTimerToDb(store) {
     workSeconds: timer.workSeconds,
     sessionStart: timer.sessionStart,
     breaks: timer.breaks || [],
-    active: false,   // tab is closing so mark inactive
+    active: timer.active,
+    breakActive: timer.breakActive,
     targetSeconds: timer.targetSeconds || 8 * 3600,
   });
   // sendBeacon is the only API that reliably fires on tab close
@@ -1274,22 +1287,22 @@ const useAppStore = create((set, get, store) => ({
       const saved = loadTimerLS(getId(user));
       let timerState = initialTimer();
 
-      if (dbTimer && saved && saved.sessionDate === today) {
+      // DB is the source of truth for active/breakActive (only explicit check-in/pause/
+      // break/logout/unload-beacon writes it) — localStorage only ever contributes a
+      // possibly-fresher workSeconds/breaks if this device ticked past the DB's last
+      // 15s sync boundary before a crash/close.
+      if (dbTimer) {
+        const sameDayLocal = saved && saved.sessionDate === today;
         timerState = {
-          ...saved,
-          workSeconds:  Math.max(dbTimer.workSeconds || 0, saved.workSeconds || 0),
-          active:       saved.active, // Trust localStorage
-          breakActive:  saved.breakActive, // Trust localStorage
-          breaks:       saved.breaks?.length > dbTimer.breaks?.length ? saved.breaks : dbTimer.breaks,
-          lastTickTime: saved.active ? Date.now() : null,
+          ...dbTimer,
+          workSeconds: Math.max(dbTimer.workSeconds || 0, sameDayLocal ? (saved.workSeconds || 0) : 0),
+          breaks:      sameDayLocal && saved.breaks?.length > dbTimer.breaks?.length ? saved.breaks : dbTimer.breaks,
+          lastTickTime: dbTimer.active ? Date.now() : null,
         };
-      } else if (dbTimer) {
-        timerState = dbTimer;
       } else if (saved && saved.sessionDate === today) {
         timerState = { ...saved, breakActive: false, currentBreak: null };
-      } else if (user.role === 'member') {
-        timerState = { ...initialTimer(), active: true, sessionDate: today, sessionStart: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
       }
+      // No auto-start on login — the member must press "Start Timer" to check in.
 
       set({ authUser:user, timer:timerState, loading:false });
       saveTimerLS(getId(user), timerState);
@@ -1416,17 +1429,18 @@ const useAppStore = create((set, get, store) => ({
       const saved = loadTimerLS(getId(user));
       let timerState = initialTimer();
 
-      if (dbTimer && saved && saved.sessionDate === today) {
+      // DB is the source of truth for active/breakActive (only explicit check-in/pause/
+      // break/logout/unload-beacon writes it) — localStorage only ever contributes a
+      // possibly-fresher workSeconds/breaks if this device ticked past the DB's last
+      // 15s sync boundary before a crash/close.
+      if (dbTimer) {
+        const sameDayLocal = saved && saved.sessionDate === today;
         timerState = {
-          ...saved,
-          workSeconds:  Math.max(dbTimer.workSeconds || 0, saved.workSeconds || 0),
-          active:       saved.active, // Trust localStorage
-          breakActive:  saved.breakActive, // Trust localStorage
-          breaks:       saved.breaks?.length > dbTimer.breaks?.length ? saved.breaks : dbTimer.breaks,
-          lastTickTime: saved.active ? Date.now() : null,
+          ...dbTimer,
+          workSeconds: Math.max(dbTimer.workSeconds || 0, sameDayLocal ? (saved.workSeconds || 0) : 0),
+          breaks:      sameDayLocal && saved.breaks?.length > dbTimer.breaks?.length ? saved.breaks : dbTimer.breaks,
+          lastTickTime: dbTimer.active ? Date.now() : null,
         };
-      } else if (dbTimer) {
-        timerState = dbTimer;
       } else if (saved && saved.sessionDate === today) {
         timerState = { ...saved, breakActive: false, currentBreak: null };
       }
@@ -1944,13 +1958,29 @@ const useAppStore = create((set, get, store) => ({
     const lastTick = s.timer.lastTickTime || now;
     const delta = Math.max(0, Math.floor((now - lastTick) / 1000));
     
-    // Capping delta at 900 seconds (15 minutes) as a safe idle fallback in case of computer sleep/hibernation,
-    // while perfectly capturing background browser tabs.
-    const actualDelta = delta > 0 ? Math.min(delta, 900) : 1;
-    const workSeconds = s.timer.workSeconds + actualDelta;
-    const upd = { ...s.timer, workSeconds, lastTickTime: now };
+    // Backgrounded/throttled tabs, screen locks, and network blips must NOT cost work
+    // time — only a genuine multi-hour gap (real OS sleep/hibernation, or a forgotten
+    // check-out overnight) gets capped, as a safety net against unbounded hour inflation.
+    const actualDelta = delta > 0 ? Math.min(delta, IDLE_GAP_CAP_S) : 1;
+    const rawWorkSeconds = s.timer.workSeconds + actualDelta;
     const uid = getId(s.authUser);
-    
+
+    // Safety net: auto check-out at the 10h/day ceiling if logout was forgotten.
+    // This is the ONLY automatic stop — everything else (tab close, backgrounding,
+    // network loss, socket disconnect) must never touch `active`.
+    if (rawWorkSeconds >= MAX_WORK_SECONDS_PER_DAY) {
+      const workSeconds = MAX_WORK_SECONDS_PER_DAY;
+      const upd = { ...s.timer, workSeconds, active: false, lastTickTime: now };
+      saveTimerLS(uid, upd);
+      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:false, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
+      sock?.emit('timer:sync', { workSeconds, active:false, breakActive:false, sessionDate:upd.sessionDate, sessionStart:upd.sessionStart, targetSeconds:upd.targetSeconds });
+      toast('Timer auto-stopped at 10h — press Start Timer if you\'re still working.', { icon: '⏱️', duration: 6000 });
+      return { timer:upd };
+    }
+
+    const workSeconds = rawWorkSeconds;
+    const upd = { ...s.timer, workSeconds, lastTickTime: now };
+
     // Sync to database if we crossed a 15-second boundary
     const oldBoundary = Math.floor(s.timer.workSeconds / 15);
     const newBoundary = Math.floor(workSeconds / 15);
@@ -2043,6 +2073,13 @@ const useAppStore = create((set, get, store) => ({
       const { data } = await worklogAPI.getAll(params);
       return data.data;
     } catch { return []; }
+  },
+  updateWorkLog: async (id, body) => {
+    try {
+      const { data } = await worklogAPI.update(id, body);
+      toast.success('Work log entry updated');
+      return data.data;
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update work log entry'); throw err; }
   },
   deleteWorkLog: async (id) => {
     try {

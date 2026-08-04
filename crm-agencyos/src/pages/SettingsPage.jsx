@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
-import { Page, Toggle, Button, ConfirmDialog } from '../components/ui';
+import { Page, Toggle, Button, ConfirmDialog, Modal } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
 import { metaAdsAPI, witAPI } from '../services/api';
 import EmailAccountsManager from '../components/campaigns/EmailAccountsManager';
@@ -2155,6 +2155,7 @@ function WorkLogSection({ authUser, users }) {
   const isAdmin     = canAdmin(authUser?.role);
   const [filterUser, setFilterUser] = useState('all');
   const fetchWorkLog = useAppStore((s) => s.fetchWorkLog);
+  const updateWorkLog = useAppStore((s) => s.updateWorkLog);
   const deleteWorkLog = useAppStore((s) => s.deleteWorkLog);
   const bulkDeleteWorkLogs = useAppStore((s) => s.bulkDeleteWorkLogs);
   const [dbLogs, setDbLogs] = useState([]);
@@ -2162,6 +2163,8 @@ function WorkLogSection({ authUser, users }) {
   const [confirmDelete, setConfirmDelete] = useState(null); // { ids: string[], label: string }
   const [deleting, setDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [editRow, setEditRow] = useState(null); // { id, label, hours, minutes, targetHours }
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -2246,6 +2249,34 @@ function WorkLogSection({ authUser, users }) {
     } catch {} finally {
       setDeleting(false);
       setConfirmDelete(null);
+    }
+  };
+
+  const openEdit = (row) => {
+    setEditRow({
+      id: row.id,
+      label: `${row.user.name} — ${fmtDate(row.date)}`,
+      hours:   String(Math.floor(row.workSeconds / 3600)),
+      minutes: String(Math.floor((row.workSeconds % 3600) / 60)),
+      targetHours: String(Math.round((row.targetSeconds || 8 * 3600) / 3600)),
+    });
+  };
+
+  const handleEditSave = async () => {
+    if (!editRow || savingEdit) return;
+    const hours   = Math.max(0, parseInt(editRow.hours, 10)   || 0);
+    const minutes = Math.max(0, Math.min(59, parseInt(editRow.minutes, 10) || 0));
+    const targetHours = Math.max(1, parseInt(editRow.targetHours, 10) || 8);
+    const workSeconds   = hours * 3600 + minutes * 60;
+    const targetSeconds = targetHours * 3600;
+
+    setSavingEdit(true);
+    try {
+      const updated = await updateWorkLog(editRow.id, { workSeconds, targetSeconds });
+      setDbLogs((logs) => logs.map((l) => (l._id === editRow.id ? { ...l, workSeconds: updated.workSeconds, targetSeconds: updated.targetSeconds } : l)));
+      setEditRow(null);
+    } catch {} finally {
+      setSavingEdit(false);
     }
   };
 
@@ -2362,13 +2393,22 @@ function WorkLogSection({ authUser, users }) {
                     </td>
                     {isAdmin && (
                       <td className="py-3 px-4">
-                        <button
-                          onClick={() => setConfirmDelete({ ids: [row.id], label: `${row.user.name}'s log for ${fmtDate(row.date)}` })}
-                          className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                          title="Delete this log entry"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => openEdit(row)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                            title="Edit this log entry"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete({ ids: [row.id], label: `${row.user.name}'s log for ${fmtDate(row.date)}` })}
+                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                            title="Delete this log entry"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -2387,6 +2427,55 @@ function WorkLogSection({ authUser, users }) {
         onConfirm={handleDeleteConfirmed}
         onClose={() => setConfirmDelete(null)}
       />
+
+      <Modal
+        open={!!editRow}
+        onClose={() => setEditRow(null)}
+        title="Edit Work Log"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditRow(null)}>Cancel</Button>
+            <Button variant="primary" onClick={handleEditSave} disabled={savingEdit}>
+              {savingEdit ? 'Saving…' : 'Save Changes'}
+            </Button>
+          </>
+        }
+      >
+        {editRow && (
+          <div className="p-6 space-y-4">
+            <p className="text-[13px] text-slate-500 dark:text-slate-400">{editRow.label}</p>
+            <div>
+              <label className="block text-[12.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Time Worked</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min="0"
+                  value={editRow.hours}
+                  onChange={(e) => setEditRow((r) => ({ ...r, hours: e.target.value }))}
+                  className="form-input w-20 text-center"
+                />
+                <span className="text-[13px] text-slate-500">hrs</span>
+                <input
+                  type="number" min="0" max="59"
+                  value={editRow.minutes}
+                  onChange={(e) => setEditRow((r) => ({ ...r, minutes: e.target.value }))}
+                  className="form-input w-20 text-center"
+                />
+                <span className="text-[13px] text-slate-500">min</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[12.5px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Daily Target (hours)</label>
+              <input
+                type="number" min="1"
+                value={editRow.targetHours}
+                onChange={(e) => setEditRow((r) => ({ ...r, targetHours: e.target.value }))}
+                className="form-input w-24 text-center"
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

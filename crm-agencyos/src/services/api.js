@@ -212,6 +212,7 @@ export const worklogAPI = {
   getAll:    (params) => api.get('/worklog',        { params }),
   upsert:    (body)   => api.post('/worklog',        body),
   setActive: (active) => api.patch('/worklog/active', { active }),
+  update:    (id, body) => api.patch(`/worklog/${id}`, body),
   delete:    (id)     => api.delete(`/worklog/${id}`),
   bulkDelete: (ids)   => api.delete('/worklog/bulk', { data: { ids } }),
 };
