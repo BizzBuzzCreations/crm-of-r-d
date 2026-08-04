@@ -1,6 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
-const { WorkLog, Channel, Task, Project } = require('../models/index');
+const { Channel, Task, Project } = require('../models/index');
 
 const disconnectTimeouts = new Map();
 
@@ -191,14 +191,9 @@ module.exports = (io) => {
           if (!hasActiveConnections) {
             await User.findByIdAndUpdate(userId, { status: 'offline' });
             io.emit('user:offline', { userId });
-
-            const today = new Date().toISOString().split('T')[0];
-            await WorkLog.findOneAndUpdate(
-              { userId, date: today },
-              { active: false, breakActive: false }
-            );
-
-            io.emit('member:timer:update', { userId, active: false, breakActive: false });
+            // Deliberately NOT touching WorkLog.active/breakActive here — a dropped
+            // socket (backgrounded tab, network blip, laptop sleep) is not a check-out.
+            // The work timer only stops via explicit logout/pause or an unload beacon.
           }
         } catch (err) {
           console.error('Error on socket disconnect cleanup:', err);

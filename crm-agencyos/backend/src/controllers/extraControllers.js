@@ -305,6 +305,41 @@ exports.setUserActive = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.adminUpdateWorkLog = async (req, res, next) => {
+  try {
+    const { workSeconds, targetSeconds } = req.body;
+    const update = {};
+    if (workSeconds !== undefined) {
+      if (typeof workSeconds !== 'number' || !Number.isFinite(workSeconds) || workSeconds < 0) {
+        return res.status(400).json({ success: false, message: 'workSeconds must be a non-negative number' });
+      }
+      update.workSeconds = workSeconds;
+    }
+    if (targetSeconds !== undefined) {
+      if (typeof targetSeconds !== 'number' || !Number.isFinite(targetSeconds) || targetSeconds <= 0) {
+        return res.status(400).json({ success: false, message: 'targetSeconds must be a positive number' });
+      }
+      update.targetSeconds = targetSeconds;
+    }
+    if (!Object.keys(update).length) {
+      return res.status(400).json({ success: false, message: 'No valid fields to update' });
+    }
+
+    const log = await WorkLog.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true })
+      .populate('userId', 'name color initials status role');
+    if (!log) return res.status(404).json({ success: false, message: 'Work log entry not found' });
+
+    audit.log(req, {
+      action: 'update', category: 'worklog',
+      targetId: log._id, targetModel: 'WorkLog',
+      targetTitle: `${log.userId?.name || 'Unknown'} — ${log.date}`,
+      metadata: update,
+    });
+
+    res.json({ success: true, data: log });
+  } catch (err) { next(err); }
+};
+
 exports.deleteWorkLog = async (req, res, next) => {
   try {
     const log = await WorkLog.findById(req.params.id).populate('userId', 'name');
