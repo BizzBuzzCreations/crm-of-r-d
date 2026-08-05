@@ -7,6 +7,10 @@
 // path, mounted individually below.
 module.exports = {
   leadSync: require('./leadSync/leadSync.routes'),
+  // Public, no-API-key intake for frontend-only sites — see
+  // leadCapture/sources.js. The one domain here with a different auth model
+  // than the rest (rate-limit + honeypot instead of an ApiKey secret).
+  leadCapture: require('./leadCapture/leadCapture.routes'),
   // campaignSync: require('./campaignSync/campaignSync.routes'),
   // todoSync:     require('./todoSync/todoSync.routes'),
   // taskSync:     require('./taskSync/taskSync.routes'),
