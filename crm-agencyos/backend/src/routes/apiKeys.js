@@ -1,2 +1,2 @@
 const routes = require('./index');
-module.exports = routes.leadSync;
+module.exports = routes.apiKeys;

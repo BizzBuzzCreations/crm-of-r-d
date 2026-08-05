@@ -137,16 +137,6 @@ leadsRouter.get('/:id/emails',  leadCtrl.getLeadEmails);     // email history lo
 leadsRouter.delete('/:id',      authorize('admin','manager'), leadCtrl.deleteLead);
 module.exports.leads = leadsRouter;
 
-// ── Lead sync — public webhook from the main CRM (not a browser, no user
-// session; own shared-secret auth inside the controller). Deliberately its
-// own router at a distinct base path, not nested under /api/leads, so it
-// never inherits leadsRouter's `protect`.
-const leadSyncRouter = express.Router();
-leadSyncRouter.get('/pending', leadCtrl.getPendingSyncLeads);
-leadSyncRouter.post('/status', leadCtrl.syncLeadStatus);
-leadSyncRouter.get('/email-activity', leadCtrl.getLeadEmailActivity);
-module.exports.leadSync = leadSyncRouter;
-
 // ── Client Portal routes (role: client only) ──────────────────
 const portalCtrl = require('../controllers/portalController');
 const portalRouter = express.Router();
@@ -326,3 +316,16 @@ witRouter.get('/funnel',            witCtrl.getFunnel);
 witRouter.get('/lead-attribution',  witCtrl.getLeadAttribution);
 witRouter.get('/repeat-visitors',   witCtrl.getRepeatVisitors);
 module.exports.websiteIntelligence = witRouter;
+
+// ── API Keys — admin-only management of credentials for external callers
+// (e.g. the main CRM's lead-sync integration). Stricter than Website
+// Intelligence's admin+manager: these keys grant read access to every
+// lead's email activity, so issuance is admin-only.
+const apiKeyCtrl = require('../controllers/apiKeyController');
+const apiKeyRouter = express.Router();
+apiKeyRouter.use(protect);
+apiKeyRouter.use(authorize('admin'));
+apiKeyRouter.get('/',        apiKeyCtrl.getApiKeys);
+apiKeyRouter.post('/',       apiKeyCtrl.createApiKey);
+apiKeyRouter.delete('/:id',  apiKeyCtrl.deleteApiKey);
+module.exports.apiKeys = apiKeyRouter;
