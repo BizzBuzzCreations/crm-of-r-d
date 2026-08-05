@@ -52,6 +52,12 @@ app.use('/api/wit', require('./routes/witPublic'));
 const externalApi = require('./external-api');
 app.use('/api/lead-sync', externalApi.leadSync);
 
+// leadCapture is the one exception to "none of this needs CORS" above — it
+// IS hit directly from a browser (a frontend-only site's own form JS, no
+// backend in between), so it carries its own per-site CORS (see
+// leadCapture.routes.js), separate from the general allowlist below.
+app.use('/api/lead-capture', externalApi.leadCapture);
+
 // ── CORS — allow dev (localhost:5173, 5174), configured CLIENT_URL, and any LAN IP ──
 const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/$/, '') : null;
 const ALLOWED_ORIGINS = [

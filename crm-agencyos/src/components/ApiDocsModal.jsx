@@ -128,6 +128,63 @@ const ENDPOINT_GROUPS = [
       },
     ],
   },
+  {
+    domain: 'LEAD CAPTURE',
+    basePath: '/api/lead-capture',
+    // API key OPTIONAL, not absent — a frontend-only site's own form JS has
+    // nowhere safe to keep a secret and calls this anonymously; a site
+    // proxying through its own serverless function (e.g. a Netlify
+    // Function) can send a real key instead and skips the rate limit. No
+    // origin restriction either way — meant to work from any number of
+    // external sites with zero registration step. See the "Auth models"
+    // section in backend/src/external-api/README.md.
+    optionalAuth: true,
+    endpoints: [
+      {
+        id: 'ep-lead-capture',
+        method: 'POST',
+        path: '/api/lead-capture/:source',
+        name: 'Submit a Lead',
+        description: 'Intake meant to be droppable into any number of external sites with zero registration step, no origin restriction. The API key is OPTIONAL: omit it entirely for a frontend-only site with nowhere safe to hold one (falls back to rate limit + honeypot); send it for a site that proxies through its own backend/serverless function (e.g. a Netlify Function) — a valid key exempts the request from the rate limit. :source is a free-form label (optionally mapped to a nicer display name in leadCapture/sources.js), not a credential either way. Creates the lead with source "Web Form", immediately visible in the normal Leads Pipeline.',
+        params: [
+          { name: 'name', location: 'body', required: true, notes: 'Full name of the person filling the form' },
+          { name: 'email', location: 'body', required: false, notes: '' },
+          { name: 'phone', location: 'body', required: false, notes: '' },
+          { name: 'dealValue', location: 'body', required: false, notes: 'Number' },
+          { name: 'companyName', location: 'body', required: false, notes: 'Only if the form actually collects one — falls back to name (this is for personal/consumer leads, not B2B)' },
+          { name: 'secret', location: 'body', required: false, notes: 'API key, only if this caller has one. Omit entirely for a caller with nowhere safe to hold one — that\'s a normal, expected request, not an error.' },
+          { name: 'website', location: 'body', required: false, notes: 'Honeypot — leave out of the visible form entirely. If a bot fills it, the submission is silently accepted but no lead is created.' },
+        ],
+        example: {
+          request: `// No key — frontend-only site
+POST /api/lead-capture/debtfreepath
+{
+  "name": "Jordan Smith",
+  "email": "jordan@example.com",
+  "phone": "+44 7700 900123"
+}
+
+// With a key — server-side caller (e.g. a Netlify Function)
+POST /api/lead-capture/debtfreepath
+{
+  "name": "Jordan Smith",
+  "email": "jordan@example.com",
+  "phone": "+44 7700 900123",
+  "secret": "rndcrm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}`,
+          response: `{
+  "success": true,
+  "data": { "leadId": "64f1a2b3c4d5e6f7a8b9c0d1", "leadRef": "LD-1042" }
+}`,
+        },
+        errors: [
+          { status: 400, cause: 'Missing name' },
+          { status: 401, cause: 'A secret was sent but doesn\'t match any active key (a missing secret is not an error — that\'s the anonymous path)' },
+          { status: 429, cause: 'Rate limit exceeded (20 requests/minute per IP) — never triggers for a request authenticated with a valid key' },
+        ],
+      },
+    ],
+  },
   // Next domain (e.g. Campaign Sync) is a new object in this array —
   // see backend/src/external-api/README.md for the matching backend steps.
 ];
@@ -136,9 +193,11 @@ const ALL_ENDPOINTS = ENDPOINT_GROUPS.flatMap((g) => g.endpoints);
 
 const STATUS_CODES = [
   { code: '200 OK',              type: 'Success',    desc: 'Request succeeded.' },
+  { code: '201 Created',         type: 'Success',    desc: 'Record was created (e.g. a lead).' },
   { code: '400 Bad Request',     type: 'Client Error', desc: 'Missing or invalid parameter.' },
-  { code: '401 Unauthorized',    type: 'Auth Error', desc: 'API key is missing, invalid, or has been revoked.' },
+  { code: '401 Unauthorized',    type: 'Auth Error', desc: 'Required key missing/invalid/revoked (Lead Sync) — or, on Lead Capture, a key WAS sent but didn’t match (a missing key there is not an error).' },
   { code: '404 Not Found',       type: 'Client Error', desc: 'The referenced record doesn’t exist.' },
+  { code: '429 Too Many Requests', type: 'Rate Limit', desc: 'Exceeded the request cap. (Lead Capture, anonymous requests only — a valid key exempts a request from this.)' },
   { code: '500 Server Error',    type: 'Server Error', desc: 'Unexpected failure — check rndCRM’s own logs.' },
 ];
 
@@ -186,8 +245,10 @@ function OverviewContent() {
         </div>
       </div>
       <p>
-        Every endpoint requires an API key — see <strong className="text-slate-850 dark:text-slate-200">Authentication</strong>.
+        Every endpoint accepts an API key — see <strong className="text-slate-850 dark:text-slate-200">Authentication</strong>.
         One key currently grants access to <em>every</em> domain below; there's no per-domain scoping yet.
+        Lead Sync <em>requires</em> a key; Lead Capture accepts one but doesn't require it, since some of its
+        callers have nowhere safe to hold one — see Authentication for the difference.
       </p>
     </div>
   );
@@ -197,7 +258,8 @@ function AuthContent() {
   return (
     <div className="space-y-4 text-[13.5px] text-slate-600 dark:text-slate-350 leading-relaxed">
       <p>
-        Every endpoint requires an API key, created from this page (<strong className="text-slate-850 dark:text-slate-200">API Keys → Create API Key</strong>).
+        Two different models, depending on the domain. <strong className="text-slate-850 dark:text-slate-200">Lead Sync</strong> requires
+        an API key, created from this page (<strong className="text-slate-850 dark:text-slate-200">API Keys → Create API Key</strong>).
         The key is shown <strong className="text-slate-850 dark:text-slate-200">exactly once</strong>, at creation —
         copy it into the calling system's own server-side config immediately. rndCRM never stores or re-displays
         the raw value again, only a one-way hash.
@@ -216,6 +278,16 @@ function AuthContent() {
           </tbody>
         </table>
       </div>
+      <p>
+        <strong className="text-slate-850 dark:text-slate-200">Lead Capture's key is optional, and there's no
+        origin restriction either way.</strong> Some of its callers (a frontend-only site's own browser JS) have
+        nowhere safe to hold a secret — for them, omit <code>secret</code> entirely and the request still works,
+        subject to a rate limit and a honeypot field instead of a credential. Other callers (a site proxying its
+        form through its own backend/serverless function, e.g. a Netlify Function) genuinely can hold a key —
+        send it the same way as Lead Sync, and it's checked the same way: valid → authenticated and exempt from
+        the rate limit; invalid/revoked → <code>401</code>, never silently treated as "no key". See the Lead
+        Capture endpoint for details.
+      </p>
       <ul className="list-disc list-outside pl-5 space-y-1.5">
         <li>Store the key in the calling system's own environment config — <strong>never</strong> in frontend/browser code.</li>
         <li>Revoke a key any time from this page. A revoked key gets <code>401</code> on its very next request, no grace period.</li>
@@ -386,8 +458,11 @@ export default function ApiDocsModal({ open, onClose }) {
 
             {ENDPOINT_GROUPS.map((group) => (
               <div key={group.domain}>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-3 py-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-3 py-1.5 flex items-center gap-1.5">
                   Endpoints — {group.domain}
+                  {group.optionalAuth && (
+                    <span className="badge badge-neutral text-[9px] font-bold px-1.5 py-0.5 normal-case tracking-normal">key optional</span>
+                  )}
                 </p>
                 {group.endpoints.map((ep) => {
                   const isActive = activeId === ep.id;

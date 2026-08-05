@@ -35,4 +35,16 @@ ApiKeySchema.statics.hash = function (rawKey) {
   return crypto.createHash('sha256').update(String(rawKey)).digest('hex');
 };
 
+// Shared lookup used by both external-api/middleware/apiKeyAuth.js (key
+// required) and leadCapture's optional variant (key checked only if
+// present) — one place for "hash it, look it up, bump lastUsedAt" so the
+// two auth paths can't drift apart. Returns null for a missing/unknown
+// key; never throws for a bad key, that's the caller's job to reject.
+ApiKeySchema.statics.resolve = async function (providedSecret) {
+  if (!providedSecret) return null;
+  const key = await this.findOne({ hashedKey: this.hash(providedSecret) });
+  if (key) this.updateOne({ _id: key._id }, { lastUsedAt: new Date() }).catch(() => {});
+  return key;
+};
+
 module.exports = mongoose.model('ApiKey', ApiKeySchema);

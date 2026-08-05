@@ -61,3 +61,21 @@ exports.witPublicLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests.' },
 });
+
+// Public lead-capture endpoints (external-api/leadCapture) — no API key
+// required, so for an anonymous caller this rate limit IS the primary abuse
+// defense, not a backstop like the other two limiters above. Skipped
+// entirely for a caller that presented a valid API key (see
+// optionalApiKeyAuth, mounted before this) — a trusted, admin-issued
+// integration (e.g. a Netlify Function proxying a form submission)
+// shouldn't share a 20/min cap meant to contain anonymous/unknown traffic.
+// Fixed rather than SystemSettings-configurable like witPublicMax/loginMax
+// for now: no admin UI for this domain's limits yet — revisit if that changes.
+exports.publicLeadCaptureLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => !!req.apiKey,
+  message: { success: false, message: 'Too many requests.' },
+});

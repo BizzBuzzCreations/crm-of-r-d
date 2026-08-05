@@ -33,7 +33,14 @@ exports.createApiKey = async (req, res, next) => {
       targetId: key._id, targetModel: 'ApiKey', targetTitle: key.name,
     });
 
+    // select:false on the schema only applies to query results (find/
+    // findOne) — a document straight out of .create() still has hashedKey
+    // populated in memory, so it must be stripped by hand here or it leaks
+    // in this response (harmless on its own since resolve() always re-hashes
+    // whatever's presented, so a captured hash alone can't authenticate, but
+    // it's still an internal implementation detail that shouldn't ship).
     const obj = key.toObject();
+    delete obj.hashedKey;
     res.status(201).json({ success: true, data: { ...obj, key: rawKey } }); // plaintext, this one time only
   } catch (err) { next(err); }
 };

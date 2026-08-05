@@ -17,11 +17,10 @@ module.exports = async function apiKeyAuth(req, res, next) {
     if (!provided) {
       return res.status(401).json({ success: false, message: 'API key required' });
     }
-    const key = await ApiKey.findOne({ hashedKey: ApiKey.hash(provided) });
+    const key = await ApiKey.resolve(provided);
     if (!key) {
       return res.status(401).json({ success: false, message: 'Invalid or revoked API key' });
     }
-    ApiKey.updateOne({ _id: key._id }, { lastUsedAt: new Date() }).catch(() => {});
     req.apiKey = key;
     next();
   } catch (err) { next(err); }
