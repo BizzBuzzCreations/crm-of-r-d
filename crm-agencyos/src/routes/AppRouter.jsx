@@ -23,6 +23,7 @@ import CampaignsPage      from '../pages/CampaignsPage';
 import CampaignDetailPage from '../pages/CampaignDetailPage';
 import MetaAdsPage        from '../pages/MetaAdsPage';
 import WebsiteIntelligencePage from '../pages/WebsiteIntelligencePage';
+import ApiKeysPage         from '../pages/ApiKeysPage';
 
 // ── Guards ────────────────────────────────────────────────────
 function RequireAuth({ children }) {
@@ -180,6 +181,14 @@ export default function AppRouter() {
             element={
               <RequireRole roles={['admin']}>
                 <SystemLogsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="api-keys"
+            element={
+              <RequireRole roles={['admin']}>
+                <ApiKeysPage />
               </RequireRole>
             }
           />

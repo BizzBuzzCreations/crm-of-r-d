@@ -5,7 +5,7 @@ import {
   LayoutDashboard, CheckSquare, ListTodo, Users, MessageSquare,
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
   Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal,
-  Building2, Receipt, Mail, Megaphone, Globe2,
+  Building2, Receipt, Mail, Megaphone, Globe2, KeyRound,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -456,6 +456,7 @@ const NAV = [
       { path: '/team',        label: 'Team',           icon: UserCircle, roles: ['admin', 'manager'] },
       { path: '/logs',        label: 'Audit Logs',     icon: Shield,     roles: ['admin'] },
       { path: '/system-logs', label: 'System Monitor', icon: Terminal,   roles: ['admin'] },
+      { path: '/api-keys',    label: 'API Keys',       icon: KeyRound,   roles: ['admin'] },
     ],
   },
   {

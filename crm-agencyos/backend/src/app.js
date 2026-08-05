@@ -42,12 +42,15 @@ app.use(cookieParser());
 // headers (fetch/sendBeacon calls, not an <img> tag).
 app.use('/api/wit', require('./routes/witPublic'));
 
-// ── Lead status-sync webhook — called server-to-server by the main CRM's
-// own backend, not a browser, so it needs no CORS handling at all (only
-// mounted early to stay consistent with the other public/webhook routes
-// above the app's own origin allowlist). Auth is a shared secret checked
-// inside leadController.syncLeadStatus, not this app's normal JWT flow.
-app.use('/api/lead-sync', require('./routes/leadSync'));
+// ── External API — every endpoint the main CRM (or another outside system)
+// calls server-to-server, not a browser, so none of this needs CORS
+// handling (only mounted early to stay consistent with the other public/
+// webhook routes above the app's own origin allowlist). Auth is an
+// admin-issued API key (see external-api/middleware/apiKeyAuth.js), not
+// this app's normal JWT flow. One app.use() per domain, each owning its
+// own base path — see external-api/README.md to add a new domain.
+const externalApi = require('./external-api');
+app.use('/api/lead-sync', externalApi.leadSync);
 
 // ── CORS — allow dev (localhost:5173, 5174), configured CLIENT_URL, and any LAN IP ──
 const clientUrl = process.env.CLIENT_URL ? process.env.CLIENT_URL.replace(/\/$/, '') : null;
@@ -131,6 +134,7 @@ app.use('/api/email-accounts', require('./routes/emailAccounts'));
 app.use('/api/email-templates', require('./routes/emailTemplates'));
 app.use('/api/meta-ads',       require('./routes/metaAds'));
 app.use('/api/website-intelligence', require('./routes/websiteIntelligence'));
+app.use('/api/api-keys',       require('./routes/apiKeys'));
 // Public tracking (open pixel / click redirect / unsubscribe) MUST be
 // mounted before the protected campaigns router — both share the
 // /api/campaigns prefix, and Express matches in registration order.

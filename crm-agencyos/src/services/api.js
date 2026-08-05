@@ -422,6 +422,16 @@ export const witAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── API Keys (admin only) — credentials for external callers, e.g. the
+// main CRM's lead-sync integration
+// ─────────────────────────────────────────────────────────────
+export const apiKeysAPI = {
+  getKeys:    ()     => api.get('/api-keys'),
+  createKey:  (body) => api.post('/api-keys', body),
+  deleteKey:  (id)   => api.delete(`/api-keys/${id}`),
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Client Portal (role: client only)
 // ─────────────────────────────────────────────────────────────
 export const portalAPI = {
