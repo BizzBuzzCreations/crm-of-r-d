@@ -144,6 +144,7 @@ module.exports.leads = leadsRouter;
 const leadSyncRouter = express.Router();
 leadSyncRouter.get('/pending', leadCtrl.getPendingSyncLeads);
 leadSyncRouter.post('/status', leadCtrl.syncLeadStatus);
+leadSyncRouter.get('/email-activity', leadCtrl.getLeadEmailActivity);
 module.exports.leadSync = leadSyncRouter;
 
 // ── Client Portal routes (role: client only) ──────────────────
