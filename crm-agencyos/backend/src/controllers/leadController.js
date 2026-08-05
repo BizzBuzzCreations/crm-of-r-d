@@ -1,6 +1,7 @@
 const { Lead, Client, Project } = require('../models/index');
 const User = require('../models/User');
 const EmailLog = require('../models/EmailLog');
+const CampaignLead = require('../models/CampaignLead');
 const notifService = require('../services/notificationService');
 const { addEmailToQueue, EMAIL_TYPES } = require('../queues/emailQueue');
 const audit = require('../services/auditService');
@@ -430,6 +431,137 @@ exports.syncLeadStatus = async (req, res, next) => {
       data: {
         leadId: lead._id, status: lead.status, externalStatusLabel: lead.externalStatusLabel,
         dealValue: lead.dealValue, externalAssignedToName: lead.externalAssignedToName, changed: changes.length > 0,
+      },
+    });
+  } catch (err) { next(err); }
+};
+
+// @GET /api/lead-sync/email-activity?email=<email>&secret=<secret>
+// Read-only pull for the main CRM: given a lead's email, return everything
+// rndCRM knows about outreach to that address — every campaign it was ever
+// part of (verification, sends, opens, clicks, replies, unsubscribes, call
+// requests) plus any one-off emails sent from the Lead detail page. Reverse
+// direction of syncLeadStatus above (main CRM pushes status *in*; this pulls
+// engagement *out*), same shared-secret auth.
+//
+// Lookup is by email, not externalLeadId — the main CRM's own record may not
+// always carry rndCRM's internal ID, but it always knows the email. Lead.email
+// has no uniqueness constraint in this schema (CSV imports/Web Form/Meta Ads
+// leads can collide), so when more than one Lead shares the address this
+// picks the most recently updated one as the "best match" rather than failing
+// or guessing — see conversation/decision that landed on this over enforcing
+// a hard-unique index (would need a data migration first).
+//
+// CampaignLead (the actual send/open/click/reply ledger) is the primary
+// source, not Lead — a Lead document only exists here for addresses that
+// converted (replied/hot) or were synced in from the main CRM, but most
+// campaign recipients never cross that bar. Gating this endpoint on "a Lead
+// exists" would 404 for the majority of real recipients the main CRM might
+// ask about, so Lead is treated as optional enrichment (company/contact
+// name, externalLeadId) layered on top of whatever CampaignLead/EmailLog
+// activity is found — never a hard requirement to return data.
+exports.getLeadEmailActivity = async (req, res, next) => {
+  try {
+    const { secret, email } = req.query;
+    const expectedSecret = process.env.LEAD_SYNC_WEBHOOK_SECRET;
+    if (!expectedSecret || !secretsMatch(secret, expectedSecret)) {
+      return res.status(401).json({ success: false, message: 'Invalid webhook secret' });
+    }
+    if (!email || !String(email).trim()) {
+      return res.status(400).json({ success: false, message: 'email is required' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    // Case-insensitive exact match — Lead.email isn't lowercased on save
+    // (unlike CampaignLead.email, which is), so this can't just be a
+    // straight equality lookup.
+    const [lead, campaignLeads] = await Promise.all([
+      Lead.findOne({
+        email: { $regex: `^${normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+      }).sort({ updatedAt: -1 }),
+      CampaignLead.find({ email: normalizedEmail })
+        .populate('campaign', 'name status subject')
+        .populate('accountUsed', 'email')
+        .sort({ sentAt: -1 })
+        .lean(),
+    ]);
+
+    const directEmails = lead
+      ? await EmailLog.find({ leadId: lead._id }).sort({ sentAt: -1 }).limit(100).lean()
+      : [];
+
+    if (!lead && campaignLeads.length === 0 && directEmails.length === 0) {
+      return res.status(404).json({ success: false, message: 'No email activity found for that email' });
+    }
+
+    const campaigns = campaignLeads
+      .filter((cl) => cl.campaign) // drop rows whose campaign was hard-deleted
+      .map((cl) => ({
+        campaignId: cl.campaign._id,
+        campaignName: cl.campaign.name,
+        campaignStatus: cl.campaign.status,
+        subject: cl.campaign.subject,
+        status: cl.status,
+        accountUsed: cl.accountUsed?.email || '',
+        verification: {
+          status: cl.verificationStatus,
+          provider: cl.provider,
+          verifiedAt: cl.verifiedAt,
+        },
+        engagement: {
+          sentAt: cl.sentAt,
+          openCount: cl.openCount,
+          firstOpenedAt: cl.opens?.[0]?.at || null,
+          lastOpenedAt: cl.openedAt,
+          opens: cl.opens || [],
+          clickCount: cl.clickCount,
+          clicks: cl.clicks || [],
+          repliedAt: cl.repliedAt,
+          unsubscribedAt: cl.unsubscribedAt,
+          callRequested: cl.callRequested,
+          callRequestedAt: cl.callRequestedAt,
+        },
+      }));
+
+    const lastEngagementAt = campaigns.reduce((latest, c) => {
+      const candidates = [c.engagement.lastOpenedAt, c.engagement.repliedAt, c.engagement.sentAt].filter(Boolean);
+      const campaignLatest = candidates.length ? new Date(Math.max(...candidates.map((d) => new Date(d)))) : null;
+      if (!campaignLatest) return latest;
+      return !latest || campaignLatest > latest ? campaignLatest : latest;
+    }, null);
+
+    res.json({
+      success: true,
+      data: {
+        // lead is null when this address was only ever a campaign recipient
+        // that never converted/synced into a Lead document here — see the
+        // comment above the handler. Callers should treat it as optional.
+        lead: lead
+          ? {
+              externalLeadId: lead.externalLeadId || '',
+              email: lead.email,
+              companyName: lead.companyName,
+              contactPerson: lead.contactPerson,
+            }
+          : null,
+        summary: {
+          totalCampaigns: campaigns.length,
+          totalEmailsSent: campaigns.filter((c) => c.engagement.sentAt).length + directEmails.length,
+          totalOpens: campaigns.reduce((s, c) => s + (c.engagement.openCount || 0), 0),
+          totalClicks: campaigns.reduce((s, c) => s + (c.engagement.clickCount || 0), 0),
+          totalReplies: campaigns.filter((c) => c.engagement.repliedAt).length,
+          lastEngagementAt,
+          convertedFromCampaign: lead?.campaignAttribution?.id
+            ? { id: lead.campaignAttribution.id, name: lead.campaignAttribution.name }
+            : null,
+        },
+        campaigns,
+        directEmails: directEmails.map((e) => ({
+          subject: e.subject,
+          sentAt: e.sentAt,
+          status: e.status,
+          messageId: e.messageId,
+        })),
       },
     });
   } catch (err) { next(err); }
