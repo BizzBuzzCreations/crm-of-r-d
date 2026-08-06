@@ -7,6 +7,7 @@ const CampaignLead = require('../models/CampaignLead');
 const Campaign = require('../models/Campaign');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 const notifService = require('../services/notificationService');
+const { notifyMainCrm } = require('../utils/mainCrmNotify');
 
 // A lead that opens a campaign email this many times or more is a strong
 // repeat-engagement signal — auto-surfaced in the B2B Leads Pipeline. Keep
@@ -49,7 +50,7 @@ exports.trackOpen = async (req, res) => {
     // "was this the very first" check used for WitSession.pageCount elsewhere
     // in this codebase — fires exactly once per lead, not on every reopen.
     if (updated.openCount === 1) {
-      const campaign = await Campaign.findById(updated.campaign).select('name').lean().catch(() => null);
+      const campaign = await Campaign.findById(updated.campaign).select('name subject').lean().catch(() => null);
       if (campaign) {
         const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
         // Recipients are configured in Settings → Notification Routing
@@ -63,6 +64,9 @@ exports.trackOpen = async (req, res) => {
           link: `/campaigns/${campaign._id}`,
           metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
         }).catch(() => {});
+        // Also report this to the main CRM (crms.bizzbuzzcreations.com) so
+        // its own users get notified — see utils/mainCrmNotify.
+        notifyMainCrm({ type: 'email_opened', email: updated.email, subject: campaign.subject, campaignName: campaign.name });
       }
     }
   }).catch(() => {}); // fire-and-forget — never delay/fail the pixel response
@@ -103,7 +107,7 @@ exports.requestCall = async (req, res) => {
   // resort so a misconfiguration never errors the recipient's click.
   let dest = '';
   if (updated) {
-    const campaign = await Campaign.findById(updated.campaign).select('name settings.redirectUrl').lean().catch(() => null);
+    const campaign = await Campaign.findById(updated.campaign).select('name subject settings.redirectUrl').lean().catch(() => null);
     dest = campaign?.settings?.redirectUrl?.trim() || '';
 
     // Fire-and-forget — a real visitor is waiting on this redirect, so the
@@ -120,6 +124,8 @@ exports.requestCall = async (req, res) => {
         link: `/campaigns/${campaign._id}`,
         metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
       }).catch(() => {});
+      // Also report this to the main CRM — see utils/mainCrmNotify.
+      notifyMainCrm({ type: 'call_requested', email: updated.email, subject: campaign.subject, campaignName: campaign.name });
     }
   }
   if (!dest) {

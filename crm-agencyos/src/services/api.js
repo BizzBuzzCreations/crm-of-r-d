@@ -400,6 +400,16 @@ export const metaAdsAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── IVA CRM Integration (admin only)
+// ─────────────────────────────────────────────────────────────
+export const mainCrmAPI = {
+  status:          ()     => api.get('/main-crm-integration/status'),
+  saveCredentials: (body) => api.put('/main-crm-integration/credentials', body),
+  clearCredentials: ()    => api.delete('/main-crm-integration/credentials'),
+  testConnection:  ()     => api.post('/main-crm-integration/test-connection'),
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Website Intelligence (admin/manager only)
 // ─────────────────────────────────────────────────────────────
 export const witAPI = {

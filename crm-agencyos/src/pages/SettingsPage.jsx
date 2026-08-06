@@ -13,7 +13,7 @@ import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Toggle, Button, ConfirmDialog, Modal } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
-import { metaAdsAPI, witAPI } from '../services/api';
+import { metaAdsAPI, witAPI, mainCrmAPI } from '../services/api';
 import EmailAccountsManager from '../components/campaigns/EmailAccountsManager';
 import EmailTemplatesManager from '../components/campaigns/EmailTemplatesManager';
 
@@ -1515,6 +1515,148 @@ function MetaAdsSection() {
   );
 }
 
+// 9b. IVA CRM Integration (Admin only) — configures the outbound call
+// rndCRM makes whenever a campaign email is opened/call-requested/replied
+// to (utils/mainCrmNotify.js), so the main CRM's own users get notified
+// too. Same pattern as MetaAdsSection above: encrypted API key (never
+// re-displayed, blank = keep existing), Save & Verify, separate Test
+// Connection button.
+function MainCrmIntegrationSection() {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const { register, handleSubmit, reset } = useForm({
+    defaultValues: { notifyUrl: '', apiKey: '' },
+  });
+
+  const loadStatus = async () => {
+    try {
+      const { data } = await mainCrmAPI.status();
+      setStatus(data.data);
+      reset({ notifyUrl: data.data?.notifyUrl || '', apiKey: '' });
+    } catch {
+      toast.error('Failed to load IVA CRM Integration status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const onSave = async (formData) => {
+    setSaving(true);
+    try {
+      await mainCrmAPI.saveCredentials(formData);
+      toast.success('Saved — use Test Connection to verify');
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save credentials');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const { data } = await mainCrmAPI.testConnection();
+      toast.success(data.data?.message || 'Connected — the main CRM accepted the test request');
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Connection test failed');
+      await loadStatus();
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!window.confirm('Disconnect the IVA CRM Integration? Campaign email opens/call-requests/replies will stop being reported there until you reconnect.')) return;
+    setDisconnecting(true);
+    try {
+      await mainCrmAPI.clearCredentials();
+      toast.success('Disconnected');
+      await loadStatus();
+    } catch {
+      toast.error('Failed to disconnect');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h3 className="text-[16px] font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-200 dark:border-slate-700/60 flex items-center gap-2">
+        <ArrowUpRight size={18} className="text-indigo-500" /> IVA CRM Integration
+      </h3>
+
+      {loading ? (
+        <p className="text-[13px] text-slate-400">Loading status…</p>
+      ) : (
+        <div className="max-w-2xl space-y-5">
+          <p className="text-[12.5px] text-slate-550 dark:text-slate-400">
+            When a lead opens a campaign email, requests a call, or replies, rndCRM also reports it to the
+            main CRM (<code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11.5px]">crms.bizzbuzzcreations.com</code>) so its own users get notified — in addition to, not instead of, the notification here.
+          </p>
+
+          {status?.configured && (
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={cn('w-2.5 h-2.5 rounded-full', status.lastVerifyError ? 'bg-red-500' : status.lastVerifiedAt ? 'bg-emerald-500' : 'bg-slate-350')} />
+                  <h4 className="text-[14px] font-bold text-slate-850 dark:text-slate-200">Configured</h4>
+                </div>
+                <button type="button" onClick={handleDisconnect} disabled={disconnecting} className="text-[12px] font-semibold text-red-500 hover:text-red-700">
+                  Disconnect
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-[12.5px]">
+                <div><span className="text-slate-400 block">Notify URL</span><span className="font-semibold text-slate-700 dark:text-slate-300 break-all">{status.notifyUrl || '—'}</span></div>
+                <div>
+                  <span className="text-slate-400 block">Connection Health</span>
+                  <span className={cn('font-semibold', status.lastVerifyError ? 'text-red-500' : status.lastVerifiedAt ? 'text-emerald-600' : 'text-slate-500')}>
+                    {status.lastVerifyError ? 'Error' : status.lastVerifiedAt ? `Healthy — last ${new Date(status.lastVerifiedAt).toLocaleString()}` : 'Not yet verified'}
+                  </span>
+                </div>
+              </div>
+              {status.lastVerifyError && (
+                <p className="text-[11.5px] text-red-500 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg p-2">
+                  {status.lastVerifyError}
+                </p>
+              )}
+              <div className="pt-1">
+                <Button size="sm" variant="outline" onClick={handleTest} loading={testing}>Test Connection</Button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Test Connection sends a real request to the main CRM with a placeholder email that won't match any real lead — it may still notify whoever's configured there under Settings v3 → Marketing → Additional Activity Notification Recipients.
+              </p>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onSave)} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 space-y-4">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">Notify URL</label>
+              <input className="form-input text-[13px]" placeholder="https://crms.bizzbuzzcreations.com/api/external/leads/notify-activity/" {...register('notifyUrl')} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">API Key *</label>
+              <input type="password" autoComplete="new-password" className="form-input text-[13px]"
+                placeholder={status?.configured ? '•••••••• (already set — leave blank to keep)' : 'Paste the API key from Settings v3 → API Keys'}
+                {...register('apiKey')} />
+            </div>
+            <Button variant="primary" type="submit" loading={saving}>
+              <Save size={14} /> Save
+            </Button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 10c. Website Intelligence — manage the tracked websites (Settings →
 // Websites). Each gets a public trackingId (ships in the embedded snippet)
 // and a private apiSecret (shown exactly once, for the lead-capture call).
@@ -2139,10 +2281,11 @@ export default function SettingsPage() {
     if (isAdmin) {
       list.push({ group: 'Global Admin', items: [
         { id: 'company',        label: 'Company Profile', icon: Globe },
-        { id: 'billing',        label: 'CRM Subscription',icon: Rocket },
+       // { id: 'billing',        label: 'CRM Subscription',icon: Rocket },
         { id: 'security_config',label: 'Auth Controls',   icon: Shield },
         { id: 'pipelines',      label: 'Sales Pipelines', icon: Sliders },
         { id: 'feature_access', label: 'Feature Access Control', icon: Lock },
+        { id: 'main_crm_integration', label: 'IVA CRM Integration', icon: ArrowUpRight },
         { id: 'services',       label: 'Services Dir',    icon: Layers }
       ]});
     }
@@ -2328,6 +2471,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && activeTab === 'feature_access' && (
             <FeatureAccessSection settings={systemSettings} onSave={handleUpdateSystemSettings} users={users} />
+          )}
+          {isAdmin && activeTab === 'main_crm_integration' && (
+            <MainCrmIntegrationSection />
           )}
           {isAdmin && activeTab === 'services' && (
             <ServicesSection />

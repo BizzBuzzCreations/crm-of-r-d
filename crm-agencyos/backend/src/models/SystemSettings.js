@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { encrypt, decrypt } = require('../utils/crypto');
 
 const PipelineStageSchema = new mongoose.Schema({
   name:        { type: String, required: true },
@@ -24,6 +25,22 @@ const NotificationRoutingRuleSchema = new mongoose.Schema({
   roles:   { type: [String], enum: ['admin', 'manager', 'member', 'client_relations'], default: [] },
   userIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 }, { _id: false });
+
+// Outbound integration: campaign email opens/call-requests/replies get
+// reported here (POST notifyUrl) so the main CRM's own users get notified
+// too — see utils/mainCrmNotify.js. Same encrypted-secret pattern as
+// MetaAdsAccount/EmailAccount/TrackedWebsite (virtual setter/getter over an
+// encrypted, select:false field via utils/crypto) — never returned in a
+// plain GET /api/settings response.
+const MainCrmIntegrationSchema = new mongoose.Schema({
+  notifyUrl:       { type: String, default: 'https://crms.bizzbuzzcreations.com/api/external/leads/notify-activity/' },
+  apiKeyEncrypted: { type: String, default: '', select: false },
+  lastVerifiedAt:  { type: Date, default: null },
+  lastVerifyError: { type: String, default: '' },
+}, { _id: false });
+MainCrmIntegrationSchema.virtual('apiKey')
+  .set(function (val) { this.apiKeyEncrypted = encrypt(val); })
+  .get(function () { return decrypt(this.apiKeyEncrypted); });
 
 // Which roles/specific users can access a given sidebar "feature" — same
 // additive OR semantics as NotificationRoutingRuleSchema (role match OR
@@ -211,6 +228,8 @@ const SystemSettingsSchema = new mongoose.Schema({
       ['api_keys',               { roles: ['admin'],                                          userIds: [] }],
     ]),
   },
+
+  mainCrmIntegration: { type: MainCrmIntegrationSchema, default: () => ({}) },
 
   // Import/Export Control
   dataControl: {
