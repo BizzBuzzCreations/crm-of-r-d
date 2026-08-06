@@ -15,6 +15,7 @@ const Campaign = require('../models/Campaign');
 const { resolveIPv4 } = require('../utils/ipv4');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 const notifService = require('../services/notificationService');
+const { notifyMainCrm } = require('../utils/mainCrmNotify');
 
 let tickRunning = false;
 
@@ -100,7 +101,7 @@ async function syncAccount(account, io) {
           console.log(`[ReplySync] ${account.email}: ${matched.length} lead(s) marked replied`);
 
           const campaignIds = [...new Set(matched.map((m) => String(m.campaign)))];
-          const campaigns = await Campaign.find({ _id: { $in: campaignIds } }).select('name').lean().catch(() => []);
+          const campaigns = await Campaign.find({ _id: { $in: campaignIds } }).select('name subject').lean().catch(() => []);
           const campaignById = new Map(campaigns.map((c) => [String(c._id), c]));
 
           for (const m of matched) {
@@ -117,6 +118,8 @@ async function syncAccount(account, io) {
                 link: `/campaigns/${campaign._id}`,
                 metadata: { campaignId: String(campaign._id), campaignLeadId: String(m._id) },
               }).catch(() => {});
+              // Also report this to the main CRM — see utils/mainCrmNotify.
+              notifyMainCrm({ type: 'email_replied', email: m.email, subject: campaign.subject, campaignName: campaign.name });
             }
           }
         }

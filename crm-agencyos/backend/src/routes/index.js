@@ -336,3 +336,18 @@ apiKeyRouter.get('/',        apiKeyCtrl.getApiKeys);
 apiKeyRouter.post('/',       apiKeyCtrl.createApiKey);
 apiKeyRouter.delete('/:id',  apiKeyCtrl.deleteApiKey);
 module.exports.apiKeys = apiKeyRouter;
+
+// ── IVA CRM Integration — admin-only. Configures the outbound call rndCRM
+// makes to the main CRM's activity-notification endpoint (see
+// controllers/mainCrmController.js, utils/mainCrmNotify.js). Not tied to a
+// sidebar feature/authorizeFeature key — this is system-level integration
+// config, same admin-only sensitivity tier as API Keys.
+const mainCrmCtrl = require('../controllers/mainCrmController');
+const mainCrmRouter = express.Router();
+mainCrmRouter.use(protect);
+mainCrmRouter.use(authorize('admin'));
+mainCrmRouter.get('/status',           mainCrmCtrl.getStatus);
+mainCrmRouter.put('/credentials',      mainCrmCtrl.saveCredentials);
+mainCrmRouter.delete('/credentials',   mainCrmCtrl.clearCredentials);
+mainCrmRouter.post('/test-connection', mainCrmCtrl.testConnection);
+module.exports.mainCrmIntegration = mainCrmRouter;

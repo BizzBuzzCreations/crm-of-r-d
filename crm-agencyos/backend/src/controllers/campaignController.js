@@ -12,6 +12,7 @@ const { isWithinSendingWindow } = require('../utils/sendingWindow');
 const { checkCampaignReady } = require('../utils/campaignReadiness');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 const notifService = require('../services/notificationService');
+const { notifyMainCrm } = require('../utils/mainCrmNotify');
 
 const STUCK_THRESHOLD_MS = 15 * 60000; // scheduled/sending longer than this = likely a queue/worker problem
 function startOfToday() {
@@ -561,7 +562,7 @@ exports.markReplied = async (req, res, next) => {
     if (!wasAlreadyReplied) {
       syncCampaignLeadToPipeline(lead, 'replied').catch(() => {});
 
-      const campaign = await Campaign.findById(req.params.id).select('name').lean().catch(() => null);
+      const campaign = await Campaign.findById(req.params.id).select('name subject').lean().catch(() => null);
       if (campaign) {
         const who = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.email;
         notifService.dispatchByRouting(req.app.get('io'), 'campaign', {
@@ -572,6 +573,8 @@ exports.markReplied = async (req, res, next) => {
           link: `/campaigns/${campaign._id}`,
           metadata: { campaignId: String(campaign._id), campaignLeadId: String(lead._id) },
         }).catch(() => {});
+        // Also report this to the main CRM — see utils/mainCrmNotify.
+        notifyMainCrm({ type: 'email_replied', email: lead.email, subject: campaign.subject, campaignName: campaign.name });
       }
     }
     res.json({ success: true, data: lead });

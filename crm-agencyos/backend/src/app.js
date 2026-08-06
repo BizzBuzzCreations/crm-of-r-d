@@ -141,6 +141,7 @@ app.use('/api/email-templates', require('./routes/emailTemplates'));
 app.use('/api/meta-ads',       require('./routes/metaAds'));
 app.use('/api/website-intelligence', require('./routes/websiteIntelligence'));
 app.use('/api/api-keys',       require('./routes/apiKeys'));
+app.use('/api/main-crm-integration', require('./routes/mainCrmIntegration'));
 // Public tracking (open pixel / click redirect / unsubscribe) MUST be
 // mounted before the protected campaigns router — both share the
 // /api/campaigns prefix, and Express matches in registration order.
