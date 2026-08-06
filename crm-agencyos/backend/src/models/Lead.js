@@ -28,6 +28,18 @@ const LeadSchema = new mongoose.Schema({
   phone:         { type: String, default: '' },
   website:       { type: String, default: '' },
   dealValue:     { type: Number, default: 0 },
+
+  // Consumer debt-advice intake fields — populated by public lead-capture
+  // forms (external-api/leadCapture, e.g. DebtFreePath's site) whose
+  // fields don't map onto the B2B-shaped fields above. Kept as their own
+  // top-level fields rather than customFields so they get full inline
+  // editing/sorting/column-toggle support in the Leads table for free,
+  // same as every other column. String, not Number, for debtAmount — the
+  // capture form uses a range dropdown ("£5,000–£10,000"), not a precise
+  // figure.
+  debtAmount:         { type: String, default: '' },
+  contactPreference:  { type: String, default: '' },
+  situation:          { type: String, default: '' },
   status: {
     type: String,
     enum: ['New Lead', 'First Contact', 'Proposal Sent', 'Won', 'Lost'],

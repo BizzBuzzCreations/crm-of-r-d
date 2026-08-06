@@ -84,6 +84,12 @@ const ALL_COLUMNS = [
   { key: 'status', label: 'Stage', width: 150, type: 'stage', sortable: true },
   { key: 'source', label: 'Lead Source', width: 135, type: 'source', sortable: true },
   { key: 'assignedTo', label: 'Assigned To', width: 155, type: 'assignee', sortable: true },
+  // Consumer debt-advice intake fields (see models/Lead.js) — populated by
+  // public lead-capture forms like DebtFreePath's. Plain 'text' type, same
+  // as any other column: full inline-edit/toggle/sort support for free.
+  { key: 'debtAmount', label: 'Debt Amount', width: 150, type: 'text', sortable: true },
+  { key: 'contactPreference', label: 'Preferred Contact', width: 155, type: 'text', sortable: false },
+  { key: 'situation', label: 'Situation', width: 220, type: 'text', sortable: false },
   { key: 'healthScore', label: 'Health', width: 120, type: 'health', sortable: true },
   { key: 'nextFollowUpDate', label: 'Next Follow-up', width: 140, type: 'date', sortable: true },
   { key: 'lastActivity', label: 'Last Activity', width: 135, type: 'lastact', sortable: false },

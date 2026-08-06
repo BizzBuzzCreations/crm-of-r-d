@@ -337,6 +337,9 @@ as-is).
 | `phone` | string | ❌ | |
 | `dealValue` | number | ❌ | |
 | `companyName` | string | ❌ | Only relevant if the form actually collects one — falls back to `name` otherwise (this endpoint is for personal/consumer leads, not B2B) |
+| `debtAmount` | string | ❌ | Debt amount range as selected in the form (e.g. `"£5,000–£10,000"`) — a free-text label, not parsed as a number |
+| `contactPreference` | string | ❌ | e.g. `"Phone"`, `"Email"`, `"WhatsApp"` — whatever the form's select offers |
+| `situation` | string | ❌ | Free-text notes from the form's "tell us about your situation" field |
 | `secret` | string | ❌ | API key, if the caller has one — see [Authentication](#authentication). Omit entirely for a caller with nowhere safe to hold one. |
 | `website` | string | ❌ | **Honeypot** — a hidden field real visitors never see or fill. Leave it out of the visible form entirely; if a bot fills it, the submission is silently accepted (`201`) but no lead is created. |
 
@@ -346,7 +349,10 @@ POST /api/lead-capture/debtfreepath
 {
   "name": "Jordan Smith",
   "email": "jordan@example.com",
-  "phone": "+44 7700 900123"
+  "phone": "+44 7700 900123",
+  "debtAmount": "£5,000–£10,000",
+  "contactPreference": "Phone",
+  "situation": "Struggling to keep up with three credit card payments."
 }
 ```
 
@@ -357,6 +363,9 @@ POST /api/lead-capture/debtfreepath
   "name": "Jordan Smith",
   "email": "jordan@example.com",
   "phone": "+44 7700 900123",
+  "debtAmount": "£5,000–£10,000",
+  "contactPreference": "Phone",
+  "situation": "Struggling to keep up with three credit card payments.",
   "secret": "rndcrm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }
 ```

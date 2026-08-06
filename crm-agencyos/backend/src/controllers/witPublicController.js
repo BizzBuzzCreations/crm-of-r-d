@@ -200,7 +200,22 @@ exports.formEvent = async (req, res) => {
 // creates real pipeline data, unlike the read-only tracking calls above.
 exports.captureLead = async (req, res) => {
   try {
-    const { trackingId, apiSecret, visitorId, sessionId, companyName, contactPerson, email, phone, dealValue } = req.body || {};
+    const {
+      trackingId, apiSecret, visitorId, sessionId, companyName, contactPerson, email, phone, dealValue,
+      // Consumer debt-advice intake (see models/Lead.js) — DebtFreePath's
+      // form sends its debt-range select as a label like "20k-50k", not a
+      // number — distinct from the B2B `dealValue` above. Accept it either
+      // as a top-level `debtValue` OR nested under `customFields.debtValue`
+      // (the caller has sent both shapes at different times — top-level
+      // first, then moved it inside customFields alongside
+      // contactPreference/message — so don't assume either is final).
+      // `contactPreference`/`message`/`debtValue` are pulled out into their
+      // own Lead columns (see below); anything else in customFields still
+      // lands in the generic Lead.customFields map so a new form field
+      // never silently vanishes even before this controller knows its name.
+      debtValue, customFields,
+    } = req.body || {};
+    const debtAmountValue = debtValue ?? customFields?.debtValue ?? '';
     if (!trackingId || !apiSecret) {
       return res.status(400).json({ success: false, message: 'trackingId and apiSecret are required' });
     }
@@ -225,6 +240,16 @@ exports.captureLead = async (req, res) => {
       companyName, contactPerson,
       email: email || '', phone: phone || '',
       dealValue: safeDealValue,
+      // debtValue is a range label ("£5,000–£10,000" / "20k-50k"), not the
+      // numeric dealValue above — see the destructure comment up top.
+      debtAmount: debtAmountValue,
+      contactPreference: customFields?.contactPreference || '',
+      situation: customFields?.message || '',
+      // Keeps the raw payload too (including contactPreference/message,
+      // redundant with the dedicated fields above) so a future form field
+      // this controller doesn't know about yet still lands somewhere
+      // instead of silently vanishing.
+      customFields: customFields && typeof customFields === 'object' ? customFields : undefined,
       status: 'New Lead',
       source: 'Web Form',
       assignedTo,

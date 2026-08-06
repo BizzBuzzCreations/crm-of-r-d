@@ -1351,8 +1351,12 @@ function WebsitesSection() {
 
             <div>
               <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">3. When your backend creates the lead, link it to this visitor</p>
-              <pre className="text-[12px] bg-slate-900 text-slate-200 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">{`POST ${origin}/api/wit/lead\n{\n  "trackingId": "${snippetFor.trackingId}",\n  "apiSecret": "<your saved secret>",\n  "visitorId": "<from wit.getIds() client-side, or the hidden wit_visitor_id form field>",\n  "sessionId": "<same, wit_session_id>",\n  "companyName": "...", "contactPerson": "...", "email": "...", "phone": "...", "dealValue": 0\n}`}</pre>
+              <pre className="text-[12px] bg-slate-900 text-slate-200 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">{`POST ${origin}/api/wit/lead\n{\n  "trackingId": "${snippetFor.trackingId}",\n  "apiSecret": "<your saved secret>",\n  "visitorId": "<from wit.getIds() client-side, or the hidden wit_visitor_id form field>",\n  "sessionId": "<same, wit_session_id>",\n  "companyName": "...", "contactPerson": "...", "email": "...", "phone": "...", "dealValue": 0,\n  "customFields": {\n    "contactPreference": "phone",\n    "message": "...",\n    "debtValue": "20k-50k"\n  }\n}`}</pre>
               <p className="text-[11.5px] text-slate-450 mt-1.5">This creates the lead directly in the pipeline with source "Web Form" and full UTM/landing-page attribution — you don't need to separately call the regular Leads API.</p>
+              <p className="text-[11.5px] text-slate-450 mt-1">
+                <code className="text-[11px]">customFields.debtValue</code>, <code className="text-[11px]">customFields.contactPreference</code>, and <code className="text-[11px]">customFields.message</code> are optional, for consumer debt-advice forms —
+                they map onto the Leads table's Debt Amount / Preferred Contact / Situation columns (a top-level <code className="text-[11px]">debtValue</code> also still works, if that's easier for your integration). Any other key under <code className="text-[11px]">customFields</code> is still saved, just without a dedicated column.
+              </p>
             </div>
           </div>
         </div>

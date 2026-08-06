@@ -283,7 +283,8 @@ exports.updateLead = async (req, res, next) => {
     const {
       companyName, contactPerson, email, phone, website, dealValue, status,
       assignedTo, watchers, contacts, noteText, websiteVisits, emailOpens, proposalViews, interactionsCount,
-      nextFollowUpDate, tags, archived, customFields, source
+      nextFollowUpDate, tags, archived, customFields, source,
+      debtAmount, contactPreference, situation,
     } = req.body;
 
     const io = req.app.get('io');
@@ -303,6 +304,9 @@ exports.updateLead = async (req, res, next) => {
     if (nextFollowUpDate !== undefined) lead.nextFollowUpDate = nextFollowUpDate;
     if (tags !== undefined) lead.tags = tags;
     if (archived !== undefined) lead.archived = archived;
+    if (debtAmount !== undefined) lead.debtAmount = debtAmount;
+    if (contactPreference !== undefined) lead.contactPreference = contactPreference;
+    if (situation !== undefined) lead.situation = situation;
     if (source !== undefined && source !== oldSource) {
       lead.source = source;
       lead.activities.push({

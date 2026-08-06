@@ -152,6 +152,9 @@ const ENDPOINT_GROUPS = [
           { name: 'phone', location: 'body', required: false, notes: '' },
           { name: 'dealValue', location: 'body', required: false, notes: 'Number' },
           { name: 'companyName', location: 'body', required: false, notes: 'Only if the form actually collects one — falls back to name (this is for personal/consumer leads, not B2B)' },
+          { name: 'debtAmount', location: 'body', required: false, notes: 'Debt amount range as selected in the form (e.g. "£5,000–£10,000") — a free-text label, not parsed as a number' },
+          { name: 'contactPreference', location: 'body', required: false, notes: 'e.g. "Phone", "Email", "WhatsApp" — whatever the form\'s select offers' },
+          { name: 'situation', location: 'body', required: false, notes: 'Free-text notes from the form\'s "tell us about your situation" field' },
           { name: 'secret', location: 'body', required: false, notes: 'API key, only if this caller has one. Omit entirely for a caller with nowhere safe to hold one — that\'s a normal, expected request, not an error.' },
           { name: 'website', location: 'body', required: false, notes: 'Honeypot — leave out of the visible form entirely. If a bot fills it, the submission is silently accepted but no lead is created.' },
         ],
@@ -161,7 +164,10 @@ POST /api/lead-capture/debtfreepath
 {
   "name": "Jordan Smith",
   "email": "jordan@example.com",
-  "phone": "+44 7700 900123"
+  "phone": "+44 7700 900123",
+  "debtAmount": "£5,000–£10,000",
+  "contactPreference": "Phone",
+  "situation": "Struggling to keep up with three credit card payments."
 }
 
 // With a key — server-side caller (e.g. a Netlify Function)
@@ -170,6 +176,9 @@ POST /api/lead-capture/debtfreepath
   "name": "Jordan Smith",
   "email": "jordan@example.com",
   "phone": "+44 7700 900123",
+  "debtAmount": "£5,000–£10,000",
+  "contactPreference": "Phone",
+  "situation": "Struggling to keep up with three credit card payments.",
   "secret": "rndcrm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }`,
           response: `{
