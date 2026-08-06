@@ -75,5 +75,20 @@ async function dispatch(io, {
   }
 }
 
-module.exports = { dispatch };
+/**
+ * Same as dispatch(), but fans one event out to every user in the given
+ * roles (e.g. every admin + manager) instead of a single recipient — each
+ * still gets their own Notification doc and still goes through their own
+ * per-user notificationPrefs check via dispatch(). Never throws.
+ */
+async function dispatchToRoles(io, { roles, ...event }) {
+  try {
+    const recipients = await User.find({ role: { $in: roles } }).select('_id');
+    await Promise.all(recipients.map((u) => dispatch(io, { ...event, recipient: u._id })));
+  } catch (err) {
+    console.error(`[Notif] ❌ dispatchToRoles failed (${event.type}):`, err.message);
+  }
+}
+
+module.exports = { dispatch, dispatchToRoles };
 
