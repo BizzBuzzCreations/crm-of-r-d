@@ -309,13 +309,26 @@ exports.updateLead = async (req, res, next) => {
     if (situation !== undefined) lead.situation = situation;
     if (source !== undefined && source !== oldSource) {
       lead.source = source;
-      lead.activities.push({
-        type: 'general',
-        text: oldSource === 'Campaign' && source !== 'Campaign'
-          ? 'Moved from Email Leads into the main B2B Leads Pipeline'
-          : `Lead source changed from "${oldSource}" to "${source}"`,
-        performedBy: req.user?.name || 'System'
-      });
+      // Both "move out" and "move back" read naturally here — Email Leads
+      // (source === 'Campaign') and External Form Leads (source === 'Web
+      // Form') are each their own exclusive tab in the Leads Pipeline UI,
+      // and a lead can be moved between either of them and the main
+      // pipeline in both directions (see LeadsTableView's "Move back"
+      // buttons) — this used to only special-case the one-way "Campaign ->
+      // out" move, which read fine going out but left no way back in the UI.
+      let text;
+      if (oldSource === 'Campaign' && source !== 'Campaign') {
+        text = 'Moved from Email Leads into the main B2B Leads Pipeline';
+      } else if (source === 'Campaign' && oldSource !== 'Campaign') {
+        text = 'Moved back into Email Leads';
+      } else if (oldSource === 'Web Form' && source !== 'Web Form') {
+        text = 'Moved from External Form Leads into the main B2B Leads Pipeline';
+      } else if (source === 'Web Form' && oldSource !== 'Web Form') {
+        text = 'Moved back into External Form Leads';
+      } else {
+        text = `Lead source changed from "${oldSource}" to "${source}"`;
+      }
+      lead.activities.push({ type: 'general', text, performedBy: req.user?.name || 'System' });
     }
     if (customFields !== undefined && typeof customFields === 'object') {
       Object.entries(customFields).forEach(([k, v]) => {
