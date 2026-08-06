@@ -20,6 +20,16 @@ rndCRM. It's kept separate from `controllers/` + `routes/` on purpose:
   documented for a human on the other team — see
   `../../EXTERNAL_API_DOCUMENTATION.md`.
 
+> **Not everything external-facing lives in this folder.** Website
+> Intelligence's `POST /api/wit/lead` (`controllers/witPublicController.js`,
+> mounted via `routes/witPublic.js`) predates this folder and is currently
+> the **primary, actually-in-production** lead-capture path (DebtFreePath
+> and similar tracked sites) — it just uses a third auth model (per-site
+> `trackingId`/`apiSecret` from Settings → Websites, not `ApiKey`) that
+> doesn't fit the pattern here. It's fully documented in
+> `../../EXTERNAL_API_DOCUMENTATION.md` §3 alongside everything in this
+> folder — don't forget it exists just because it's not physically here.
+
 ## Layout
 
 ```

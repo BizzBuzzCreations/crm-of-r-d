@@ -1,16 +1,18 @@
 # 🔌 rndCRM — External API Documentation
 
-> **Audience:** external systems calling INTO rndCRM — today, the main CRM's
-> own backend. Not for rndCRM's own frontend (see `API_DOCUMENTATION.md` for
-> that — different auth model entirely).
+> **Audience:** external systems calling INTO rndCRM — the main CRM's own
+> backend, and any tracked marketing site's backend/serverless function
+> (e.g. DebtFreePath's Netlify Function). Not for rndCRM's own frontend
+> (see `API_DOCUMENTATION.md` for that — different auth model entirely).
 >
 > **Base URL:** `http://localhost:5000/api` (dev) — swap for the deployed
 > rndCRM origin in production.
 >
-> **Authentication:** two different models depending on the domain — most
-> require a per-integration API key from **Admin → API Keys**; Lead
-> Capture accepts the same key but doesn't require it. See
-> [Authentication](#authentication) below.
+> **Authentication:** three different models depending on the domain — see
+> [Authentication](#authentication) below. Most require a per-integration
+> API key from **Admin → API Keys**; Lead Capture accepts the same key but
+> doesn't require it; Website Intelligence uses a *different*, per-site
+> credential pair managed from **Settings → Websites**, not Admin → API Keys.
 >
 > **Content-Type:** `application/json` (unless noted otherwise)
 
@@ -22,12 +24,13 @@
 |---|---------|------|-----------|
 | 1 | [Authentication](#authentication) | — | — |
 | 2 | [Lead Sync](#2-lead-sync) | API key | 3 |
-| 3 | [Lead Capture](#3-lead-capture) | API key optional | 1 |
-| 4 | [Error Handling](#4-error-handling) | — | — |
-| 5 | [Adding a New Domain](#5-adding-a-new-domain) | — | — |
+| 3 | [Website Intelligence — Lead Capture](#3-website-intelligence--lead-capture) | Per-site trackingId + apiSecret | 1 |
+| 4 | [Lead Capture](#4-lead-capture) | API key optional | 1 |
+| 5 | [Error Handling](#5-error-handling) | — | — |
+| 6 | [Adding a New Domain](#6-adding-a-new-domain) | — | — |
 
 This file grows one section per domain as they're built (campaign sync,
-todo sync, task sync, ...) — see [§5](#5-adding-a-new-domain) if you're the
+todo sync, task sync, ...) — see [§6](#6-adding-a-new-domain) if you're the
 one building the next one.
 
 ---
@@ -77,9 +80,19 @@ above, but doesn't require it:
 - Invalid/revoked `secret` sent → `401`, same as everywhere else — sending
   a bad key is never silently treated as sending no key.
 
-See [§3](#3-lead-capture) for the details (short version: the no-key path
+See [§4](#4-lead-capture) for the details (short version: the no-key path
 is not a hardened endpoint, and that's an accepted tradeoff for low-stakes
 lead capture — use a key if your caller can hold one).
+
+**Website Intelligence uses a third model entirely — a per-site credential
+pair, not an Admin → API Keys secret.** Each tracked website (Settings →
+Websites → Add Website) gets its own `trackingId` (public — it ships in
+the embedded snippet, anyone can see it in page source) and `apiSecret`
+(private, shown once at creation, meant for that site's own backend/
+serverless function only — never browser JS). Both travel together in the
+request body; a request needs the *matching pair* for a specific site, not
+a generic key that works everywhere like Lead Sync's. See
+[§3](#3-website-intelligence--lead-capture) for the endpoint.
 
 ---
 
@@ -297,7 +310,94 @@ always check for it rather than assuming it's present.
 
 ---
 
-## 3. Lead Capture
+## 3. Website Intelligence — Lead Capture
+
+Base path: `/api/wit`. This is the **primary, currently-in-production**
+way tracked marketing sites (DebtFreePath and similar) get form
+submissions into the Leads Pipeline — most sites you register from
+Settings → Websites should use this, not [§4](#4-lead-capture), because it
+gives full visitor/session/UTM/landing-page attribution on top of the
+lead itself. Requires the `wit.js` tracking snippet embedded on the site
+(Settings → Websites → your site → **Snippet**) to get that attribution;
+the lead still gets created without it, just without the extra context.
+
+Auth here is a **per-site credential pair** (`trackingId` + `apiSecret`),
+not an Admin → API Keys secret — see [Authentication](#authentication).
+Both come from registering the site in Settings → Websites; `apiSecret` is
+shown once, at creation/regeneration, and is meant to live only in that
+site's own backend/serverless function config (a Netlify Function, for
+DebtFreePath) — never in browser JS.
+
+The other `/api/wit/*` endpoints (`pageview`, `pageend`, `ping`,
+`form-event`) are visitor-tracking calls the `wit.js` snippet makes
+automatically — nothing to integrate manually, they're not lead-capture
+endpoints.
+
+### 3.1 Submit a Lead
+
+| Field | Value |
+|---|---|
+| **Endpoint** | `POST /api/wit/lead` |
+| **Auth** | `trackingId` + `apiSecret` (JSON body) — see above |
+
+**Body parameters**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `trackingId` | string | ✅ | From Settings → Websites for this site |
+| `apiSecret` | string | ✅ | From the same place — private, server-side only |
+| `companyName` | string | ✅ | For a personal/consumer lead with no company, send the person's name here too |
+| `contactPerson` | string | ✅ | |
+| `email` | string | ❌ | |
+| `phone` | string | ❌ | |
+| `visitorId` | string | ❌ | From `wit.getIds()` client-side, or the hidden `wit_visitor_id` form field — enables visitor/session attribution below |
+| `sessionId` | string | ❌ | Same, `wit_session_id` |
+| `dealValue` | number | ❌ | B2B deal value — not the same thing as debt amount below |
+| `debtValue` or `customFields.debtValue` | string | ❌ | Debt amount range label (e.g. `"20k-50k"`) — either location works, checked in that order. Maps to the Leads table's **Debt Amount** column. |
+| `customFields.contactPreference` | string | ❌ | e.g. `"phone"`, `"email"` — maps to **Preferred Contact** |
+| `customFields.message` | string | ❌ | Free text — maps to **Situation** |
+| `customFields.<anything else>` | any | ❌ | Saved to the lead's generic custom-fields store; no dedicated column |
+
+**Example request**
+```json
+POST /api/wit/lead
+{
+  "trackingId": "wit_92224e5ddb4a5064b5677653",
+  "apiSecret": "<that site's saved secret>",
+  "visitorId": "v_a1b2c3...",
+  "sessionId": "s_d4e5f6...",
+  "companyName": "John Smith",
+  "contactPerson": "John Smith",
+  "email": "john@example.com",
+  "phone": "07700 900123",
+  "customFields": {
+    "contactPreference": "email",
+    "message": "Struggling with credit card debt, need advice on options.",
+    "debtValue": "20k-50k"
+  }
+}
+```
+
+**Example response** — `201 Created`
+```json
+{ "success": true, "data": { "leadId": "64f1a2b3c4d5e6f7a8b9c0d1", "leadRef": "LD-1042" } }
+```
+
+The lead is created with `source: "Web Form"`, plus (if `visitorId`/
+`sessionId` were sent and match a real tracked session) landing page and
+UTM source/medium/campaign — this is the attribution [§4](#4-lead-capture)
+doesn't have.
+
+**Errors**
+| Status | Cause |
+|---|---|
+| `400` | Missing `trackingId`/`apiSecret`, or missing `companyName`/`contactPerson` |
+| `401` | `trackingId`/`apiSecret` pair doesn't match an active site |
+| `500` | Unexpected server error (this endpoint never surfaces a validation error to a real site visitor beyond the two above — failures are logged and swallowed rather than breaking the visitor's form submission) |
+
+---
+
+## 4. Lead Capture
 
 Base path: `/api/lead-capture`. Lead intake meant to be droppable into
 **any number of external sites** immediately, with zero registration step
@@ -313,7 +413,7 @@ own sites — the rate limiter and honeypot are the only defenses for that
 path, an acceptable tradeoff for low-stakes lead capture, not for anything
 higher-stakes).
 
-### 3.1 Submit a Lead
+### 4.1 Submit a Lead
 
 | Field | Value |
 |---|---|
@@ -398,7 +498,7 @@ has somewhere safe to hold one.
 
 ---
 
-## 4. Error Handling
+## 5. Error Handling
 
 Every error response, on every endpoint in this document, has the same
 shape:
@@ -410,14 +510,14 @@ shape:
 | Status | Meaning |
 |---|---|
 | `400` | Bad request — missing/invalid parameter |
-| `401` | Invalid or revoked API key — required on Lead Sync; on Lead Capture, only triggers if a `secret` was sent and didn't match (a missing `secret` there is not an error) |
+| `401` | Invalid credentials — an Admin → API Keys `secret` (Lead Sync required, Lead Capture only if one was sent), or a `trackingId`/`apiSecret` pair that doesn't match an active site (Website Intelligence) |
 | `404` | The referenced record doesn't exist |
 | `429` | Rate limit exceeded (Lead Capture, anonymous requests only — a valid key exempts a request from this) |
 | `500` | Unexpected server error — check rndCRM's own logs |
 
 ---
 
-## 5. Adding a New Domain
+## 6. Adding a New Domain
 
 This document is meant to grow — campaign sync, todo sync, task sync, etc.
 — as they're built. The code side of that pattern (folder layout, shared

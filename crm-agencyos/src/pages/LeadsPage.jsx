@@ -9,13 +9,14 @@ import LeadsKanbanView from './LeadsKanbanView';
 import LeadsTableView from './LeadsTableView';
 import PipelineForecastView from './PipelineForecastView';
 import EmailLeadsView from './EmailLeadsView';
+import ExternalFormLeadsView from './ExternalFormLeadsView';
 import ConfettiCanvas from '../components/ConfettiCanvas';
 import {
   Target, TrendingUp, User, Phone, Mail, Plus, Search, Trash2, Edit2,
   Calendar, Users, Layers, MessageSquare, Check, X, ChevronRight, AlertCircle,
   Filter, Sparkles, Clock, ArrowRight, ExternalLink, Sliders, Settings, ShieldAlert,
   HelpCircle, Trash, RefreshCw, BarChart2, Briefcase, FileText, ArrowUpRight,
-  ChevronUp, ChevronDown, Eye, EyeOff, Download, Upload, Archive, FolderOpen, Lock, Save
+  ChevronUp, ChevronDown, Eye, EyeOff, Download, Upload, Archive, FolderOpen, Lock, Save, Globe2
 } from 'lucide-react';
 
 // ── Standard Funnel Stage Constants ───────────────────────────
@@ -949,12 +950,17 @@ export default function LeadsPage() {
     filterMinVal, filterMaxVal, filterMinHealth, filterMaxHealth, filterStartDate, filterEndDate, filterTags
   ]);
 
-  // ── Pipeline vs Email Leads split ──
+  // ── Pipeline vs Email Leads vs External Form Leads split ──
   // Campaign-engagement leads (opened 3+ times / replied — see leadPipelineSync.js
-  // on the backend) live in their own "Email Leads" tab, fully separate from the
-  // main pipeline's grid, stats, and Kanban/Forecast views, until someone
-  // explicitly moves one in ("Move to Pipeline" — flips source away from 'Campaign').
-  const pipelineLeads = useMemo(() => filteredLeads.filter((l) => l.source !== 'Campaign'), [filteredLeads]);
+  // on the backend) live in their own "Email Leads" tab, and public-form-captured
+  // leads (witPublicController.captureLead / external-api/leadCapture — source
+  // === 'Web Form') live in their own "External Form Leads" tab, both fully
+  // separate from the main pipeline's grid, stats, and Kanban/Forecast views,
+  // until someone explicitly moves one in ("Move to Pipeline" — flips source
+  // away from 'Campaign'/'Web Form'; reversible from the main pipeline table's
+  // "Move back" buttons, since campaignAttribution/utmSource are set once at
+  // creation and never cleared, so which tab a lead belongs to is never lost).
+  const pipelineLeads = useMemo(() => filteredLeads.filter((l) => l.source !== 'Campaign' && l.source !== 'Web Form'), [filteredLeads]);
   // A lead counts as an "email lead" either because it originated from a
   // campaign (source === 'Campaign') OR because it's since gone Hot from
   // campaign engagement (leadPipelineSync tags existing leads — from any
@@ -963,10 +969,16 @@ export default function LeadsPage() {
   // this tab exists to surface).
   const isEmailLead = (l) => l.source === 'Campaign' || l.tags?.includes('Hot');
   const emailLeadsList = useMemo(() => filteredLeads.filter(isEmailLead), [filteredLeads]);
+  const isExternalFormLead = (l) => l.source === 'Web Form';
+  const externalFormLeadsList = useMemo(() => filteredLeads.filter(isExternalFormLead), [filteredLeads]);
   // Unfiltered pools — tab badge counts and the pipeline sub-views' "allLeads"
   // fallback (archive lookups etc.) shouldn't shift with the search box.
-  const pipelineAllLeads = useMemo(() => leads.filter((l) => l.source !== 'Campaign'), [leads]);
+  const pipelineAllLeads = useMemo(() => leads.filter((l) => l.source !== 'Campaign' && l.source !== 'Web Form'), [leads]);
   const emailLeadsAllCount = useMemo(() => leads.filter(isEmailLead).length, [leads]);
+  // Full list, not just a count — External Form Leads reuses LeadsTableView
+  // (see below), which needs its own unfiltered "allLeads" pool for the
+  // Archived toggle, same as the main pipeline does.
+  const externalFormLeadsAllList = useMemo(() => leads.filter(isExternalFormLead), [leads]);
 
   // ── Multi-Column Sorting Logic ──
   const sortedLeads = useMemo(() => {
@@ -1304,11 +1316,13 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* Section tabs — Pipeline (manual/imported deals) vs Email Leads (campaign engagement) */}
+      {/* Section tabs — Pipeline (manual/imported deals) vs Email Leads (campaign
+          engagement) vs External Form Leads (public form intake) */}
       <div className="flex items-center gap-1.5 mb-5 border-b border-slate-200 dark:border-slate-800">
         {[
           { id: 'pipeline', label: 'Leads Pipeline', icon: Target, count: pipelineAllLeads.length },
           { id: 'emailLeads', label: 'Email Leads', icon: Mail, count: emailLeadsAllCount },
+          { id: 'externalFormLeads', label: 'External Form Leads', icon: Globe2, count: externalFormLeadsAllList.length },
         ].map((sec) => {
           const Icon = sec.icon;
           const active = activeSection === sec.id;
@@ -1337,7 +1351,11 @@ export default function LeadsPage() {
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450" />
           <input
             className="form-input text-[13px] pl-10"
-            placeholder={activeSection === 'pipeline' ? 'Search B2B leads by Company or Representative...' : 'Search email leads by Company or Contact...'}
+            placeholder={
+              activeSection === 'pipeline' ? 'Search B2B leads by Company or Representative...'
+                : activeSection === 'emailLeads' ? 'Search email leads by Company or Contact...'
+                  : 'Search external form leads by Name or Email...'
+            }
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -1350,6 +1368,17 @@ export default function LeadsPage() {
           leads={emailLeadsList}
           users={users}
           onSelectLead={setSelectedLead}
+          onUpdate={updateLead}
+        />
+      )}
+
+      {activeSection === 'externalFormLeads' && (
+        <ExternalFormLeadsView
+          leads={externalFormLeadsList}
+          allLeads={externalFormLeadsAllList}
+          users={users}
+          onSelectLead={setSelectedLead}
+          onDelete={deleteLead}
           onUpdate={updateLead}
         />
       )}

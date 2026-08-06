@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import {
   Eye, Trash2, Download, Check, ChevronUp, ChevronDown,
   Filter, Columns, X, AlertTriangle, TrendingUp, Target,
-  DollarSign, Flame, Thermometer, Snowflake, Archive, RotateCcw, AlertCircle,
+  DollarSign, Flame, Thermometer, Snowflake, Archive, RotateCcw, AlertCircle, Undo2, ArrowRightCircle,
 } from 'lucide-react';
 import { cn } from '../utils/helpers';
 
@@ -63,7 +63,11 @@ function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', confirm
 
 // ── Constants ─────────────────────────────────────────────────
 const STAGES = ['New Lead', 'First Contact', 'Proposal Sent', 'Won', 'Lost'];
-const SOURCES = ['Manual', 'Campaign', 'LinkedIn', 'Referral', 'Website', 'Import', 'Cold Outreach', 'Event'];
+// Must match Lead.source's actual schema enum (models/Lead.js) exactly —
+// this used to list values ('LinkedIn', 'Referral', 'Website', 'Cold
+// Outreach', 'Event') the backend has never accepted (any save would 400)
+// and was missing 'Web Form'/'Meta Ads', which it does accept.
+const SOURCES = ['Manual', 'Import', 'Web Form', 'Campaign', 'Meta Ads'];
 
 const STAGE_CFG = {
   'New Lead': { bg: '#eff6ff', color: '#3b82f6' },
@@ -73,33 +77,52 @@ const STAGE_CFG = {
   'Lost': { bg: '#fef2f2', color: '#ef4444' },
 };
 
-// Column definitions — width in px
-const ALL_COLUMNS = [
-  { key: 'leadId', label: 'Lead ID', width: 110, type: 'readonly', sortable: false },
-  { key: 'companyName', label: 'Company', width: 190, type: 'text', sortable: true },
-  { key: 'contactPerson', label: 'Contact Person', width: 155, type: 'text', sortable: true },
-  { key: 'email', label: 'Email', width: 195, type: 'text', sortable: true },
-  { key: 'phone', label: 'Phone', width: 140, type: 'text', sortable: false },
-  { key: 'dealValue', label: 'Deal Value', width: 125, type: 'number', sortable: true },
-  { key: 'status', label: 'Stage', width: 150, type: 'stage', sortable: true },
-  { key: 'source', label: 'Lead Source', width: 135, type: 'source', sortable: true },
-  { key: 'assignedTo', label: 'Assigned To', width: 155, type: 'assignee', sortable: true },
-  // Consumer debt-advice intake fields (see models/Lead.js) — populated by
-  // public lead-capture forms like DebtFreePath's. Plain 'text' type, same
-  // as any other column: full inline-edit/toggle/sort support for free.
-  { key: 'debtAmount', label: 'Debt Amount', width: 150, type: 'text', sortable: true },
-  { key: 'contactPreference', label: 'Preferred Contact', width: 155, type: 'text', sortable: false },
-  { key: 'situation', label: 'Situation', width: 220, type: 'text', sortable: false },
-  { key: 'healthScore', label: 'Health', width: 120, type: 'health', sortable: true },
-  { key: 'nextFollowUpDate', label: 'Next Follow-up', width: 140, type: 'date', sortable: true },
-  { key: 'lastActivity', label: 'Last Activity', width: 135, type: 'lastact', sortable: false },
-  { key: 'createdAt', label: 'Created', width: 115, type: 'created', sortable: true },
-  { key: 'tags', label: 'Tags', width: 175, type: 'tags', sortable: false },
-];
-
-const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.map(c => c.key));
+// Column definitions — width in px. A function of `variant` because this
+// grid is shared by both the B2B Leads Pipeline and External Form Leads
+// (see ExternalFormLeadsView.jsx) — the two need slightly different
+// columns in the same slot (B2B "Deal Value" makes no sense for a
+// consumer debt-advice lead, and vice versa "Debt Amount" up front makes
+// no sense for a B2B deal), rather than showing both awkwardly stacked.
+function buildColumns(variant) {
+  return [
+    { key: 'leadId', label: 'Lead ID', width: 110, type: 'readonly', sortable: false },
+    { key: 'companyName', label: 'Company', width: 190, type: 'text', sortable: true },
+    { key: 'contactPerson', label: 'Contact Person', width: 155, type: 'text', sortable: true },
+    { key: 'email', label: 'Email', width: 195, type: 'text', sortable: true },
+    { key: 'phone', label: 'Phone', width: 140, type: 'text', sortable: false },
+    // Same column slot, different field depending on variant — see comment above.
+    variant === 'externalForm'
+      ? { key: 'debtAmount', label: 'Debt Amount', width: 150, type: 'text', sortable: true }
+      : { key: 'dealValue', label: 'Deal Value', width: 125, type: 'number', sortable: true },
+    { key: 'status', label: 'Stage', width: 150, type: 'stage', sortable: true },
+    { key: 'source', label: 'Lead Source', width: 135, type: 'source', sortable: true },
+    // Which tracked site/campaign form actually produced this lead (see
+    // witPublicController.captureLead / external-api/leadCapture) — captured
+    // on every form-sourced lead already, this is just the first place it's
+    // ever displayed.
+    { key: 'utmSource', label: 'Source Website', width: 150, type: 'text', sortable: true },
+    { key: 'assignedTo', label: 'Assigned To', width: 155, type: 'assignee', sortable: true },
+    // Consumer debt-advice intake fields (see models/Lead.js) — populated by
+    // public lead-capture forms like DebtFreePath's. Plain 'text' type, same
+    // as any other column: full inline-edit/toggle/sort support for free.
+    // debtAmount itself is already up top for the externalForm variant, so
+    // it's skipped here to avoid showing it twice.
+    ...(variant === 'externalForm' ? [] : [
+      { key: 'debtAmount', label: 'Debt Amount', width: 150, type: 'text', sortable: true },
+    ]),
+    { key: 'contactPreference', label: 'Preferred Contact', width: 155, type: 'text', sortable: false },
+    { key: 'situation', label: 'Situation', width: 220, type: 'text', sortable: false },
+    { key: 'healthScore', label: 'Health', width: 120, type: 'health', sortable: true },
+    { key: 'nextFollowUpDate', label: 'Next Follow-up', width: 140, type: 'date', sortable: true },
+    { key: 'lastActivity', label: 'Last Activity', width: 135, type: 'lastact', sortable: false },
+    { key: 'createdAt', label: 'Created', width: 115, type: 'created', sortable: true },
+    { key: 'tags', label: 'Tags', width: 175, type: 'tags', sortable: false },
+  ];
+}
 const FIXED_LEFT_W = 50 + 46;  // checkbox + row#
-const ACTIONS_W = 72;
+// Wide enough for the base 3 icons (view/archive/delete) plus up to 2
+// conditional "move back" icons on rows that need them (see renderCell).
+const ACTIONS_W = 116;
 
 function getDisplayId(lead) {
   return lead.leadId || `LD-${String(lead._id).slice(-4).toUpperCase()}`;
@@ -178,7 +201,11 @@ function SummaryBar({ leads }) {
 }
 
 // ── Main Component ────────────────────────────────────────────
-export default function LeadsTableView({ filteredLeads, allLeads, users, onSelectLead, onDelete, onUpdate }) {
+export default function LeadsTableView({ filteredLeads, allLeads, users, onSelectLead, onDelete, onUpdate, variant = 'pipeline' }) {
+  /* ── Columns — depend on variant, so computed once per mount/variant change,
+      not on every render (buildColumns allocates a fresh array each call) ── */
+  const ALL_COLUMNS = useMemo(() => buildColumns(variant), [variant]);
+
   /* ── Archive mode toggle (inside table view) ── */
   const [showArchived, setShowArchived] = useState(false);
 
@@ -210,13 +237,18 @@ export default function LeadsTableView({ filteredLeads, allLeads, users, onSelec
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showColPanel, setShowColPanel] = useState(false);
 
-  /* ── Column visibility ── */
-  const [visibleCols, setVisibleCols] = useState(DEFAULT_VISIBLE);
+  /* ── Column visibility — lazy initializer so it reflects THIS instance's
+      variant, not whichever variant happened to mount first ── */
+  const [visibleCols, setVisibleCols] = useState(() => new Set(ALL_COLUMNS.map(c => c.key)));
 
   /* ── Local filters (inside table view, additive to parent search) ── */
+  // minVal/maxVal (numeric range) drive the Deal Value filter on the
+  // 'pipeline' variant; debtText (contains-match) drives Debt Amount on
+  // 'externalForm' — debtAmount is a free-text range label ("20k-50k"),
+  // not a number, so it can't reuse the same min/max widget.
   const [lf, setLf] = useState({
     status: '', source: '', assignee: '',
-    minVal: '', maxVal: '', healthTier: '',
+    minVal: '', maxVal: '', debtText: '', healthTier: '',
     dateFrom: '', dateTo: '', tags: '',
   });
 
@@ -261,8 +293,12 @@ export default function LeadsTableView({ filteredLeads, allLeads, users, onSelec
       if (lf.status && l.status !== lf.status) return false;
       if (lf.source && (l.source || 'Manual') !== lf.source) return false;
       if (lf.assignee && String(l.assignedTo?._id || l.assignedTo || '') !== lf.assignee) return false;
-      if (lf.minVal && (l.dealValue || 0) < Number(lf.minVal)) return false;
-      if (lf.maxVal && (l.dealValue || 0) > Number(lf.maxVal)) return false;
+      if (variant === 'externalForm') {
+        if (lf.debtText && !(l.debtAmount || '').toLowerCase().includes(lf.debtText.toLowerCase())) return false;
+      } else {
+        if (lf.minVal && (l.dealValue || 0) < Number(lf.minVal)) return false;
+        if (lf.maxVal && (l.dealValue || 0) > Number(lf.maxVal)) return false;
+      }
       if (lf.healthTier) {
         const s = l.healthScore || 0;
         if (lf.healthTier === 'hot'  && s < 75)               return false;
@@ -281,7 +317,7 @@ export default function LeadsTableView({ filteredLeads, allLeads, users, onSelec
       }
       return true;
     });
-  }, [archivePool, lf]);
+  }, [archivePool, lf, variant]);
 
   /* ── Sort ── */
   const sorted = useMemo(() => {
@@ -415,10 +451,10 @@ export default function LeadsTableView({ filteredLeads, allLeads, users, onSelec
       ? sorted.filter(l => selectedIds.includes(l._id))
       : sorted;
     if (!target.length) { toast.error('Nothing to export'); return; }
-    const headers = ['Lead ID', 'Company', 'Contact', 'Email', 'Phone', 'Deal Value', 'Stage', 'Source', 'Assigned', 'Health', 'Next Follow-up', 'Last Activity', 'Created', 'Tags'];
+    const headers = ['Lead ID', 'Company', 'Contact', 'Email', 'Phone', variant === 'externalForm' ? 'Debt Amount' : 'Deal Value', 'Stage', 'Source', 'Assigned', 'Health', 'Next Follow-up', 'Last Activity', 'Created', 'Tags'];
     const rows = [headers, ...target.map(l => [
       getDisplayId(l), l.companyName, l.contactPerson, l.email || '', l.phone || '',
-      l.dealValue || 0, l.status, l.source || 'Manual',
+      variant === 'externalForm' ? (l.debtAmount || '') : (l.dealValue || 0), l.status, l.source || 'Manual',
       l.assignedTo?.name || 'Unassigned', l.healthScore || 0,
       l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toISOString().split('T')[0] : '',
       l.updatedAt ? new Date(l.updatedAt).toLocaleDateString() : '',
@@ -723,7 +759,7 @@ export default function LeadsTableView({ filteredLeads, allLeads, users, onSelec
           )}
 
           {activeFilterCount > 0 && (
-            <button onClick={() => setLf({ status: '', source: '', assignee: '', minVal: '', maxVal: '', healthTier: '', dateFrom: '', dateTo: '', tags: '' })}
+            <button onClick={() => setLf({ status: '', source: '', assignee: '', minVal: '', maxVal: '', debtText: '', healthTier: '', dateFrom: '', dateTo: '', tags: '' })}
               className="flex items-center gap-1 text-[12px] text-red-500 hover:text-red-600 font-semibold px-2 py-1.5">
               <X size={12} /> Clear filters
             </button>
@@ -784,16 +820,27 @@ export default function LeadsTableView({ filteredLeads, allLeads, users, onSelec
                   </select>
                 </div>
 
-                {/* Deal Value range */}
-                <div>
-                  <label style={{ display: 'block', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 4 }}>Deal Value (₹)</label>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <input type="number" placeholder="Min" value={lf.minVal} onChange={e => setLf(f => ({ ...f, minVal: e.target.value }))}
-                      style={{ width: '50%', padding: '6px 8px', border: '1.5px solid #cbd5e1', borderRadius: 8, background: '#ffffff', color: '#1e293b', fontSize: 12.5, outline: 'none', colorScheme: 'light' }} />
-                    <input type="number" placeholder="Max" value={lf.maxVal} onChange={e => setLf(f => ({ ...f, maxVal: e.target.value }))}
-                      style={{ width: '50%', padding: '6px 8px', border: '1.5px solid #cbd5e1', borderRadius: 8, background: '#ffffff', color: '#1e293b', fontSize: 12.5, outline: 'none', colorScheme: 'light' }} />
+                {/* Deal Value range (pipeline) / Debt Amount (externalForm) —
+                    debtAmount is a free-text range label ("20k-50k"), not a
+                    number, so it gets a contains-match text field instead of
+                    the min/max numeric widget. */}
+                {variant === 'externalForm' ? (
+                  <div>
+                    <label style={{ display: 'block', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 4 }}>Debt Amount</label>
+                    <input type="text" placeholder="e.g. 20k-50k" value={lf.debtText} onChange={e => setLf(f => ({ ...f, debtText: e.target.value }))}
+                      style={{ width: '100%', padding: '6px 8px', border: '1.5px solid #cbd5e1', borderRadius: 8, background: '#ffffff', color: '#1e293b', fontSize: 12.5, outline: 'none', colorScheme: 'light' }} />
                   </div>
-                </div>
+                ) : (
+                  <div>
+                    <label style={{ display: 'block', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 4 }}>Deal Value (₹)</label>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <input type="number" placeholder="Min" value={lf.minVal} onChange={e => setLf(f => ({ ...f, minVal: e.target.value }))}
+                        style={{ width: '50%', padding: '6px 8px', border: '1.5px solid #cbd5e1', borderRadius: 8, background: '#ffffff', color: '#1e293b', fontSize: 12.5, outline: 'none', colorScheme: 'light' }} />
+                      <input type="number" placeholder="Max" value={lf.maxVal} onChange={e => setLf(f => ({ ...f, maxVal: e.target.value }))}
+                        style={{ width: '50%', padding: '6px 8px', border: '1.5px solid #cbd5e1', borderRadius: 8, background: '#ffffff', color: '#1e293b', fontSize: 12.5, outline: 'none', colorScheme: 'light' }} />
+                    </div>
+                  </div>
+                )}
 
                 {/* Health Tier */}
                 <div>
@@ -1163,6 +1210,42 @@ export default function LeadsTableView({ filteredLeads, allLeads, users, onSelec
                               className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-slate-500 hover:text-indigo-600 transition-all"
                               title="Open details">
                               <Eye size={13} />
+                            </button>
+                          )}
+                          {/* Same "Move to Pipeline" action Email Leads / External Form
+                              Leads each have their own button for — shown here too since
+                              those leads land in this exact grid once moved, and this is
+                              also just where a Campaign/Web-Form lead ends up if someone
+                              browses to it directly (e.g. via search) before moving it out. */}
+                          {!showArchived && (lead.source === 'Campaign' || lead.source === 'Web Form') && (
+                            <button
+                              onClick={() => onUpdate(lead._id, { source: 'Manual' }).then(() => toast.success(`"${lead.companyName}" moved to Pipeline`))}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-slate-500 hover:text-emerald-600 transition-all"
+                              title="Move to Pipeline">
+                              <ArrowRightCircle size={13} />
+                            </button>
+                          )}
+                          {/* "Move back" — campaignAttribution/utmSource are set once at
+                              creation and never cleared (see models/Lead.js), so they're a
+                              permanent record of where a lead originally came from even
+                              after "Move to Pipeline" changes its current `source` away.
+                              Without this, that move was a one-way door — the only way
+                              back was manually retyping the Lead Source cell, which most
+                              people would never think to do. */}
+                          {!showArchived && lead.campaignAttribution?.name && lead.source !== 'Campaign' && (
+                            <button
+                              onClick={() => onUpdate(lead._id, { source: 'Campaign' }).then(() => toast.success(`"${lead.companyName}" moved back to Email Leads`))}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-slate-500 hover:text-indigo-600 transition-all"
+                              title={`Move back to Email Leads (originally from campaign "${lead.campaignAttribution.name}")`}>
+                              <Undo2 size={13} />
+                            </button>
+                          )}
+                          {!showArchived && lead.utmSource && lead.source !== 'Web Form' && (
+                            <button
+                              onClick={() => onUpdate(lead._id, { source: 'Web Form' }).then(() => toast.success(`"${lead.companyName}" moved back to External Form Leads`))}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-slate-500 hover:text-indigo-600 transition-all"
+                              title={`Move back to External Form Leads (originally from "${lead.utmSource}")`}>
+                              <Undo2 size={13} />
                             </button>
                           )}
                           {showArchived ? (

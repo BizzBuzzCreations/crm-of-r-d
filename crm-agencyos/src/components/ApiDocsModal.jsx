@@ -129,6 +129,66 @@ const ENDPOINT_GROUPS = [
     ],
   },
   {
+    domain: 'WEBSITE INTELLIGENCE',
+    basePath: '/api/wit',
+    // A THIRD auth model, different from both the ones below: a per-site
+    // trackingId + apiSecret pair from Settings → Websites, not an
+    // Admin → API Keys secret at all. This is the primary, currently
+    // in-production lead-capture path (DebtFreePath and similar tracked
+    // sites) — most new sites should use this, not Lead Capture below,
+    // since it gives full visitor/session/UTM/landing-page attribution.
+    differentAuth: 'site credentials',
+    endpoints: [
+      {
+        id: 'ep-wit-lead',
+        method: 'POST',
+        path: '/api/wit/lead',
+        name: 'Submit a Lead',
+        description: 'The primary way tracked marketing sites get form submissions into the Leads Pipeline — most sites registered in Settings → Websites should use this over Lead Capture below, since it gives full visitor/session/UTM/landing-page attribution on top of the lead itself (requires the wit.js snippet embedded on the site to get that attribution; the lead is still created without it). Auth is a per-site trackingId + apiSecret pair, both from Settings → Websites → your site — apiSecret is shown once and belongs in that site\'s own backend/serverless function config, never browser JS. The other /api/wit/* endpoints (pageview, pageend, ping, form-event) are visitor-tracking calls the wit.js snippet makes automatically — nothing to integrate manually.',
+        params: [
+          { name: 'trackingId', location: 'body', required: true, notes: 'From Settings → Websites for this site' },
+          { name: 'apiSecret', location: 'body', required: true, notes: 'From the same place — private, server-side only' },
+          { name: 'companyName', location: 'body', required: true, notes: 'For a personal/consumer lead with no company, send the person\'s name here too' },
+          { name: 'contactPerson', location: 'body', required: true, notes: '' },
+          { name: 'email', location: 'body', required: false, notes: '' },
+          { name: 'phone', location: 'body', required: false, notes: '' },
+          { name: 'visitorId', location: 'body', required: false, notes: 'From wit.getIds() client-side, or the hidden wit_visitor_id form field — enables attribution' },
+          { name: 'sessionId', location: 'body', required: false, notes: 'Same, wit_session_id' },
+          { name: 'dealValue', location: 'body', required: false, notes: 'B2B deal value — not the same as debt amount below' },
+          { name: 'debtValue / customFields.debtValue', location: 'body', required: false, notes: 'Debt amount range label (e.g. "20k-50k") — either location works, checked in that order. Maps to the Debt Amount column.' },
+          { name: 'customFields.contactPreference', location: 'body', required: false, notes: 'Maps to the Preferred Contact column' },
+          { name: 'customFields.message', location: 'body', required: false, notes: 'Maps to the Situation column' },
+        ],
+        example: {
+          request: `POST /api/wit/lead
+{
+  "trackingId": "wit_92224e5ddb4a5064b5677653",
+  "apiSecret": "<that site's saved secret>",
+  "visitorId": "v_a1b2c3...",
+  "sessionId": "s_d4e5f6...",
+  "companyName": "John Smith",
+  "contactPerson": "John Smith",
+  "email": "john@example.com",
+  "phone": "07700 900123",
+  "customFields": {
+    "contactPreference": "email",
+    "message": "Struggling with credit card debt, need advice on options.",
+    "debtValue": "20k-50k"
+  }
+}`,
+          response: `{
+  "success": true,
+  "data": { "leadId": "64f1a2b3c4d5e6f7a8b9c0d1", "leadRef": "LD-1042" }
+}`,
+        },
+        errors: [
+          { status: 400, cause: 'Missing trackingId/apiSecret, or missing companyName/contactPerson' },
+          { status: 401, cause: 'trackingId/apiSecret pair doesn\'t match an active site' },
+        ],
+      },
+    ],
+  },
+  {
     domain: 'LEAD CAPTURE',
     basePath: '/api/lead-capture',
     // API key OPTIONAL, not absent — a frontend-only site's own form JS has
@@ -254,10 +314,13 @@ function OverviewContent() {
         </div>
       </div>
       <p>
-        Every endpoint accepts an API key — see <strong className="text-slate-850 dark:text-slate-200">Authentication</strong>.
-        One key currently grants access to <em>every</em> domain below; there's no per-domain scoping yet.
+        Most endpoints accept an API key from this page — see <strong className="text-slate-850 dark:text-slate-200">Authentication</strong>.
+        One key currently grants access to <em>every</em> such domain; there's no per-domain scoping yet.
         Lead Sync <em>requires</em> a key; Lead Capture accepts one but doesn't require it, since some of its
-        callers have nowhere safe to hold one — see Authentication for the difference.
+        callers have nowhere safe to hold one. <strong className="text-slate-850 dark:text-slate-200">Website Intelligence is
+        the odd one out</strong> — it doesn't use an Admin → API Keys secret at all, it's a per-site credential
+        pair managed from Settings → Websites, and it's currently the <em>primary</em>, actually-in-production
+        lead-capture path — see Authentication for the full breakdown.
       </p>
     </div>
   );
@@ -267,7 +330,7 @@ function AuthContent() {
   return (
     <div className="space-y-4 text-[13.5px] text-slate-600 dark:text-slate-350 leading-relaxed">
       <p>
-        Two different models, depending on the domain. <strong className="text-slate-850 dark:text-slate-200">Lead Sync</strong> requires
+        Three different models, depending on the domain. <strong className="text-slate-850 dark:text-slate-200">Lead Sync</strong> requires
         an API key, created from this page (<strong className="text-slate-850 dark:text-slate-200">API Keys → Create API Key</strong>).
         The key is shown <strong className="text-slate-850 dark:text-slate-200">exactly once</strong>, at creation —
         copy it into the calling system's own server-side config immediately. rndCRM never stores or re-displays
@@ -302,6 +365,16 @@ function AuthContent() {
         <li>Revoke a key any time from this page. A revoked key gets <code>401</code> on its very next request, no grace period.</li>
         <li>The key currently travels as a query-string parameter on GET requests, which can end up in server/proxy access logs — acceptable on a trusted network, worth revisiting (header-based auth) before crossing an untrusted one.</li>
       </ul>
+      <p>
+        <strong className="text-slate-850 dark:text-slate-200">Website Intelligence doesn't use this page's keys at
+        all.</strong> Each tracked site (Settings → Websites → Add Website) gets its own <code>trackingId</code> (public
+        — it ships in the embedded snippet, anyone can see it in page source) and <code>apiSecret</code> (private,
+        shown once at creation/regeneration, belongs only in that site's own backend/serverless function config —
+        never browser JS). Both travel together in the request body; a request needs the <em>matching pair</em> for
+        that specific site, not a generic key that works everywhere like Lead Sync's. This is the primary,
+        currently-in-production lead-capture path (DebtFreePath and similar) — see the Website Intelligence
+        endpoint for details.
+      </p>
     </div>
   );
 }
@@ -471,6 +544,9 @@ export default function ApiDocsModal({ open, onClose }) {
                   Endpoints — {group.domain}
                   {group.optionalAuth && (
                     <span className="badge badge-neutral text-[9px] font-bold px-1.5 py-0.5 normal-case tracking-normal">key optional</span>
+                  )}
+                  {group.differentAuth && (
+                    <span className="badge badge-purple text-[9px] font-bold px-1.5 py-0.5 normal-case tracking-normal">{group.differentAuth}</span>
                   )}
                 </p>
                 {group.endpoints.map((ep) => {
