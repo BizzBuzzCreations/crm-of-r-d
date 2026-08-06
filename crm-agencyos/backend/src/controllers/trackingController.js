@@ -49,15 +49,17 @@ exports.trackOpen = async (req, res) => {
     // "was this the very first" check used for WitSession.pageCount elsewhere
     // in this codebase — fires exactly once per lead, not on every reopen.
     if (updated.openCount === 1) {
-      const campaign = await Campaign.findById(updated.campaign).select('name createdBy').lean().catch(() => null);
-      if (campaign?.createdBy) {
+      const campaign = await Campaign.findById(updated.campaign).select('name').lean().catch(() => null);
+      if (campaign) {
         const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
-        notifService.dispatch(io, {
-          recipient: campaign.createdBy,
+        // Every admin + manager sees this, not just the campaign's creator —
+        // see notificationService.dispatchToRoles.
+        notifService.dispatchToRoles(io, {
+          roles: ['admin', 'manager'],
           type: 'email_opened',
           priority: 'success',
           title: 'Email opened',
-          message: `${who} just opened your email in "${campaign.name}"`,
+          message: `${who} opened an email in campaign "${campaign.name}"`,
           link: `/campaigns/${campaign._id}`,
           metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
         }).catch(() => {});
@@ -101,19 +103,21 @@ exports.requestCall = async (req, res) => {
   // resort so a misconfiguration never errors the recipient's click.
   let dest = '';
   if (updated) {
-    const campaign = await Campaign.findById(updated.campaign).select('name createdBy settings.redirectUrl').lean().catch(() => null);
+    const campaign = await Campaign.findById(updated.campaign).select('name settings.redirectUrl').lean().catch(() => null);
     dest = campaign?.settings?.redirectUrl?.trim() || '';
 
     // Fire-and-forget — a real visitor is waiting on this redirect, so the
     // notification must never be awaited/delay it (same principle as trackOpen).
-    if (campaign?.createdBy) {
+    // Every admin + manager sees this, not just the campaign's creator —
+    // see notificationService.dispatchToRoles.
+    if (campaign) {
       const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
-      notifService.dispatch(io, {
-        recipient: campaign.createdBy,
+      notifService.dispatchToRoles(io, {
+        roles: ['admin', 'manager'],
         type: 'call_requested',
         priority: 'success',
         title: 'Call requested',
-        message: `${who} requested a call in "${campaign.name}"`,
+        message: `${who} requested a call in campaign "${campaign.name}"`,
         link: `/campaigns/${campaign._id}`,
         metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
       }).catch(() => {});
