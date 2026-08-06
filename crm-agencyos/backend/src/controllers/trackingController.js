@@ -52,10 +52,10 @@ exports.trackOpen = async (req, res) => {
       const campaign = await Campaign.findById(updated.campaign).select('name').lean().catch(() => null);
       if (campaign) {
         const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
-        // Every admin + manager sees this, not just the campaign's creator —
-        // see notificationService.dispatchToRoles.
-        notifService.dispatchToRoles(io, {
-          roles: ['admin', 'manager'],
+        // Recipients are configured in Settings → Notification Routing
+        // (defaults to admin+manager until an admin changes it) — see
+        // notificationService.dispatchByRouting.
+        notifService.dispatchByRouting(io, 'campaign', {
           type: 'email_opened',
           priority: 'success',
           title: 'Email opened',
@@ -108,12 +108,11 @@ exports.requestCall = async (req, res) => {
 
     // Fire-and-forget — a real visitor is waiting on this redirect, so the
     // notification must never be awaited/delay it (same principle as trackOpen).
-    // Every admin + manager sees this, not just the campaign's creator —
-    // see notificationService.dispatchToRoles.
+    // Recipients are configured in Settings → Notification Routing — see
+    // notificationService.dispatchByRouting.
     if (campaign) {
       const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
-      notifService.dispatchToRoles(io, {
-        roles: ['admin', 'manager'],
+      notifService.dispatchByRouting(io, 'campaign', {
         type: 'call_requested',
         priority: 'success',
         title: 'Call requested',

@@ -109,8 +109,7 @@ async function syncAccount(account, io) {
             const campaign = campaignById.get(String(m.campaign));
             if (campaign) {
               const who = [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email;
-              notifService.dispatchToRoles(io, {
-                roles: ['admin', 'manager'],
+              notifService.dispatchByRouting(io, 'campaign', {
                 type: 'email_replied',
                 priority: 'success',
                 title: 'Lead replied',

@@ -136,7 +136,6 @@ function EditMemberModal({ open, onClose, user, onSave, currentUserRole, isCurre
         position:   user.position || '',
         joinDate:   user.joinDate || '',
         password:   '',
-        campaignsAccess: user.campaignsAccess || false,
         assignmentSheetTab: user.assignmentSheetTab || '',
       });
     }
@@ -321,23 +320,6 @@ function EditMemberModal({ open, onClose, user, onSave, currentUserRole, isCurre
               </div>
             )}
           </div>
-        )}
-
-        {/* Campaigns access — grant to a solo member/client_relations without a role change */}
-        {canManage(currentUserRole) && !isCurrentUser && !['admin', 'manager'].includes(watchedRole) && (
-          <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              {...register('campaignsAccess')}
-              className="mt-0.5 rounded border-slate-300"
-            />
-            <div>
-              <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">Campaigns access</p>
-              <p className="text-[11.5px] text-slate-500 dark:text-slate-400">
-                Grants access to the Campaigns feature (bulk email sending) without changing this member's role.
-              </p>
-            </div>
-          </label>
         )}
 
         {/* Assignment tracker Google Sheet tab mapping */}

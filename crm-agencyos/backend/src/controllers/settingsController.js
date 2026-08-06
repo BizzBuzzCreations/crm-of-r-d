@@ -2,6 +2,7 @@ const { SystemSettings } = require('../models/index');
 const User = require('../models/User');
 const { getSheetsClient, isConfigured } = require('../utils/googleSheetsClient');
 const { invalidateLimitsCache } = require('../middleware/rateLimiters');
+const { invalidateFeatureAccessCache } = require('../middleware/authorizeFeature');
 
 // Defaults that must exist in every document — used to patch legacy docs
 const FIELD_DEFAULTS = {
@@ -27,6 +28,39 @@ exports.getSystemSettings = async (req, res, next) => {
         missing[field] = defaultValue;
       }
     }
+
+    // One-time migration: featureAccess didn't exist before this feature
+    // shipped. On the first read after upgrade, persist the schema defaults
+    // AND seed featureAccess.campaigns.userIds from every user who already
+    // had the old campaignsAccess flag, so nobody silently loses campaign
+    // access on cutover. Only ever runs once per document.
+    //
+    // Detection MUST use a separate .lean() query, not rawSettings above —
+    // Mongoose applies a Map field's schema default during hydration itself,
+    // so `settings.toObject()` (and thus rawSettings) always shows
+    // featureAccess as present with its full default, even on a document
+    // that has never actually persisted it. Only .lean() reflects the true
+    // raw stored document (verified directly against this DB while building
+    // this: hydrated .toObject() → hasOwnProperty true always; .lean() →
+    // undefined when truly never-stored). Getting this wrong means the
+    // migration silently never runs and legacy campaignsAccess users
+    // silently lose campaign access — exactly what this exists to prevent.
+    const leanCheck = await SystemSettings.findById(settings._id).select('featureAccess').lean();
+    if (!leanCheck.featureAccess) {
+      const featureAccessObj = {};
+      for (const [key, rule] of settings.featureAccess.entries()) {
+        featureAccessObj[key] = { roles: [...rule.roles], userIds: rule.userIds.map(String) };
+      }
+      const flaggedUsers = await User.find({ campaignsAccess: true }).select('_id');
+      const campaignUserIds = new Set(featureAccessObj.campaigns?.userIds || []);
+      flaggedUsers.forEach((u) => campaignUserIds.add(String(u._id)));
+      featureAccessObj.campaigns = {
+        roles: featureAccessObj.campaigns?.roles || ['admin', 'manager'],
+        userIds: [...campaignUserIds],
+      };
+      missing.featureAccess = featureAccessObj;
+    }
+
     if (Object.keys(missing).length > 0) {
       settings = await SystemSettings.findByIdAndUpdate(
         settings._id,
@@ -61,7 +95,8 @@ exports.updateSystemSettings = async (req, res, next) => {
         'emailTemplates',
         'snippetLibrary',
         'integrations',
-        'dataControl'
+        'dataControl',
+        'notificationRouting'
       ];
       
       // Delete any keys not in the allowed list
@@ -82,6 +117,7 @@ exports.updateSystemSettings = async (req, res, next) => {
     // A changed rate-limit cap should apply to the very next request, not
     // wait out the middleware's own cache TTL.
     if (updateData.rateLimits) invalidateLimitsCache();
+    if (updateData.featureAccess) invalidateFeatureAccessCache();
 
     // Broadcast live update to all sockets for real-time config sync!
     const io = req.app.get('io');

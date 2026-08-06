@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import useAppStore from '../store/useAppStore';
 import DashboardLayout from '../layouts/DashboardLayout';
+import { hasFeatureAccess } from '../utils/featureAccess';
 
 // Pages
 import LoginPage          from '../pages/auth/LoginPage';
@@ -32,14 +33,8 @@ function RequireAuth({ children }) {
   return children;
 }
 
-// Blocks client role from accessing staff-only routes
-function RequireStaff({ children }) {
-  const authUser = useAppStore((s) => s.authUser);
-  if (!authUser) return <Navigate to="/login" replace />;
-  if (authUser.role === 'client') return <Navigate to="/portal" replace />;
-  return children;
-}
-
+// Only used for /portal now (client-only, no featureKey/admin-configurable
+// rule involved) — every other gated route uses RequireFeatureAccess below.
 function RequireRole({ roles, children }) {
   const authUser = useAppStore((s) => s.authUser);
   if (!authUser) return <Navigate to="/login" replace />;
@@ -47,15 +42,23 @@ function RequireRole({ roles, children }) {
   return children;
 }
 
-// Campaigns: admin/manager always have access; internal staff (member/
-// client_relations) need the campaignsAccess flag granted individually from
-// the Team page. Portal `client` logins are a different access model
-// entirely and must never qualify via the flag, even in theory.
-function RequireCampaignsAccess({ children }) {
+// Real, admin-configurable, per-feature access control — the single guard
+// for every staff-facing route. Reads SystemSettings.featureAccess (Settings
+// → Feature Access Control) via the same hasFeatureAccess() helper the
+// Sidebar uses, so nav visibility and route access can never drift apart.
+// `defaultRoles` is the feature's pre-existing hardcoded fallback, used only
+// if the feature has never been configured — mirrors the backend's
+// authorizeFeature(featureKey, defaultRoles) so the two layers agree.
+function RequireFeatureAccess({ featureKey, defaultRoles, children }) {
   const authUser = useAppStore((s) => s.authUser);
+  const systemSettings = useAppStore((s) => s.systemSettings);
   if (!authUser) return <Navigate to="/login" replace />;
-  const allowed = authUser.role !== 'client' && (['admin', 'manager'].includes(authUser.role) || authUser.campaignsAccess === true);
-  if (!allowed) return <Navigate to="/dashboard" replace />;
+  if (!hasFeatureAccess(authUser, systemSettings, featureKey, defaultRoles)) {
+    // A client denied here must land on /portal, never /dashboard — /dashboard
+    // itself denies clients too (client isn't in its defaultRoles), which
+    // would otherwise bounce back here and loop.
+    return <Navigate to={authUser.role === 'client' ? '/portal' : '/dashboard'} replace />;
+  }
   return children;
 }
 
@@ -95,101 +98,104 @@ export default function AppRouter() {
             }
           />
 
-          {/* ── Staff routes (all roles except client) ── */}
-          <Route path="dashboard" element={<RequireStaff><DashboardPage /></RequireStaff>} />
-          <Route path="tasks"     element={<RequireStaff><TasksPage /></RequireStaff>} />
-          <Route path="todos"     element={<RequireStaff><TodosPage /></RequireStaff>} />
+          {/* ── Staff routes — access controlled by Settings → Feature Access
+               Control (SystemSettings.featureAccess); defaultRoles below are
+               the fallback used only if a feature has never been configured,
+               and match the backend's authorizeFeature() defaults exactly. ── */}
+          <Route path="dashboard" element={<RequireFeatureAccess featureKey="dashboard" defaultRoles={['admin', 'manager', 'member', 'client_relations']}><DashboardPage /></RequireFeatureAccess>} />
+          <Route path="tasks"     element={<RequireFeatureAccess featureKey="tasks" defaultRoles={['admin', 'manager', 'member', 'client_relations']}><TasksPage /></RequireFeatureAccess>} />
+          <Route path="todos"     element={<RequireFeatureAccess featureKey="todos" defaultRoles={['admin', 'manager', 'member', 'client_relations']}><TodosPage /></RequireFeatureAccess>} />
           <Route
             path="clients"
             element={
-              <RequireRole roles={['admin', 'manager', 'client_relations']}>
+              <RequireFeatureAccess featureKey="clients" defaultRoles={['admin', 'manager', 'client_relations']}>
                 <ClientsPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="leads"
             element={
-              <RequireRole roles={['admin', 'manager', 'client_relations', 'member']}>
+              <RequireFeatureAccess featureKey="leads" defaultRoles={['admin', 'manager', 'client_relations', 'member']}>
                 <LeadsPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
-          <Route path="messages"  element={<MessagesPage />} />
-          <Route path="reports"   element={<RequireStaff><ReportsPage /></RequireStaff>} />
-          <Route path="meetings"  element={<RequireStaff><MeetingsPage /></RequireStaff>} />
-          <Route path="calendar"  element={<RequireStaff><CalendarPage /></RequireStaff>} />
+          <Route path="messages"  element={<RequireFeatureAccess featureKey="messages" defaultRoles={['admin', 'manager', 'member', 'client_relations', 'client']}><MessagesPage /></RequireFeatureAccess>} />
+          <Route path="reports"   element={<RequireFeatureAccess featureKey="reports" defaultRoles={['admin', 'manager', 'member', 'client_relations']}><ReportsPage /></RequireFeatureAccess>} />
+          <Route path="meetings"  element={<RequireFeatureAccess featureKey="meetings" defaultRoles={['admin', 'manager', 'member', 'client_relations']}><MeetingsPage /></RequireFeatureAccess>} />
+          <Route path="calendar"  element={<RequireFeatureAccess featureKey="calendar" defaultRoles={['admin', 'manager', 'member', 'client_relations']}><CalendarPage /></RequireFeatureAccess>} />
           <Route
             path="billing"
             element={
-              <RequireRole roles={['admin', 'manager']}>
+              <RequireFeatureAccess featureKey="billing" defaultRoles={['admin', 'manager']}>
                 <BillingPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="team"
             element={
-              <RequireRole roles={['admin', 'manager']}>
+              <RequireFeatureAccess featureKey="team" defaultRoles={['admin', 'manager']}>
                 <TeamPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="campaigns"
             element={
-              <RequireCampaignsAccess>
+              <RequireFeatureAccess featureKey="campaigns" defaultRoles={['admin', 'manager']}>
                 <CampaignsPage />
-              </RequireCampaignsAccess>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="campaigns/:id"
             element={
-              <RequireCampaignsAccess>
+              <RequireFeatureAccess featureKey="campaigns" defaultRoles={['admin', 'manager']}>
                 <CampaignDetailPage />
-              </RequireCampaignsAccess>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="meta-ads"
             element={
-              <RequireRole roles={['admin', 'manager']}>
+              <RequireFeatureAccess featureKey="ads_monitoring" defaultRoles={['admin', 'manager']}>
                 <MetaAdsPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="website-intelligence"
             element={
-              <RequireRole roles={['admin', 'manager']}>
+              <RequireFeatureAccess featureKey="website_intelligence" defaultRoles={['admin', 'manager']}>
                 <WebsiteIntelligencePage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="logs"
             element={
-              <RequireRole roles={['admin']}>
+              <RequireFeatureAccess featureKey="audit_logs" defaultRoles={['admin']}>
                 <LogsPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="system-logs"
             element={
-              <RequireRole roles={['admin']}>
+              <RequireFeatureAccess featureKey="system_monitor" defaultRoles={['admin']}>
                 <SystemLogsPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
           <Route
             path="api-keys"
             element={
-              <RequireRole roles={['admin']}>
+              <RequireFeatureAccess featureKey="api_keys" defaultRoles={['admin']}>
                 <ApiKeysPage />
-              </RequireRole>
+              </RequireFeatureAccess>
             }
           />
         </Route>
