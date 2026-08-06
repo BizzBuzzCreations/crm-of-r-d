@@ -164,16 +164,21 @@ const SystemSettingsSchema = new mongoose.Schema({
   },
 
   // Notification routing — which roles/specific users receive each
-  // system-generated notification GROUP (currently just 'campaign', which
-  // covers email opened / call requested / lead replied as one setting —
-  // not one row per event type). Defaults preserve pre-existing hardcoded
-  // behavior (admin+manager) until an admin actually opens Settings →
-  // Notification Routing and changes it.
+  // system-generated notification GROUP. 'campaign' covers email opened /
+  // call requested / lead replied as one setting (not one row per event
+  // type); 'lead_capture' covers a new Lead created via an external/public
+  // form integration (witPublicController.captureLead, external-api/
+  // leadCapture) — deliberately separate from 'campaign' since it's a
+  // different kind of event (a brand-new lead, not engagement on an
+  // existing one) an admin may want routed to different people. Defaults
+  // preserve pre-existing hardcoded behavior (admin+manager) until an admin
+  // actually opens Settings → Notification Routing and changes it.
   notificationRouting: {
     type: Map,
     of: NotificationRoutingRuleSchema,
     default: () => new Map([
-      ['campaign', { roles: ['admin', 'manager'], userIds: [] }],
+      ['campaign',      { roles: ['admin', 'manager'], userIds: [] }],
+      ['lead_capture',  { roles: ['admin', 'manager'], userIds: [] }],
     ]),
   },
 

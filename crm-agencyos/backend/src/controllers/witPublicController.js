@@ -18,6 +18,7 @@ const { lookupGeo } = require('../utils/geoip');
 const { categorize, domainOf } = require('../utils/trafficSource');
 const { autoAssignLead } = require('../utils/leadAssignment');
 const { secretsMatch } = require('../utils/secretsMatch');
+const notifService = require('../services/notificationService');
 
 const SESSION_TIMEOUT_MIN = 30;
 
@@ -286,6 +287,20 @@ exports.captureLead = async (req, res) => {
       session.leadId = lead._id;
       await session.save();
     }
+
+    // Fire-and-forget — the caller here is the tracked site's own backend
+    // waiting on this response (e.g. a Netlify function), not a live
+    // visitor's browser, but the principle is the same as trackOpen/
+    // requestCall: a notification write must never delay or risk the
+    // response the integration is depending on.
+    notifService.dispatchByRouting(req.app.get('io'), 'lead_capture', {
+      type: 'lead_captured',
+      priority: 'success',
+      title: 'New lead captured',
+      message: `${contactPerson} at ${companyName} submitted a form on ${website.name}`,
+      link: '/leads',
+      metadata: { leadId: String(lead._id), websiteId: String(website._id) },
+    }).catch(() => {});
 
     res.status(201).json({ success: true, data: { leadId: lead._id, leadRef: lead.leadId } });
   } catch (err) {
