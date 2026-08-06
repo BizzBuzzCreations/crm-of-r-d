@@ -257,7 +257,16 @@ exports.captureLead = async (req, res) => {
       websiteVisitorId: visitorId || '',
       websiteSessionId: sessionId || '',
       landingPageUrl: session?.landingPage || '',
-      utmSource: session?.utmSource || '',
+      // session?.utmSource is the actual MARKETING channel (google, facebook,
+      // ...) captured from a `?utm_source=` query param on the visit that
+      // started the session — genuinely empty for a direct/organic visit
+      // with no such param, not a bug. But the Leads table's "Source
+      // Website" column (this same field) is meant to answer "which
+      // registered site did this come from", which IS always known here
+      // regardless of UTM presence — website.name — so that's the fallback
+      // rather than leaving the column blank for the (very common) case of
+      // a visitor who didn't arrive via a tagged campaign link.
+      utmSource: session?.utmSource || website.name,
       utmMedium: session?.utmMedium || '',
       utmCampaign: session?.utmCampaign || '',
       activities: [{
