@@ -6,7 +6,8 @@ import {
   Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock, 
   Layers, Plus, Trash2, X, Edit2, Zap, Palette, Smartphone, Globe, BarChart3, 
   PenTool, Clapperboard, Camera, Wrench, Lightbulb, Shield, Rocket, HelpCircle, 
-  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Info, ArrowUpRight, Megaphone
+  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Info, ArrowUpRight, Megaphone, Search,
+  LayoutDashboard, ListTodo, CheckSquare, Target, MessageSquare, Video, Receipt, UserCircle, Terminal, KeyRound,
 } from 'lucide-react';
 import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
@@ -469,6 +470,358 @@ function PipelinesStagesSection({ settings, onSave }) {
 
       <Button variant="primary" onClick={handleSave}>
         <Save size={14} /> Persist Pipeline Configuration
+      </Button>
+    </div>
+  );
+}
+
+// 5b. Notification Routing (Admins & Managers) — who receives each
+// system-generated notification GROUP, by role and/or by specific person.
+// The two are independent and additive server-side (see notificationService
+// .dispatchByRouting) — a person picked here gets notified even with no
+// role selected at all. 'campaign' covers every campaign-engagement event
+// (email opened, call requested, lead replied) as ONE setting, not one row
+// per event type.
+const NOTIFICATION_EVENT_DEFS = [
+  { key: 'campaign', label: 'Campaign', description: 'Any campaign engagement — a lead opens an email, requests a call, or replies.' },
+];
+const NOTIFICATION_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations'];
+
+function NotificationRoutingSection({ settings, onSave, users }) {
+  const [routing, setRouting] = useState(() => {
+    const src = settings?.notificationRouting || {};
+    const init = {};
+    NOTIFICATION_EVENT_DEFS.forEach(({ key }) => {
+      const rule = src[key];
+      init[key] = {
+        roles:   rule?.roles   ? [...rule.roles] : ['admin', 'manager'],
+        userIds: rule?.userIds ? rule.userIds.map(String) : [],
+      };
+    });
+    return init;
+  });
+  const [userSearch, setUserSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const toggleRole = (eventKey, role) => {
+    setRouting((r) => {
+      const cur = r[eventKey].roles;
+      const next = cur.includes(role) ? cur.filter((x) => x !== role) : [...cur, role];
+      return { ...r, [eventKey]: { ...r[eventKey], roles: next } };
+    });
+  };
+
+  const toggleUser = (eventKey, userId) => {
+    setRouting((r) => {
+      const cur = r[eventKey].userIds;
+      const next = cur.includes(userId) ? cur.filter((x) => x !== userId) : [...cur, userId];
+      return { ...r, [eventKey]: { ...r[eventKey], userIds: next } };
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await onSave({ notificationRouting: routing }); } finally { setSaving(false); }
+  };
+
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
+  }, [users, userSearch]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-200 dark:border-slate-700/60">
+        <div>
+          <h3 className="text-[16px] font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Bell size={18} className="text-indigo-500" /> Notification Routing
+          </h3>
+          <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mt-1">
+            Who gets notified for each event — by role, by specific person, or both. Either match is enough to notify someone.
+          </p>
+        </div>
+        <div className="relative w-[220px] flex-shrink-0">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            placeholder="Filter people…"
+            value={userSearch}
+            onChange={(e) => setUserSearch(e.target.value)}
+            className="form-input pl-8 text-[13px] py-1.5 w-full"
+          />
+        </div>
+      </div>
+
+      {NOTIFICATION_EVENT_DEFS.map(({ key, label, description }) => {
+        const rule = routing[key];
+        return (
+          <div key={key} className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 space-y-4">
+            <div>
+              <h4 className="text-[14px] font-bold text-slate-800 dark:text-slate-200">{label}</h4>
+              <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mt-0.5">{description}</p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">By role</label>
+              <div className="flex flex-wrap gap-2">
+                {NOTIFICATION_ROUTABLE_ROLES.map((role) => {
+                  const active = rule.roles.includes(role);
+                  const cfg = ROLE_CONFIG[role];
+                  return (
+                    <button
+                      key={role} type="button"
+                      onClick={() => toggleRole(key, role)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border transition-colors',
+                        active
+                          ? 'text-white border-transparent'
+                          : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                      )}
+                      style={active ? { background: cfg.color } : undefined}
+                    >
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                By specific person {rule.userIds.length > 0 && `(${rule.userIds.length} selected)`}
+              </label>
+              <div className="max-h-48 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/40">
+                {filteredUsers.map((u) => {
+                  const uid = getId(u);
+                  const checked = rule.userIds.includes(uid);
+                  return (
+                    <label key={uid} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                      <input type="checkbox" checked={checked} onChange={() => toggleUser(key, uid)} className="rounded border-slate-300 dark:border-slate-600" />
+                      <div className="w-6 h-6 rounded-full text-white font-bold flex items-center justify-center text-[10px] flex-shrink-0" style={{ background: u.color || '#6366f1' }}>
+                        {u.name?.[0]}
+                      </div>
+                      <span className="text-[13px] text-slate-700 dark:text-slate-300">{u.name}</span>
+                      <span className="text-[11px] text-slate-400 ml-auto">{ROLE_CONFIG[u.role]?.label || u.role}</span>
+                    </label>
+                  );
+                })}
+                {filteredUsers.length === 0 && (
+                  <p className="text-[12.5px] text-slate-400 text-center py-4">No users match "{userSearch}"</p>
+                )}
+              </div>
+            </div>
+
+            {rule.roles.length === 0 && rule.userIds.length === 0 && (
+              <p className="text-[12px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <AlertTriangle size={13} /> Nobody will be notified for this event.
+              </p>
+            )}
+          </div>
+        );
+      })}
+
+      <Button variant="primary" onClick={handleSave} disabled={saving}>
+        <Save size={14} /> {saving ? 'Saving…' : 'Save Notification Routing'}
+      </Button>
+    </div>
+  );
+}
+
+// 5c. Feature Access Control (Admin only) — which roles/specific users can
+// use each sidebar feature. Same additive OR semantics and {roles, userIds}
+// shape as notificationRouting, but enforced for REAL on the backend (see
+// backend/src/middleware/authorizeFeature.js + routes/index.js) — this
+// isn't just hiding a nav link. Master-detail: click a feature on the left,
+// configure it on the right — 17 features is too many for one long page.
+const FEATURE_DEFS = [
+  { key: 'dashboard',            label: 'Dashboard',            icon: LayoutDashboard, defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
+  { key: 'todos',                label: 'Todos',                icon: ListTodo,        defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
+  { key: 'tasks',                label: 'Tasks',                icon: CheckSquare,     defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
+  { key: 'clients',              label: 'Clients & Projects',   icon: Users,           defaultRoles: ['admin', 'manager', 'client_relations'] },
+  { key: 'leads',                label: 'Leads Pipeline',       icon: Target,          defaultRoles: ['admin', 'manager', 'client_relations', 'member'] },
+  { key: 'campaigns',            label: 'Campaigns',            icon: Mail,            defaultRoles: ['admin', 'manager'] },
+  { key: 'ads_monitoring',       label: 'Ads Monitoring',       icon: Megaphone,       defaultRoles: ['admin', 'manager'] },
+  { key: 'website_intelligence', label: 'Website Intelligence', icon: Globe,           defaultRoles: ['admin', 'manager'] },
+  { key: 'messages',             label: 'Messages',             icon: MessageSquare,   defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
+  { key: 'meetings',             label: 'Meetings',             icon: Video,           defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
+  { key: 'reports',              label: 'Reports',              icon: BarChart3,       defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
+  { key: 'calendar',             label: 'Calendar',             icon: Calendar,        defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
+  { key: 'billing',              label: 'Billing',              icon: Receipt,         defaultRoles: ['admin', 'manager'] },
+  { key: 'team',                 label: 'Team',                 icon: UserCircle,      defaultRoles: ['admin', 'manager'] },
+  { key: 'audit_logs',           label: 'Audit Logs',           icon: Shield,          defaultRoles: ['admin'] },
+  { key: 'system_monitor',       label: 'System Monitor',       icon: Terminal,        defaultRoles: ['admin'] },
+  { key: 'api_keys',             label: 'API Keys',             icon: KeyRound,        defaultRoles: ['admin'] },
+];
+const FEATURE_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations'];
+
+function FeatureAccessSection({ settings, onSave, users }) {
+  const [rules, setRules] = useState(() => {
+    const src = settings?.featureAccess || {};
+    const init = {};
+    FEATURE_DEFS.forEach(({ key, defaultRoles }) => {
+      const rule = src[key];
+      init[key] = {
+        roles:   rule?.roles   ? [...rule.roles] : [...defaultRoles],
+        userIds: rule?.userIds ? rule.userIds.map(String) : [],
+      };
+    });
+    return init;
+  });
+  const [selectedKey, setSelectedKey] = useState(FEATURE_DEFS[0].key);
+  const [userSearch, setUserSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const toggleRole = (featureKey, role) => {
+    setRules((r) => {
+      const cur = r[featureKey].roles;
+      const next = cur.includes(role) ? cur.filter((x) => x !== role) : [...cur, role];
+      return { ...r, [featureKey]: { ...r[featureKey], roles: next } };
+    });
+  };
+
+  const toggleUser = (featureKey, userId) => {
+    setRules((r) => {
+      const cur = r[featureKey].userIds;
+      const next = cur.includes(userId) ? cur.filter((x) => x !== userId) : [...cur, userId];
+      return { ...r, [featureKey]: { ...r[featureKey], userIds: next } };
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await onSave({ featureAccess: rules }); } finally { setSaving(false); }
+  };
+
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
+  }, [users, userSearch]);
+
+  const selected = FEATURE_DEFS.find((f) => f.key === selectedKey);
+  const selectedRule = rules[selectedKey];
+
+  return (
+    <div className="space-y-5">
+      <div className="pb-3 border-b border-slate-200 dark:border-slate-700/60">
+        <h3 className="text-[16px] font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Lock size={18} className="text-indigo-500" /> Feature Access Control
+        </h3>
+        <p className="text-[12.5px] text-slate-500 dark:text-slate-400 mt-1">
+          Real, backend-enforced access — not just a hidden nav link. Who can use each feature, by role, by specific person, or both.
+        </p>
+      </div>
+
+      <div className="flex gap-5 items-start">
+        {/* Master: feature list */}
+        <div className="w-60 flex-shrink-0 space-y-1">
+          {FEATURE_DEFS.map((f) => {
+            const rule = rules[f.key];
+            const count = rule.roles.length + rule.userIds.length;
+            return (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setSelectedKey(f.key)}
+                className={cn(
+                  'flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-[13px] font-semibold text-left transition-colors',
+                  selectedKey === f.key
+                    ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                )}
+              >
+                <f.icon size={15} className="flex-shrink-0" />
+                <span className="truncate">{f.label}</span>
+                <span className={cn(
+                  'ml-auto text-[10.5px] font-bold rounded-full px-1.5 py-0.5 flex-shrink-0',
+                  count === 0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                )}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Detail: role pills + searchable user checklist for the selected feature */}
+        {selected && selectedRule && (
+          <div className="flex-1 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 space-y-4 min-w-0">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-[14px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <selected.icon size={16} /> {selected.label}
+              </h4>
+              <div className="relative w-[200px] flex-shrink-0">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  placeholder="Filter people…"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="form-input pl-7 text-[12.5px] py-1.5 w-full"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">By role</label>
+              <div className="flex flex-wrap gap-2">
+                {FEATURE_ROUTABLE_ROLES.map((role) => {
+                  const active = selectedRule.roles.includes(role);
+                  const cfg = ROLE_CONFIG[role];
+                  return (
+                    <button
+                      key={role} type="button"
+                      onClick={() => toggleRole(selectedKey, role)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border transition-colors',
+                        active
+                          ? 'text-white border-transparent'
+                          : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                      )}
+                      style={active ? { background: cfg.color } : undefined}
+                    >
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                By specific person {selectedRule.userIds.length > 0 && `(${selectedRule.userIds.length} selected)`}
+              </label>
+              <div className="max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900/40">
+                {filteredUsers.map((u) => {
+                  const uid = getId(u);
+                  const checked = selectedRule.userIds.includes(uid);
+                  return (
+                    <label key={uid} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                      <input type="checkbox" checked={checked} onChange={() => toggleUser(selectedKey, uid)} className="rounded border-slate-300 dark:border-slate-600" />
+                      <div className="w-6 h-6 rounded-full text-white font-bold flex items-center justify-center text-[10px] flex-shrink-0" style={{ background: u.color || '#6366f1' }}>
+                        {u.name?.[0]}
+                      </div>
+                      <span className="text-[13px] text-slate-700 dark:text-slate-300">{u.name}</span>
+                      <span className="text-[11px] text-slate-400 ml-auto">{ROLE_CONFIG[u.role]?.label || u.role}</span>
+                    </label>
+                  );
+                })}
+                {filteredUsers.length === 0 && (
+                  <p className="text-[12.5px] text-slate-400 text-center py-4">No users match "{userSearch}"</p>
+                )}
+              </div>
+            </div>
+
+            {selectedRule.roles.length === 0 && selectedRule.userIds.length === 0 && (
+              <p className="text-[12px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <AlertTriangle size={13} /> Nobody will have access to this feature.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <Button variant="primary" onClick={handleSave} disabled={saving}>
+        <Save size={14} /> {saving ? 'Saving…' : 'Save Feature Access'}
       </Button>
     </div>
   );
@@ -1774,6 +2127,7 @@ export default function SettingsPage() {
         { id: 'workspace',        label: 'Workspace Lists', icon: Settings },
         { id: 'assignment_rules', label: 'Lead Routing',    icon: Sliders },
         { id: 'templates',        label: 'Communication',   icon: FileText },
+        { id: 'notification_routing', label: 'Notification Routing', icon: Bell },
         { id: 'integrations',     label: 'Integrations',    icon: Zap },
         { id: 'meta_ads',         label: 'Meta Ads',        icon: Megaphone },
         { id: 'websites',         label: 'Websites',        icon: Globe },
@@ -1788,6 +2142,7 @@ export default function SettingsPage() {
         { id: 'billing',        label: 'CRM Subscription',icon: Rocket },
         { id: 'security_config',label: 'Auth Controls',   icon: Shield },
         { id: 'pipelines',      label: 'Sales Pipelines', icon: Sliders },
+        { id: 'feature_access', label: 'Feature Access Control', icon: Lock },
         { id: 'services',       label: 'Services Dir',    icon: Layers }
       ]});
     }
@@ -1942,6 +2297,9 @@ export default function SettingsPage() {
           {isManager && activeTab === 'templates' && (
             <TemplatesSection settings={systemSettings} onSave={handleUpdateSystemSettings} />
           )}
+          {isManager && activeTab === 'notification_routing' && (
+            <NotificationRoutingSection settings={systemSettings} onSave={handleUpdateSystemSettings} users={users} />
+          )}
           {isManager && activeTab === 'integrations' && (
             <IntegrationsSection settings={systemSettings} onSave={handleUpdateSystemSettings} />
           )}
@@ -1967,6 +2325,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && activeTab === 'pipelines' && (
             <PipelinesStagesSection settings={systemSettings} onSave={handleUpdateSystemSettings} />
+          )}
+          {isAdmin && activeTab === 'feature_access' && (
+            <FeatureAccessSection settings={systemSettings} onSave={handleUpdateSystemSettings} users={users} />
           )}
           {isAdmin && activeTab === 'services' && (
             <ServicesSection />

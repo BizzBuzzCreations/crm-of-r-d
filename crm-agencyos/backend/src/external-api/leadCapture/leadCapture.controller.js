@@ -13,6 +13,7 @@
 const Lead = require('../../models/Lead');
 const { autoAssignLead } = require('../../utils/leadAssignment');
 const SOURCE_NAMES = require('./sources');
+const notifService = require('../../services/notificationService');
 
 // @POST /api/lead-capture/:source
 exports.captureLead = async (req, res) => {
@@ -74,6 +75,17 @@ exports.captureLead = async (req, res) => {
 
     const io = req.app.get('io');
     io?.emit('lead:created', lead.toObject());
+
+    // Fire-and-forget, same principle as witPublicController.captureLead —
+    // never let a notification write delay or risk this response.
+    notifService.dispatchByRouting(io, 'lead_capture', {
+      type: 'lead_captured',
+      priority: 'success',
+      title: 'New lead captured',
+      message: `${name.trim()} submitted a form via ${sourceLabel}`,
+      link: '/leads',
+      metadata: { leadId: String(lead._id), source: sourceLabel },
+    }).catch(() => {});
 
     res.status(201).json({ success: true, data: { leadId: lead._id, leadRef: lead.leadId } });
   } catch (err) {

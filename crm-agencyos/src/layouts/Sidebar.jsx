@@ -10,6 +10,7 @@ import {
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
 import { cn } from '../utils/helpers';
+import { hasFeatureAccess } from '../utils/featureAccess';
 
 // ── Constants ─────────────────────────────────────────────────
 const WORK_TARGET_S = 7 * 3600;
@@ -349,8 +350,8 @@ function MemberTimer({ open }) {
 }
 
 // ── Expandable nav group (e.g. "Ads Monitoring" → Meta Ads, Google Ads, …) ──
-function NavGroup({ item, role, sidebarOpen, isExpanded, onToggle, activePath }) {
-  const children = item.children.filter((c) => c.roles.includes(role));
+function NavGroup({ item, authUser, systemSettings, sidebarOpen, isExpanded, onToggle, activePath }) {
+  const children = item.children.filter((c) => hasFeatureAccess(authUser, systemSettings, c.featureKey, c.roles));
   if (!children.length) return null;
   const hasActiveChild = children.some((c) => c.path === activePath);
 
@@ -428,35 +429,35 @@ const NAV = [
   {
     section: 'MENU',
     items: [
-      { path: '/dashboard', label: 'Dashboard',            icon: LayoutDashboard, roles: ['admin','manager','member','client_relations'] },
-      { path: '/todos',     label: 'Todos',                icon: ListTodo,        roles: ['admin','manager','member','client_relations'] },
-      { path: '/tasks',     label: 'Tasks',                icon: CheckSquare,     roles: ['admin','manager','member','client_relations'] },
-      { path: '/clients',   label: 'Clients & Projects',   icon: Users,           roles: ['admin','manager','client_relations'] },
-      { path: '/leads',     label: 'Leads Pipeline',       icon: Target,          roles: ['admin','manager','client_relations','member'] },
-      { path: '/campaigns', label: 'Campaigns',            icon: Mail,            roles: ['admin','manager'], permissionKey: 'campaignsAccess' },
+      { path: '/dashboard', label: 'Dashboard',            icon: LayoutDashboard, roles: ['admin','manager','member','client_relations'], featureKey: 'dashboard' },
+      { path: '/todos',     label: 'Todos',                icon: ListTodo,        roles: ['admin','manager','member','client_relations'], featureKey: 'todos' },
+      { path: '/tasks',     label: 'Tasks',                icon: CheckSquare,     roles: ['admin','manager','member','client_relations'], featureKey: 'tasks' },
+      { path: '/clients',   label: 'Clients & Projects',   icon: Users,           roles: ['admin','manager','client_relations'], featureKey: 'clients' },
+      { path: '/leads',     label: 'Leads Pipeline',       icon: Target,          roles: ['admin','manager','client_relations','member'], featureKey: 'leads' },
+      { path: '/campaigns', label: 'Campaigns',            icon: Mail,            roles: ['admin','manager'], featureKey: 'campaigns' },
       {
         key: 'ads-monitoring', label: 'Ads Monitoring', icon: Megaphone, roles: ['admin','manager'],
         // More platforms (Google, LinkedIn, etc.) get added here as sibling
         // entries later — each is its own future page, not built yet.
         children: [
-          { path: '/meta-ads', label: 'Meta Ads', icon: Megaphone, roles: ['admin','manager'] },
+          { path: '/meta-ads', label: 'Meta Ads', icon: Megaphone, roles: ['admin','manager'], featureKey: 'ads_monitoring' },
         ],
       },
-      { path: '/website-intelligence', label: 'Website Intelligence', icon: Globe2, roles: ['admin','manager'] },
-      { path: '/messages',  label: 'Messages',             icon: MessageSquare,   roles: ['admin','manager','member','client_relations','client'], badge: true },
-      { path: '/meetings',  label: 'Meetings',             icon: Video,           roles: ['admin','manager','member','client_relations'] },
-      { path: '/reports',   label: 'Reports',              icon: BarChart3,       roles: ['admin','manager','member','client_relations'] },
-      { path: '/calendar',  label: 'Calendar',             icon: Calendar,        roles: ['admin','manager','member','client_relations'] },
+      { path: '/website-intelligence', label: 'Website Intelligence', icon: Globe2, roles: ['admin','manager'], featureKey: 'website_intelligence' },
+      { path: '/messages',  label: 'Messages',             icon: MessageSquare,   roles: ['admin','manager','member','client_relations','client'], featureKey: 'messages', badge: true },
+      { path: '/meetings',  label: 'Meetings',             icon: Video,           roles: ['admin','manager','member','client_relations'], featureKey: 'meetings' },
+      { path: '/reports',   label: 'Reports',              icon: BarChart3,       roles: ['admin','manager','member','client_relations'], featureKey: 'reports' },
+      { path: '/calendar',  label: 'Calendar',             icon: Calendar,        roles: ['admin','manager','member','client_relations'], featureKey: 'calendar' },
     ],
   },
   {
     section: 'ADMIN',
     items: [
-      { path: '/billing',     label: 'Billing',        icon: Receipt,    roles: ['admin', 'manager'] },
-      { path: '/team',        label: 'Team',           icon: UserCircle, roles: ['admin', 'manager'] },
-      { path: '/logs',        label: 'Audit Logs',     icon: Shield,     roles: ['admin'] },
-      { path: '/system-logs', label: 'System Monitor', icon: Terminal,   roles: ['admin'] },
-      { path: '/api-keys',    label: 'API Keys',       icon: KeyRound,   roles: ['admin'] },
+      { path: '/billing',     label: 'Billing',        icon: Receipt,    roles: ['admin', 'manager'], featureKey: 'billing' },
+      { path: '/team',        label: 'Team',           icon: UserCircle, roles: ['admin', 'manager'], featureKey: 'team' },
+      { path: '/logs',        label: 'Audit Logs',     icon: Shield,     roles: ['admin'], featureKey: 'audit_logs' },
+      { path: '/system-logs', label: 'System Monitor', icon: Terminal,   roles: ['admin'], featureKey: 'system_monitor' },
+      { path: '/api-keys',    label: 'API Keys',       icon: KeyRound,   roles: ['admin'], featureKey: 'api_keys' },
     ],
   },
   {
@@ -470,6 +471,7 @@ const NAV = [
 // ── Main Sidebar ──────────────────────────────────────────────
 export default function Sidebar() {
   const authUser    = useAppStore((s) => s.authUser);
+  const systemSettings = useAppStore((s) => s.systemSettings);
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const messages    = useAppStore((s) => s.messages);
   const logout      = useAppStore((s) => s.logout);
@@ -531,7 +533,7 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
         {NAV.map(({ section, items }) => {
           const visible = items.filter((item) =>
-            item.roles.includes(role) || (item.permissionKey && authUser?.[item.permissionKey])
+            hasFeatureAccess(authUser, systemSettings, item.featureKey, item.roles)
           );
           if (!visible.length) return null;
           return (
@@ -551,7 +553,8 @@ export default function Sidebar() {
                 <NavGroup
                   key={item.key}
                   item={item}
-                  role={role}
+                  authUser={authUser}
+                  systemSettings={systemSettings}
                   sidebarOpen={sidebarOpen}
                   isExpanded={expandedGroups.has(item.key)}
                   onToggle={() => toggleGroup(item.key)}

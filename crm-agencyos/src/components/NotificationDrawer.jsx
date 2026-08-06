@@ -6,7 +6,7 @@ import {
   Check, PartyPopper, Eye, Calendar, MessageSquare,
   Building2, ClipboardList, Zap, Info, Target, AtSign,
   Trophy, TrendingDown, Send, AlertCircle, MessageCircle,
-  LogIn, Server, BellOff, MailOpen, PhoneCall, Reply,
+  LogIn, Server, BellOff, MailOpen, PhoneCall, Reply, UserPlus,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { notificationsAPI } from '../services/api';
@@ -27,6 +27,7 @@ const TYPE_MAP = {
   lead_mentioned:      { icon: AtSign,        bg: 'bg-blue-100 dark:bg-blue-900/40',      color: 'text-blue-600 dark:text-blue-400'      },
   lead_won:            { icon: Trophy,        bg: 'bg-emerald-100 dark:bg-emerald-900/40',color: 'text-emerald-600 dark:text-emerald-400' },
   lead_lost:           { icon: TrendingDown,  bg: 'bg-rose-100 dark:bg-rose-900/40',      color: 'text-rose-600 dark:text-rose-400'      },
+  lead_captured:       { icon: UserPlus,      bg: 'bg-amber-100 dark:bg-amber-900/40',    color: 'text-amber-600 dark:text-amber-400'    },
   email_sent:          { icon: Send,          bg: 'bg-cyan-100 dark:bg-cyan-900/40',      color: 'text-cyan-600 dark:text-cyan-400'      },
   email_failed:        { icon: AlertCircle,   bg: 'bg-red-100 dark:bg-red-900/40',        color: 'text-red-600 dark:text-red-400'        },
   email_opened:        { icon: MailOpen,      bg: 'bg-emerald-100 dark:bg-emerald-900/40',color: 'text-emerald-600 dark:text-emerald-400' },
@@ -185,7 +186,7 @@ export default function NotificationDrawer({ open, onClose }) {
     if (typeFilter) {
       const group = {
         'task_assigned':     ['task_assigned', 'task_approved', 'task_ready_approval'],
-        'lead_assigned':     ['lead_assigned', 'lead_mentioned', 'lead_won', 'lead_lost'],
+        'lead_assigned':     ['lead_assigned', 'lead_mentioned', 'lead_won', 'lead_lost', 'lead_captured'],
         'meeting_scheduled': ['meeting_scheduled'],
         'message_dm':        ['message_dm', 'new_comment'],
         'email_sent':        ['email_sent', 'email_failed', 'email_opened', 'call_requested', 'email_replied'],

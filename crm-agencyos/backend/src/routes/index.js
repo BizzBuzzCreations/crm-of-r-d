@@ -3,7 +3,8 @@
 // The app.js imports these.
 
 const express = require('express');
-const { protect, authorize, authorizeRoles, authorizeOrFlag, denyClientWrites } = require('../middleware/auth');
+const { protect, authorize, authorizeRoles, denyClientWrites } = require('../middleware/auth');
+const { authorizeFeature } = require('../middleware/authorizeFeature');
 const upload  = require('../middleware/upload');
 const { loginLimiter, witPublicLimiter } = require('../middleware/rateLimiters');
 
@@ -29,9 +30,9 @@ module.exports.auth = authRouter;
 const usersRouter = express.Router();
 usersRouter.use(protect);
 usersRouter.get('/',        ctrl.getUsers);
-usersRouter.post('/',       authorize('admin','manager'), ctrl.createUser);
-usersRouter.put('/:id',     authorize('admin','manager'), ctrl.updateUser);
-usersRouter.delete('/:id',  authorize('admin','manager'), ctrl.deleteUser);
+usersRouter.post('/',       authorizeFeature('team', ['admin','manager']), ctrl.createUser);
+usersRouter.put('/:id',     authorizeFeature('team', ['admin','manager']), ctrl.updateUser);
+usersRouter.delete('/:id',  authorizeFeature('team', ['admin','manager']), ctrl.deleteUser);
 module.exports.users = usersRouter;
 
 // ── Clients routes ────────────────────────────────────────────
@@ -39,9 +40,9 @@ const clientsRouter = express.Router();
 clientsRouter.use(protect);
 clientsRouter.get('/',             ctrl.getClients);
 clientsRouter.get('/:id',          ctrl.getClient);
-clientsRouter.post('/',            authorize('admin','manager'), ctrl.createClient);
-clientsRouter.put('/:id',          authorize('admin','manager'), ctrl.updateClient);
-clientsRouter.delete('/:id',       authorize('admin','manager'), ctrl.deleteClient);
+clientsRouter.post('/',            authorizeFeature('clients', ['admin','manager']), ctrl.createClient);
+clientsRouter.put('/:id',          authorizeFeature('clients', ['admin','manager']), ctrl.updateClient);
+clientsRouter.delete('/:id',       authorizeFeature('clients', ['admin','manager']), ctrl.deleteClient);
 clientsRouter.post('/:id/notes',              ctrl.addClientNote);
 clientsRouter.post('/:id/reset-portal-password', authorize('admin'), ctrl.resetPortalPassword);
 module.exports.clients = clientsRouter;
@@ -49,6 +50,7 @@ module.exports.clients = clientsRouter;
 // ── Tasks routes ──────────────────────────────────────────────
 const tasksRouter = express.Router();
 tasksRouter.use(protect);
+tasksRouter.use(authorizeFeature('tasks', ['admin','manager','member','client_relations'], { clientBypass: true }));
 tasksRouter.use(denyClientWrites); // clients are read-only
 tasksRouter.get('/',    ctrl.getTasks);
 tasksRouter.post('/',   upload.array('files', 10), ctrl.createTask);
@@ -59,6 +61,7 @@ module.exports.tasks = tasksRouter;
 // ── Todos routes ──────────────────────────────────────────────
 const todosRouter = express.Router();
 todosRouter.use(protect);
+todosRouter.use(authorizeFeature('todos', ['admin','manager','member','client_relations'], { clientBypass: true }));
 todosRouter.get('/',    ctrl.getTodos);
 todosRouter.post('/',   upload.array('files', 10), ctrl.createTodo);
 todosRouter.put('/:id', upload.array('files', 10), ctrl.updateTodo);
@@ -68,6 +71,7 @@ module.exports.todos = todosRouter;
 // ── Meetings routes ───────────────────────────────────────────
 const meetingsRouter = express.Router();
 meetingsRouter.use(protect);
+meetingsRouter.use(authorizeFeature('meetings', ['admin','manager','member','client_relations'], { clientBypass: true }));
 meetingsRouter.use(denyClientWrites); // clients are read-only
 meetingsRouter.get('/',    ctrl.getMeetings);
 meetingsRouter.post('/',   authorize('admin','manager'), ctrl.createMeeting);
@@ -84,6 +88,7 @@ module.exports.meetings = meetingsRouter;
 // ── Messages routes ───────────────────────────────────────────
 const messagesRouter = express.Router();
 messagesRouter.use(protect);
+messagesRouter.use(authorizeFeature('messages', ['admin','manager','member','client_relations'], { clientBypass: true }));
 messagesRouter.get('/:threadId',  xtra.getThreadMessages);
 messagesRouter.post('/:threadId', upload.array('files', 5), xtra.sendMessage);
 messagesRouter.delete('/:id',     xtra.deleteMessage);
@@ -93,6 +98,7 @@ module.exports.messages = messagesRouter;
 // ── Reports routes ────────────────────────────────────────────
 const reportsRouter = express.Router();
 reportsRouter.use(protect);
+reportsRouter.use(authorizeFeature('reports', ['admin','manager','member','client_relations']));
 reportsRouter.get('/', xtra.getReport);
 module.exports.reports = reportsRouter;
 
@@ -127,6 +133,7 @@ module.exports.services = servicesRouter;
 const leadCtrl = require('../controllers/leadController');
 const leadsRouter = express.Router();
 leadsRouter.use(protect);
+leadsRouter.use(authorizeFeature('leads', ['admin','manager','client_relations','member']));
 leadsRouter.get('/',            leadCtrl.getLeads);
 leadsRouter.post('/bulk',       leadCtrl.bulkCreateLeads);   // /bulk before /:id
 leadsRouter.post('/merge',      authorize('admin','manager'), leadCtrl.mergeLeads);
@@ -154,7 +161,7 @@ module.exports.portal = portalRouter;
 const auditCtrl = require('../controllers/auditController');
 const auditRouter = express.Router();
 auditRouter.use(protect);
-auditRouter.use(authorize('admin'));
+auditRouter.use(authorizeFeature('audit_logs', ['admin']));
 auditRouter.get('/',       auditCtrl.getLogs);
 auditRouter.get('/stats',  auditCtrl.getStats);
 module.exports.audit = auditRouter;
@@ -163,7 +170,7 @@ module.exports.audit = auditRouter;
 const sysCtrl = require('../controllers/systemLogsController');
 const adminLogsRouter = express.Router();
 adminLogsRouter.use(protect);
-adminLogsRouter.use(authorize('admin'));
+adminLogsRouter.use(authorizeFeature('system_monitor', ['admin']));
 adminLogsRouter.get('/status',              sysCtrl.getSystemStatus);
 adminLogsRouter.get('/sources',             sysCtrl.listSources);
 adminLogsRouter.get('/:source/download',    sysCtrl.downloadLog);
@@ -173,7 +180,7 @@ module.exports.adminLogs = adminLogsRouter;
 // ── Billing routes (admin + manager only) ─────────────────────
 const billingRouter = express.Router();
 billingRouter.use(protect);
-billingRouter.use(authorize('admin', 'manager'));
+billingRouter.use(authorizeFeature('billing', ['admin', 'manager']));
 billingRouter.get('/collections',                         billing.getCollections);
 billingRouter.get('/invoices',                            billing.getInvoices);
 billingRouter.post('/invoices',                           billing.createInvoice);
@@ -219,7 +226,7 @@ module.exports.campaignPublic = campaignPublicRouter;
 const campaignCtrl = require('../controllers/campaignController');
 const campaignsRouter = express.Router();
 campaignsRouter.use(protect);
-campaignsRouter.use(authorizeOrFlag(['admin', 'manager'], 'campaignsAccess'));
+campaignsRouter.use(authorizeFeature('campaigns', ['admin', 'manager']));
 campaignsRouter.post('/upload-image',             upload.single('image'), campaignCtrl.uploadImage); // before /:id
 campaignsRouter.get('/',                          campaignCtrl.getCampaigns);
 campaignsRouter.post('/',                         campaignCtrl.createCampaign);
@@ -244,7 +251,7 @@ module.exports.campaigns = campaignsRouter;
 const emailTemplateCtrl = require('../controllers/emailTemplateController');
 const emailTemplatesRouter = express.Router();
 emailTemplatesRouter.use(protect);
-emailTemplatesRouter.use(authorizeOrFlag(['admin', 'manager'], 'campaignsAccess'));
+emailTemplatesRouter.use(authorizeFeature('campaigns', ['admin', 'manager']));
 emailTemplatesRouter.get('/',       emailTemplateCtrl.getTemplates);
 emailTemplatesRouter.post('/',      emailTemplateCtrl.createTemplate);
 emailTemplatesRouter.put('/:id',    emailTemplateCtrl.updateTemplate);
@@ -255,7 +262,7 @@ module.exports.emailTemplates = emailTemplatesRouter;
 const metaAdsCtrl = require('../controllers/metaAdsController');
 const metaAdsRouter = express.Router();
 metaAdsRouter.use(protect);
-metaAdsRouter.use(authorize('admin', 'manager'));
+metaAdsRouter.use(authorizeFeature('ads_monitoring', ['admin', 'manager']));
 metaAdsRouter.get('/status',          metaAdsCtrl.getStatus);
 metaAdsRouter.put('/credentials',     metaAdsCtrl.saveCredentials);
 metaAdsRouter.delete('/credentials',  metaAdsCtrl.clearCredentials);
@@ -298,7 +305,7 @@ module.exports.witPublic = witPublicRouter;
 const witCtrl = require('../controllers/witController');
 const witRouter = express.Router();
 witRouter.use(protect);
-witRouter.use(authorize('admin', 'manager'));
+witRouter.use(authorizeFeature('website_intelligence', ['admin', 'manager']));
 witRouter.get('/websites',                     witCtrl.getWebsites);
 witRouter.post('/websites',                    witCtrl.createWebsite);
 witRouter.put('/websites/:id',                 witCtrl.updateWebsite);
@@ -324,7 +331,7 @@ module.exports.websiteIntelligence = witRouter;
 const apiKeyCtrl = require('../controllers/apiKeyController');
 const apiKeyRouter = express.Router();
 apiKeyRouter.use(protect);
-apiKeyRouter.use(authorize('admin'));
+apiKeyRouter.use(authorizeFeature('api_keys', ['admin']));
 apiKeyRouter.get('/',        apiKeyCtrl.getApiKeys);
 apiKeyRouter.post('/',       apiKeyCtrl.createApiKey);
 apiKeyRouter.delete('/:id',  apiKeyCtrl.deleteApiKey);

@@ -1,5 +1,6 @@
 const Notification = require('../models/Notification');
 const User = require('../models/User');
+const SystemSettings = require('../models/SystemSettings');
 
 const typeToPrefKey = {
   task_assigned:       'task_assigned',
@@ -17,6 +18,7 @@ const typeToPrefKey = {
   email_opened:        'email_opened',
   call_requested:      'call_requested',
   email_replied:       'email_replied',
+  lead_captured:       'lead_captured',
   auth:                'task_assigned',
 };
 
@@ -34,6 +36,7 @@ const defaults = {
   email_opened: true,
   call_requested: true,
   email_replied: true,
+  lead_captured: true,
 };
 
 /**
@@ -78,19 +81,41 @@ async function dispatch(io, {
 }
 
 /**
- * Same as dispatch(), but fans one event out to every user in the given
- * roles (e.g. every admin + manager) instead of a single recipient — each
- * still gets their own Notification doc and still goes through their own
- * per-user notificationPrefs check via dispatch(). Never throws.
+ * Resolves recipients for `routingKey` from SystemSettings.notificationRouting
+ * (configured in Settings → Notification Routing) and dispatches to the
+ * UNION of "everyone whose role is in the configured roles[]" OR "these
+ * specific userIds" — the two are independent, so a specific user can be
+ * granted the notification with no role selected at all, and role selection
+ * works with zero specific users added. Falls back to admin+manager if this
+ * event has never been configured (SystemSettings doc/key doesn't exist
+ * yet), so behavior is unchanged until someone actually edits it — an
+ * explicitly saved empty rule (no roles, no users) means "notify nobody",
+ * a deliberate admin choice, not a bug. Never throws.
  */
-async function dispatchToRoles(io, { roles, ...event }) {
+async function dispatchByRouting(io, routingKey, event) {
   try {
-    const recipients = await User.find({ role: { $in: roles } }).select('_id');
+    // Deliberately NOT .lean() — a lean query returns the raw stored BSON
+    // and skips Mongoose's schema-default hydration, so on any SystemSettings
+    // document that predates this field it would silently come back
+    // undefined instead of the schema's default rule. A real (hydrated)
+    // document + Map#get() applies the schema default correctly either way.
+    const settings = await SystemSettings.findOne().select('notificationRouting');
+    const rule = settings?.notificationRouting?.get(routingKey);
+
+    const roles   = rule ? (rule.roles   || []) : ['admin', 'manager'];
+    const userIds = rule ? (rule.userIds || []) : [];
+
+    const orClauses = [];
+    if (roles.length)   orClauses.push({ role: { $in: roles } });
+    if (userIds.length) orClauses.push({ _id: { $in: userIds } });
+    if (!orClauses.length) return; // nobody configured to receive this — respected as-is
+
+    const recipients = await User.find({ $or: orClauses }).select('_id');
     await Promise.all(recipients.map((u) => dispatch(io, { ...event, recipient: u._id })));
   } catch (err) {
-    console.error(`[Notif] ❌ dispatchToRoles failed (${event.type}):`, err.message);
+    console.error(`[Notif] ❌ dispatchByRouting failed (${routingKey}):`, err.message);
   }
 }
 
-module.exports = { dispatch, dispatchToRoles };
+module.exports = { dispatch, dispatchByRouting };
 

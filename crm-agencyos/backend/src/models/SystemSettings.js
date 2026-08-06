@@ -13,6 +13,29 @@ const PipelineSchema = new mongoose.Schema({
   wonReasons:  [{ type: String }]
 });
 
+// Who receives a given system-generated notification (e.g. 'email_opened').
+// `roles` and `userIds` are independent and additive — a user gets notified
+// if EITHER their role is in `roles` OR their id is in `userIds`, so a
+// specific person can be granted a notification with no role selected at
+// all (see notificationService.dispatchByRouting). Keyed by event type in a
+// Map on SystemSettings so new notification features just add a new key,
+// no schema migration needed.
+const NotificationRoutingRuleSchema = new mongoose.Schema({
+  roles:   { type: [String], enum: ['admin', 'manager', 'member', 'client_relations'], default: [] },
+  userIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+}, { _id: false });
+
+// Which roles/specific users can access a given sidebar "feature" — same
+// additive OR semantics as NotificationRoutingRuleSchema (role match OR
+// userId match). 'client' is deliberately NOT in the roles enum: the client
+// portal's access to shared endpoints (tasks/todos/meetings/messages) is
+// governed by each route's clientBypass, not by this admin UI — see
+// middleware/authorizeFeature.js.
+const FeatureAccessRuleSchema = new mongoose.Schema({
+  roles:   { type: [String], enum: ['admin', 'manager', 'member', 'client_relations'], default: [] },
+  userIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+}, { _id: false });
+
 const CustomFieldSchema = new mongoose.Schema({
   module:   { type: String, enum: ['Contacts', 'Companies', 'Deals'], required: true },
   name:     { type: String, required: true },
@@ -138,6 +161,55 @@ const SystemSettingsSchema = new mongoose.Schema({
     slackWebhookUrl:             { type: String, default: '' },
     voipEnabled:                 { type: Boolean, default: false },
     marketingAutomationEnabled:  { type: Boolean, default: false }
+  },
+
+  // Notification routing — which roles/specific users receive each
+  // system-generated notification GROUP. 'campaign' covers email opened /
+  // call requested / lead replied as one setting (not one row per event
+  // type); 'lead_capture' covers a new Lead created via an external/public
+  // form integration (witPublicController.captureLead, external-api/
+  // leadCapture) — deliberately separate from 'campaign' since it's a
+  // different kind of event (a brand-new lead, not engagement on an
+  // existing one) an admin may want routed to different people. Defaults
+  // preserve pre-existing hardcoded behavior (admin+manager) until an admin
+  // actually opens Settings → Notification Routing and changes it.
+  notificationRouting: {
+    type: Map,
+    of: NotificationRoutingRuleSchema,
+    default: () => new Map([
+      ['campaign',      { roles: ['admin', 'manager'], userIds: [] }],
+      ['lead_capture',  { roles: ['admin', 'manager'], userIds: [] }],
+    ]),
+  },
+
+  // Feature access control — which roles/specific users can use each sidebar
+  // feature (Settings → Feature Access Control). Defaults are taken verbatim
+  // from the pre-existing hardcoded role arrays in Sidebar.jsx/AppRouter.jsx,
+  // so day-one behavior is unchanged until an admin actually edits a rule.
+  // Enforced for real on the backend, not just hidden in the UI — see
+  // middleware/authorizeFeature.js and routes/index.js.
+  featureAccess: {
+    type: Map,
+    of: FeatureAccessRuleSchema,
+    default: () => new Map([
+      ['dashboard',              { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
+      ['todos',                  { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
+      ['tasks',                  { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
+      ['clients',                { roles: ['admin', 'manager', 'client_relations'],           userIds: [] }],
+      ['leads',                  { roles: ['admin', 'manager', 'client_relations', 'member'], userIds: [] }],
+      ['campaigns',              { roles: ['admin', 'manager'],                               userIds: [] }],
+      ['ads_monitoring',         { roles: ['admin', 'manager'],                               userIds: [] }],
+      ['website_intelligence',   { roles: ['admin', 'manager'],                               userIds: [] }],
+      ['messages',               { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
+      ['meetings',               { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
+      ['reports',                { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
+      ['calendar',               { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
+      ['billing',                { roles: ['admin', 'manager'],                               userIds: [] }],
+      ['team',                   { roles: ['admin', 'manager'],                               userIds: [] }],
+      ['audit_logs',             { roles: ['admin'],                                          userIds: [] }],
+      ['system_monitor',         { roles: ['admin'],                                          userIds: [] }],
+      ['api_keys',               { roles: ['admin'],                                          userIds: [] }],
+    ]),
   },
 
   // Import/Export Control

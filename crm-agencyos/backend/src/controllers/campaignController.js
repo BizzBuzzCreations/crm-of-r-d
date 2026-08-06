@@ -564,8 +564,7 @@ exports.markReplied = async (req, res, next) => {
       const campaign = await Campaign.findById(req.params.id).select('name').lean().catch(() => null);
       if (campaign) {
         const who = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.email;
-        notifService.dispatchToRoles(req.app.get('io'), {
-          roles: ['admin', 'manager'],
+        notifService.dispatchByRouting(req.app.get('io'), 'campaign', {
           type: 'email_replied',
           priority: 'success',
           title: 'Lead replied',
