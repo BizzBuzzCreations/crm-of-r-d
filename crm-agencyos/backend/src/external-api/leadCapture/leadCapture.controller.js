@@ -23,7 +23,7 @@ exports.captureLead = async (req, res) => {
     // slug as-is, so a brand-new site works immediately with no setup here.
     const sourceLabel = SOURCE_NAMES[req.params.source] || req.params.source;
 
-    const { name, email, phone, dealValue, companyName } = req.body || {};
+    const { name, email, phone, dealValue, companyName, debtAmount, contactPreference, situation } = req.body || {};
 
     // Classic spam honeypot: a hidden form field real visitors never see or
     // fill, but naive bots that auto-fill every input on a page do. Reply
@@ -56,6 +56,9 @@ exports.captureLead = async (req, res) => {
       source: 'Web Form',
       assignedTo,
       utmSource: sourceLabel,
+      debtAmount: debtAmount || '',
+      contactPreference: contactPreference || '',
+      situation: situation || '',
       activities: [{
         type: 'create',
         // Notes whether this came in via a verified API key (a trusted
