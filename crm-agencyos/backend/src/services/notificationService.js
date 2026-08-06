@@ -14,6 +14,8 @@ const typeToPrefKey = {
   new_comment:         'new_comment',
   email_sent:          'message_dm',
   email_failed:        'task_assigned',
+  email_opened:        'email_opened',
+  call_requested:      'call_requested',
   auth:                'task_assigned',
 };
 
@@ -27,7 +29,9 @@ const defaults = {
   deal_closed: true,
   new_comment: true,
   lead_assigned: true,
-  lead_mentioned: true
+  lead_mentioned: true,
+  email_opened: true,
+  call_requested: true,
 };
 
 /**

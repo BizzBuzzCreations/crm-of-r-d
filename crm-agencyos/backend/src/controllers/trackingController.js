@@ -6,6 +6,7 @@
 const CampaignLead = require('../models/CampaignLead');
 const Campaign = require('../models/Campaign');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
+const notifService = require('../services/notificationService');
 
 // A lead that opens a campaign email this many times or more is a strong
 // repeat-engagement signal — auto-surfaced in the B2B Leads Pipeline. Keep
@@ -22,6 +23,8 @@ const PIXEL = Buffer.from(
 exports.trackOpen = async (req, res) => {
   const token = String(req.params.token || '').replace(/\.png$/i, '');
   const now = new Date();
+  const io = req.app.get('io'); // grabbed before the async tail below, same as every other controller
+
   CampaignLead.findOneAndUpdate(
     { token },
     {
@@ -32,12 +35,33 @@ exports.trackOpen = async (req, res) => {
       $push: { opens: { $each: [{ at: now, ip: req.ip || '', userAgent: req.headers['user-agent'] || '' }], $slice: -50 } },
     },
     { new: true }
-  ).then((updated) => {
+  ).then(async (updated) => {
+    if (!updated) return;
+
     // Called on every open past the threshold, not just the first — safe/
     // idempotent by design (see leadPipelineSync.js), so it can't lose count
     // under rapid-fire opens racing each other.
-    if (updated && updated.openCount >= HOT_OPEN_THRESHOLD) {
+    if (updated.openCount >= HOT_OPEN_THRESHOLD) {
       syncCampaignLeadToPipeline(updated, 'hot').catch(() => {});
+    }
+
+    // openCount === 1 right after the atomic increment is the same race-proof
+    // "was this the very first" check used for WitSession.pageCount elsewhere
+    // in this codebase — fires exactly once per lead, not on every reopen.
+    if (updated.openCount === 1) {
+      const campaign = await Campaign.findById(updated.campaign).select('name createdBy').lean().catch(() => null);
+      if (campaign?.createdBy) {
+        const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
+        notifService.dispatch(io, {
+          recipient: campaign.createdBy,
+          type: 'email_opened',
+          priority: 'success',
+          title: 'Email opened',
+          message: `${who} just opened your email in "${campaign.name}"`,
+          link: `/campaigns/${campaign._id}`,
+          metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
+        }).catch(() => {});
+      }
     }
   }).catch(() => {}); // fire-and-forget — never delay/fail the pixel response
 
@@ -55,6 +79,7 @@ exports.trackOpen = async (req, res) => {
 exports.requestCall = async (req, res) => {
   const token = String(req.params.token || '');
   const now = new Date();
+  const io = req.app.get('io');
 
   // Unlike trackOpen's pixel (which can't wait on anything before
   // responding), the redirect destination here genuinely depends on which
@@ -76,8 +101,23 @@ exports.requestCall = async (req, res) => {
   // resort so a misconfiguration never errors the recipient's click.
   let dest = '';
   if (updated) {
-    const campaign = await Campaign.findById(updated.campaign).select('settings.redirectUrl').lean().catch(() => null);
+    const campaign = await Campaign.findById(updated.campaign).select('name createdBy settings.redirectUrl').lean().catch(() => null);
     dest = campaign?.settings?.redirectUrl?.trim() || '';
+
+    // Fire-and-forget — a real visitor is waiting on this redirect, so the
+    // notification must never be awaited/delay it (same principle as trackOpen).
+    if (campaign?.createdBy) {
+      const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
+      notifService.dispatch(io, {
+        recipient: campaign.createdBy,
+        type: 'call_requested',
+        priority: 'success',
+        title: 'Call requested',
+        message: `${who} requested a call in "${campaign.name}"`,
+        link: `/campaigns/${campaign._id}`,
+        metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
+      }).catch(() => {});
+    }
   }
   if (!dest) {
     dest = process.env.CALL_REQUEST_REDIRECT_URL
