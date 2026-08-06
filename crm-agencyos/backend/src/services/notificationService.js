@@ -16,6 +16,7 @@ const typeToPrefKey = {
   email_failed:        'task_assigned',
   email_opened:        'email_opened',
   call_requested:      'call_requested',
+  email_replied:       'email_replied',
   auth:                'task_assigned',
 };
 
@@ -32,6 +33,7 @@ const defaults = {
   lead_mentioned: true,
   email_opened: true,
   call_requested: true,
+  email_replied: true,
 };
 
 /**

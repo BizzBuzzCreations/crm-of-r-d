@@ -6,7 +6,7 @@ import {
   Check, PartyPopper, Eye, Calendar, MessageSquare,
   Building2, ClipboardList, Zap, Info, Target, AtSign,
   Trophy, TrendingDown, Send, AlertCircle, MessageCircle,
-  LogIn, Server, BellOff, MailOpen, PhoneCall,
+  LogIn, Server, BellOff, MailOpen, PhoneCall, Reply,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { notificationsAPI } from '../services/api';
@@ -31,6 +31,7 @@ const TYPE_MAP = {
   email_failed:        { icon: AlertCircle,   bg: 'bg-red-100 dark:bg-red-900/40',        color: 'text-red-600 dark:text-red-400'        },
   email_opened:        { icon: MailOpen,      bg: 'bg-emerald-100 dark:bg-emerald-900/40',color: 'text-emerald-600 dark:text-emerald-400' },
   call_requested:      { icon: PhoneCall,     bg: 'bg-emerald-100 dark:bg-emerald-900/40',color: 'text-emerald-600 dark:text-emerald-400' },
+  email_replied:       { icon: Reply,         bg: 'bg-emerald-100 dark:bg-emerald-900/40',color: 'text-emerald-600 dark:text-emerald-400' },
   new_comment:         { icon: MessageCircle, bg: 'bg-sky-100 dark:bg-sky-900/40',        color: 'text-sky-600 dark:text-sky-400'        },
   auth:                { icon: LogIn,         bg: 'bg-indigo-100 dark:bg-indigo-900/40',  color: 'text-indigo-600 dark:text-indigo-400'  },
   system:              { icon: Server,        bg: 'bg-slate-100 dark:bg-slate-700',       color: 'text-slate-600 dark:text-slate-400'    },
@@ -187,7 +188,7 @@ export default function NotificationDrawer({ open, onClose }) {
         'lead_assigned':     ['lead_assigned', 'lead_mentioned', 'lead_won', 'lead_lost'],
         'meeting_scheduled': ['meeting_scheduled'],
         'message_dm':        ['message_dm', 'new_comment'],
-        'email_sent':        ['email_sent', 'email_failed', 'email_opened', 'call_requested'],
+        'email_sent':        ['email_sent', 'email_failed', 'email_opened', 'call_requested', 'email_replied'],
         'system':            ['system', 'auth'],
       }[typeFilter] ?? [typeFilter];
       list = list.filter(n => group.includes(n.type));

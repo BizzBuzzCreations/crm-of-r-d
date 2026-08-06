@@ -129,7 +129,7 @@ emailQueueEvents.on('failed', async ({ jobId, failedReason }) => {
 
 startBillingCron();
 startCampaignDispatcher();
-startReplySyncCron();
+startReplySyncCron(io);
 startMetaAdsSyncCron();
 
 server.listen(PORT, '0.0.0.0', () => {
