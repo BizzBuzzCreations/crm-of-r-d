@@ -11,6 +11,7 @@ const { effectiveDailyLimit } = require('../utils/warmup');
 const { isWithinSendingWindow } = require('../utils/sendingWindow');
 const { checkCampaignReady } = require('../utils/campaignReadiness');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
+const notifService = require('../services/notificationService');
 
 const STUCK_THRESHOLD_MS = 15 * 60000; // scheduled/sending longer than this = likely a queue/worker problem
 function startOfToday() {
@@ -557,7 +558,23 @@ exports.markReplied = async (req, res, next) => {
       { status: 'replied', repliedAt: new Date() },
       { new: true }
     );
-    if (!wasAlreadyReplied) syncCampaignLeadToPipeline(lead, 'replied').catch(() => {});
+    if (!wasAlreadyReplied) {
+      syncCampaignLeadToPipeline(lead, 'replied').catch(() => {});
+
+      const campaign = await Campaign.findById(req.params.id).select('name').lean().catch(() => null);
+      if (campaign) {
+        const who = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.email;
+        notifService.dispatchToRoles(req.app.get('io'), {
+          roles: ['admin', 'manager'],
+          type: 'email_replied',
+          priority: 'success',
+          title: 'Lead replied',
+          message: `${who} replied to an email in campaign "${campaign.name}"`,
+          link: `/campaigns/${campaign._id}`,
+          metadata: { campaignId: String(campaign._id), campaignLeadId: String(lead._id) },
+        }).catch(() => {});
+      }
+    }
     res.json({ success: true, data: lead });
   } catch (err) { next(err); }
 };

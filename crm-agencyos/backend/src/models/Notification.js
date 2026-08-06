@@ -9,7 +9,7 @@ const NotificationSchema = new mongoose.Schema({
       'task_assigned', 'task_approved', 'task_ready_approval',
       'meeting_scheduled', 'message_dm', 'client_update', 'todo_submitted',
       'service_added', 'lead_assigned', 'lead_mentioned',
-      'new_comment', 'email_sent', 'email_failed', 'email_opened', 'call_requested',
+      'new_comment', 'email_sent', 'email_failed', 'email_opened', 'call_requested', 'email_replied',
       'lead_won', 'lead_lost', 'auth', 'system',
     ],
     required: true,

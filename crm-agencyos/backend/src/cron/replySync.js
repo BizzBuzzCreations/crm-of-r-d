@@ -11,17 +11,19 @@ const cron = require('node-cron');
 const { ImapFlow } = require('imapflow');
 const EmailAccount = require('../models/EmailAccount');
 const CampaignLead = require('../models/CampaignLead');
+const Campaign = require('../models/Campaign');
 const { resolveIPv4 } = require('../utils/ipv4');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
+const notifService = require('../services/notificationService');
 
 let tickRunning = false;
 
-function startReplySyncCron() {
-  cron.schedule('*/5 * * * *', runReplySyncTick);
+function startReplySyncCron(io) {
+  cron.schedule('*/5 * * * *', () => runReplySyncTick(io));
   console.log('✅ Reply-sync cron scheduled (every 5 minutes)');
 }
 
-async function runReplySyncTick() {
+async function runReplySyncTick(io) {
   if (tickRunning) { console.warn('[ReplySync] previous tick still running — skipping this one'); return; }
   tickRunning = true;
   try {
@@ -29,7 +31,7 @@ async function runReplySyncTick() {
       imapEnabled: true, isActive: true, isDeleted: { $ne: true },
     }).select('+imapPassEncrypted');
     for (const account of accounts) {
-      await syncAccount(account).catch((e) => console.error(`[ReplySync] ${account.email}:`, e.message));
+      await syncAccount(account, io).catch((e) => console.error(`[ReplySync] ${account.email}:`, e.message));
     }
   } catch (err) {
     console.error('[ReplySync] tick error:', err.message);
@@ -38,7 +40,7 @@ async function runReplySyncTick() {
   }
 }
 
-async function syncAccount(account) {
+async function syncAccount(account, io) {
   const ip = await resolveIPv4(account.imapHost);
   const client = new ImapFlow({
     host: ip || account.imapHost,
@@ -96,8 +98,27 @@ async function syncAccount(account) {
             { status: 'replied', repliedAt: new Date() }
           );
           console.log(`[ReplySync] ${account.email}: ${matched.length} lead(s) marked replied`);
+
+          const campaignIds = [...new Set(matched.map((m) => String(m.campaign)))];
+          const campaigns = await Campaign.find({ _id: { $in: campaignIds } }).select('name').lean().catch(() => []);
+          const campaignById = new Map(campaigns.map((c) => [String(c._id), c]));
+
           for (const m of matched) {
             syncCampaignLeadToPipeline(m, 'replied').catch(() => {});
+
+            const campaign = campaignById.get(String(m.campaign));
+            if (campaign) {
+              const who = [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email;
+              notifService.dispatchToRoles(io, {
+                roles: ['admin', 'manager'],
+                type: 'email_replied',
+                priority: 'success',
+                title: 'Lead replied',
+                message: `${who} replied to an email in campaign "${campaign.name}"`,
+                link: `/campaigns/${campaign._id}`,
+                metadata: { campaignId: String(campaign._id), campaignLeadId: String(m._id) },
+              }).catch(() => {});
+            }
           }
         }
       }
