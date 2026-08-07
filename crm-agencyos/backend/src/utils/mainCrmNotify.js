@@ -55,12 +55,12 @@ async function resolveCredentials() {
   return { apiKey, notifyUrl };
 }
 
-async function notifyMainCrm({ type, email, subject, campaignName, detail }) {
+async function notifyMainCrm({ type, email, phone, subject, campaignName, detail }) {
   try {
     const activityType = ACTIVITY_TYPE_MAP[type];
     if (!activityType) return;
 
-    if (!email) return; // one of lead_id/uid/phone/email is required by the endpoint; email is all we have
+    if (!phone && !email) return; // one of lead_id/uid/phone/email is required by the endpoint
 
     const { apiKey, notifyUrl } = await resolveCredentials();
     if (!apiKey) {
@@ -68,7 +68,14 @@ async function notifyMainCrm({ type, email, subject, campaignName, detail }) {
       return;
     }
 
-    const body = { email, activity_type: activityType };
+    // Send every identifier we actually have, not just one — IVA CRM's docs
+    // only require ONE of lead_id/uid/phone/email, but nothing stops sending
+    // both when known, giving their matcher the best chance of finding the
+    // right lead (e.g. if a phone number is stale/reformatted on their side
+    // but the email still matches, or vice versa).
+    const body = { activity_type: activityType };
+    if (email) body.email = email;
+    if (phone) body.phone = phone;
     if (subject) body.subject = subject;
     if (campaignName) body.campaign_name = campaignName;
     if (detail) body.detail = detail;

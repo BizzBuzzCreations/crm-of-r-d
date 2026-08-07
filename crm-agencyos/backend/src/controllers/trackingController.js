@@ -66,7 +66,7 @@ exports.trackOpen = async (req, res) => {
         }).catch(() => {});
         // Also report this to the main CRM (crms.bizzbuzzcreations.com) so
         // its own users get notified — see utils/mainCrmNotify.
-        notifyMainCrm({ type: 'email_opened', email: updated.email, subject: campaign.subject, campaignName: campaign.name });
+        notifyMainCrm({ type: 'email_opened', email: updated.email, phone: updated.phone, subject: campaign.subject, campaignName: campaign.name });
       }
     }
   }).catch(() => {}); // fire-and-forget — never delay/fail the pixel response
@@ -125,7 +125,7 @@ exports.requestCall = async (req, res) => {
         metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
       }).catch(() => {});
       // Also report this to the main CRM — see utils/mainCrmNotify.
-      notifyMainCrm({ type: 'call_requested', email: updated.email, subject: campaign.subject, campaignName: campaign.name });
+      notifyMainCrm({ type: 'call_requested', email: updated.email, phone: updated.phone, subject: campaign.subject, campaignName: campaign.name });
     }
   }
   if (!dest) {

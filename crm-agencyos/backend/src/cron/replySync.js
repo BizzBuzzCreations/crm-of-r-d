@@ -119,7 +119,7 @@ async function syncAccount(account, io) {
                 metadata: { campaignId: String(campaign._id), campaignLeadId: String(m._id) },
               }).catch(() => {});
               // Also report this to the main CRM — see utils/mainCrmNotify.
-              notifyMainCrm({ type: 'email_replied', email: m.email, subject: campaign.subject, campaignName: campaign.name });
+              notifyMainCrm({ type: 'email_replied', email: m.email, phone: m.phone, subject: campaign.subject, campaignName: campaign.name });
             }
           }
         }
