@@ -241,6 +241,7 @@ campaignsRouter.get('/:id/diagnose',              campaignCtrl.diagnoseCampaign)
 campaignsRouter.post('/:id/resolve-stuck',        campaignCtrl.resolveStuckLeads);
 campaignsRouter.get('/:id/leads',                 campaignCtrl.getCampaignLeads);
 campaignsRouter.post('/:id/leads/import',         upload.single('file'), campaignCtrl.importLeads);
+campaignsRouter.post('/:id/leads/update-phones',  upload.single('file'), campaignCtrl.updateLeadPhones); // backfill phone on existing leads — before /:leadId routes
 campaignsRouter.post('/:id/leads/verify-all',     campaignCtrl.verifyAllLeads);   // before /:leadId routes
 campaignsRouter.delete('/:id/leads/:leadId',      campaignCtrl.deleteCampaignLead);
 campaignsRouter.post('/:id/leads/:leadId/verify', campaignCtrl.verifyLead);

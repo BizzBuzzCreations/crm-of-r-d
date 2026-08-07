@@ -1088,6 +1088,32 @@ const useAppStore = create((set, get, store) => ({
     await get().loadCampaignLeads(campaignId);
     return result;
   },
+  // Backfills `phone` on leads ALREADY in the campaign (matched by email) —
+  // safe on a live/actively-sending campaign, unlike re-running import.
+  updateCampaignLeadPhonesCsv: async (campaignId, file) => {
+    try {
+      const { data } = await campaignsAPI.updatePhonesCsv(campaignId, file);
+      return await get()._reportPhoneUpdate(campaignId, data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update phone numbers');
+      throw err;
+    }
+  },
+  updateCampaignLeadPhonesSheet: async (campaignId, googleSheetUrl) => {
+    try {
+      const { data } = await campaignsAPI.updatePhonesSheet(campaignId, googleSheetUrl);
+      return await get()._reportPhoneUpdate(campaignId, data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update phone numbers from Google Sheet');
+      throw err;
+    }
+  },
+  _reportPhoneUpdate: async (campaignId, result) => {
+    const { updated, notFound, skippedNoPhone } = result;
+    toast.success(`Updated ${updated} phone number${updated === 1 ? '' : 's'}${notFound ? ` (${notFound} emails not found in this campaign)` : ''}${skippedNoPhone ? ` (${skippedNoPhone} rows had no phone)` : ''}`);
+    await get().loadCampaignLeads(campaignId);
+    return result;
+  },
   verifyCampaignLead: async (campaignId, leadId) => {
     try {
       const { data } = await campaignsAPI.verifyLead(campaignId, leadId);

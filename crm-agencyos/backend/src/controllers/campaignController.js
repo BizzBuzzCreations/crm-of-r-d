@@ -376,6 +376,9 @@ const HEADER_ALIASES = {
   email:     ['email', 'e-mail', 'emailaddress'],
   firstName: ['first_name', 'firstname', 'first name', 'fname'],
   lastName:  ['last_name', 'lastname', 'last name', 'lname'],
+  // Optional — see CampaignLead.phone. 'number' included because that's
+  // literally the column name asked for alongside email/first/last name.
+  phone:     ['phone', 'phone_number', 'phonenumber', 'phone number', 'number', 'mobile', 'mobile_number', 'contact_number', 'contact number'],
 };
 
 function normalizeHeader(h) { return String(h || '').trim().toLowerCase(); }
@@ -390,6 +393,7 @@ function mapRow(row) {
     email: find(HEADER_ALIASES.email).toLowerCase(),
     firstName: find(HEADER_ALIASES.firstName),
     lastName: find(HEADER_ALIASES.lastName),
+    phone: find(HEADER_ALIASES.phone),
   };
 }
 
@@ -424,6 +428,7 @@ exports.importLeads = async (req, res, next) => {
         email: String(l.email || '').trim().toLowerCase(),
         firstName: String(l.firstName || l.first_name || '').trim(),
         lastName: String(l.lastName || l.last_name || '').trim(),
+        phone: String(l.phone || l.number || '').trim(),
       }));
     } else {
       return res.status(400).json({ success: false, message: 'Upload a CSV file, a Google Sheet link, or provide a leads array' });
@@ -435,7 +440,7 @@ exports.importLeads = async (req, res, next) => {
     for (const r of rows) {
       if (!r.email || !EMAIL_RE.test(r.email) || seen.has(r.email)) { if (r.email) invalidCount++; continue; }
       seen.add(r.email);
-      valid.push({ campaign: campaign._id, email: r.email, firstName: r.firstName, lastName: r.lastName });
+      valid.push({ campaign: campaign._id, email: r.email, firstName: r.firstName, lastName: r.lastName, phone: r.phone || '' });
     }
 
     if (!valid.length) {
@@ -481,6 +486,76 @@ exports.importLeads = async (req, res, next) => {
       success: true,
       data: { imported: created.length, skippedDuplicates: valid.length - toInsert.length, invalidRows: invalidCount },
     });
+  } catch (err) { next(err); }
+};
+
+// POST /api/campaigns/:id/leads/update-phones — backfills the `phone` field
+// on leads ALREADY in this campaign, matched by email. Deliberately separate
+// from importLeads: that endpoint is insert-only and silently skips any
+// email already present (so re-uploading the same file with a phone column
+// added would import zero of the existing rows — the phone data would just
+// be dropped). This is the safe way to add phone numbers to a campaign
+// that's already actively sending: it only ever $set's `phone`, never
+// touches status/verification/send progress, so it can't disrupt anything
+// currently in flight. Accepts the same three input shapes as importLeads.
+exports.updateLeadPhones = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
+
+    let rows = [];
+    if (req.file) {
+      const csvText = fs.readFileSync(req.file.path, 'utf8');
+      fs.unlink(req.file.path, () => {});
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      rows = records.map(mapRow);
+    } else if (req.body.googleSheetUrl) {
+      let csvText;
+      try {
+        csvText = await fetchGoogleSheetCsv(req.body.googleSheetUrl);
+      } catch (sheetErr) {
+        return res.status(400).json({ success: false, message: sheetErr.message });
+      }
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      rows = records.map(mapRow);
+    } else if (Array.isArray(req.body.leads)) {
+      rows = req.body.leads.map((l) => ({
+        email: String(l.email || '').trim().toLowerCase(),
+        phone: String(l.phone || l.number || '').trim(),
+      }));
+    } else {
+      return res.status(400).json({ success: false, message: 'Upload a CSV file, a Google Sheet link, or provide a leads array' });
+    }
+
+    const seen = new Set();
+    const ops = [];
+    let skippedNoPhone = 0;
+    for (const r of rows) {
+      if (!r.email || !EMAIL_RE.test(r.email) || seen.has(r.email)) continue;
+      seen.add(r.email);
+      if (!r.phone) { skippedNoPhone++; continue; }
+      ops.push({
+        updateOne: {
+          filter: { campaign: campaign._id, email: r.email },
+          update: { $set: { phone: r.phone } },
+        },
+      });
+    }
+
+    if (!ops.length) {
+      return res.status(400).json({ success: false, message: 'No rows with both a valid email and a phone number found' });
+    }
+
+    const result = await CampaignLead.bulkWrite(ops, { ordered: false });
+    const updated = result.matchedCount ?? result.nMatched ?? 0;
+    const notFound = ops.length - updated;
+
+    audit.log(req, {
+      action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name,
+      metadata: { phonesUpdated: updated, notFoundInCampaign: notFound, skippedNoPhone },
+    });
+
+    res.json({ success: true, data: { updated, notFound, skippedNoPhone } });
   } catch (err) { next(err); }
 };
 
@@ -574,7 +649,7 @@ exports.markReplied = async (req, res, next) => {
           metadata: { campaignId: String(campaign._id), campaignLeadId: String(lead._id) },
         }).catch(() => {});
         // Also report this to the main CRM — see utils/mainCrmNotify.
-        notifyMainCrm({ type: 'email_replied', email: lead.email, subject: campaign.subject, campaignName: campaign.name });
+        notifyMainCrm({ type: 'email_replied', email: lead.email, phone: lead.phone, subject: campaign.subject, campaignName: campaign.name });
       }
     }
     res.json({ success: true, data: lead });

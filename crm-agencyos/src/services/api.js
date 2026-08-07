@@ -360,6 +360,15 @@ export const campaignsAPI = {
   },
   importLeadsJson: (id, leads)     => api.post(`/campaigns/${id}/leads/import`, { leads }),
   importLeadsSheet: (id, googleSheetUrl) => api.post(`/campaigns/${id}/leads/import`, { googleSheetUrl }),
+  // Backfills `phone` on leads ALREADY in the campaign (matched by email) —
+  // safe on a live/actively-sending campaign, unlike re-running import
+  // (which is insert-only and silently skips emails already present).
+  updatePhonesCsv: (id, file)      => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/campaigns/${id}/leads/update-phones`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  updatePhonesSheet: (id, googleSheetUrl) => api.post(`/campaigns/${id}/leads/update-phones`, { googleSheetUrl }),
   deleteLead:    (id, leadId)      => api.delete(`/campaigns/${id}/leads/${leadId}`),
   markReplied:   (id, leadId)      => api.post(`/campaigns/${id}/leads/${leadId}/mark-replied`),
   verifyLead:    (id, leadId)      => api.post(`/campaigns/${id}/leads/${leadId}/verify`),

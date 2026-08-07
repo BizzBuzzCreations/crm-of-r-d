@@ -9,7 +9,7 @@ import {
   ArrowLeft, Play, Pause, Trash2, Upload, Send, MailOpen, MousePointerClick,
   Users, XCircle, AlertTriangle, Ban, MessageSquareOff, Settings2, ListChecks,
   FileSpreadsheet, UserPlus, ShieldCheck, ShieldAlert, ShieldQuestion, RefreshCw, Loader2,
-  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download, Flame, PhoneCall,
+  BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download, Flame, PhoneCall, Phone,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Page, Button, Tabs, Input, Toggle, Select, StatCard, EmptyState, ConfirmDialog, Modal } from '../components/ui';
@@ -65,9 +65,9 @@ function formatOpenHistory(lead) {
 // Client-side CSV export for the leads table — data's already loaded in the
 // browser, no need for a round trip to build a download.
 function downloadLeadsCSV(leads, filename) {
-  const headers = ['Email', 'First Name', 'Last Name', 'Status', 'Verification', 'Provider', 'Opens', 'Clicks', 'Sent At', 'Error'];
+  const headers = ['Email', 'Phone', 'First Name', 'Last Name', 'Status', 'Verification', 'Provider', 'Opens', 'Clicks', 'Sent At', 'Error'];
   const rows = leads.map((l) => [
-    l.email, l.firstName || '', l.lastName || '', l.status, l.verificationStatus || '',
+    l.email, l.phone || '', l.firstName || '', l.lastName || '', l.status, l.verificationStatus || '',
     l.provider || '', l.openCount || 0, l.clickCount || 0,
     l.sentAt ? new Date(l.sentAt).toLocaleString() : '', l.error || '',
   ]);
@@ -264,6 +264,7 @@ export default function CampaignDetailPage() {
     loadCampaign, loadCampaignLeads, loadEmailAccounts,
     updateCampaign, deleteCampaign, startCampaign, pauseCampaign, scheduleCampaign, unscheduleCampaign,
     importCampaignLeadsCsv, importCampaignLeadsSheet, addCampaignLeadManual,
+    updateCampaignLeadPhonesCsv,
     deleteCampaignLead, markCampaignLeadReplied, verifyCampaignLead, verifyAllCampaignLeads,
     diagnoseCampaign, resolveStuckCampaignLeads,
   } = useAppStore(useShallow((s) => ({
@@ -283,6 +284,7 @@ export default function CampaignDetailPage() {
     importCampaignLeadsCsv: s.importCampaignLeadsCsv,
     importCampaignLeadsSheet: s.importCampaignLeadsSheet,
     addCampaignLeadManual: s.addCampaignLeadManual,
+    updateCampaignLeadPhonesCsv: s.updateCampaignLeadPhonesCsv,
     deleteCampaignLead: s.deleteCampaignLead,
     markCampaignLeadReplied: s.markCampaignLeadReplied,
     verifyCampaignLead: s.verifyCampaignLead,
@@ -300,6 +302,8 @@ export default function CampaignDetailPage() {
   const [unscheduling, setUnscheduling] = useState(false);
   const fileInputRef = useRef(null);
   const [importing, setImporting] = useState(false);
+  const phoneFileInputRef = useRef(null);
+  const [updatingPhones, setUpdatingPhones] = useState(false);
 
   useEffect(() => {
     loadCampaign(id);
@@ -339,6 +343,18 @@ export default function CampaignDetailPage() {
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handlePhoneFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUpdatingPhones(true);
+    try {
+      await updateCampaignLeadPhonesCsv(campaign._id, file);
+    } finally {
+      setUpdatingPhones(false);
+      if (phoneFileInputRef.current) phoneFileInputRef.current.value = '';
     }
   };
 
@@ -441,6 +457,9 @@ export default function CampaignDetailPage() {
           onFileSelected={handleFileSelected}
           onImportSheet={(url) => importCampaignLeadsSheet(campaign._id, url)}
           onAddManual={(lead) => addCampaignLeadManual(campaign._id, lead)}
+          phoneFileInputRef={phoneFileInputRef}
+          onPhoneFileSelected={handlePhoneFileSelected}
+          updatingPhones={updatingPhones}
           onDeleteLead={(leadId) => deleteCampaignLead(campaign._id, leadId)}
           onMarkReplied={(leadId) => markCampaignLeadReplied(campaign._id, leadId)}
           onVerifyLead={(leadId) => verifyCampaignLead(campaign._id, leadId)}
@@ -690,11 +709,19 @@ const ADD_MODES = [
   { value: 'csv',    label: 'Upload CSV',        icon: Upload },
   { value: 'manual', label: 'Add Manually',      icon: UserPlus },
   { value: 'sheet',  label: 'Google Sheet',      icon: FileSpreadsheet },
+  // Backfills phone numbers onto leads ALREADY in the campaign, matched by
+  // email — separate from Upload CSV, which is insert-only and silently
+  // skips any email already present (so it can't be used to add phone
+  // numbers to a campaign that's already running).
+  { value: 'update-phones', label: 'Update Phones', icon: Phone },
 ];
 
-function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, onImportSheet, onAddManual, onDeleteLead, onMarkReplied, onVerifyLead, onVerifyAll }) {
+function LeadsTab({
+  campaign, leads, importing, fileInputRef, onFileSelected, onImportSheet, onAddManual, onDeleteLead, onMarkReplied, onVerifyLead, onVerifyAll,
+  phoneFileInputRef, onPhoneFileSelected, updatingPhones,
+}) {
   const [mode, setMode] = useState('csv');
-  const [manualForm, setManualForm] = useState({ email: '', firstName: '', lastName: '' });
+  const [manualForm, setManualForm] = useState({ email: '', firstName: '', lastName: '', phone: '' });
   const [addingManual, setAddingManual] = useState(false);
   const [sheetUrl, setSheetUrl] = useState('');
   const [importingSheet, setImportingSheet] = useState(false);
@@ -717,7 +744,7 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
     setAddingManual(true);
     try {
       await onAddManual(manualForm);
-      setManualForm({ email: '', firstName: '', lastName: '' });
+      setManualForm({ email: '', firstName: '', lastName: '', phone: '' });
     } finally {
       setAddingManual(false);
     }
@@ -782,7 +809,7 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
               {importing ? 'Importing…' : 'Click to upload a CSV file'}
             </p>
             <p className="text-[11.5px] text-slate-500 dark:text-slate-400">
-              Columns: <code className="font-mono">email, first_name, last_name</code>
+              Columns: <code className="font-mono">email, first_name, last_name, phone</code> (phone optional)
             </p>
             <input
               id="campaign-csv-upload"
@@ -816,6 +843,12 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
                 value={manualForm.lastName} onChange={(e) => setManualForm((f) => ({ ...f, lastName: e.target.value }))}
               />
             </div>
+            <div className="flex-1 w-full">
+              <Input
+                label="Phone" placeholder="Optional"
+                value={manualForm.phone} onChange={(e) => setManualForm((f) => ({ ...f, phone: e.target.value }))}
+              />
+            </div>
             <Button type="submit" variant="primary" loading={addingManual} disabled={!manualForm.email.trim()}>
               <UserPlus size={14} /> Add Lead
             </Button>
@@ -838,9 +871,38 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
             </div>
             <p className="text-[11.5px] text-slate-500 dark:text-slate-400">
               Sheet must be shared as <strong>"Anyone with the link can view"</strong> (Share → General access), with column headers
-              <code className="font-mono mx-1">email, first_name, last_name</code> in the first sheet tab.
+              <code className="font-mono mx-1">email, first_name, last_name, phone</code> (phone optional) in the first sheet tab.
             </p>
           </form>
+        )}
+
+        {mode === 'update-phones' && (
+          <label
+            htmlFor="campaign-phone-upload"
+            className={cn(
+              'flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed rounded-xl cursor-pointer transition-colors',
+              updatingPhones ? 'opacity-60 pointer-events-none' : 'hover:border-primary-400 hover:bg-primary-50/50 dark:hover:bg-primary-900/10',
+              'border-slate-300 dark:border-slate-600'
+            )}
+          >
+            <Phone size={22} className="text-slate-400" />
+            <p className="text-[13.5px] font-medium text-slate-700 dark:text-slate-300">
+              {updatingPhones ? 'Updating…' : 'Click to upload a CSV of phone numbers'}
+            </p>
+            <p className="text-[11.5px] text-slate-500 dark:text-slate-400 text-center px-6">
+              Columns: <code className="font-mono">email, phone</code> — only updates leads already in this campaign
+              (matched by email); safe to run while it's actively sending. Doesn't add new leads.
+            </p>
+            <input
+              id="campaign-phone-upload"
+              ref={phoneFileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={onPhoneFileSelected}
+              disabled={updatingPhones}
+            />
+          </label>
         )}
       </div>
 
@@ -894,6 +956,7 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-700 text-left text-slate-500 dark:text-slate-400">
                     <th className="px-4 py-2.5 font-medium">Email</th>
+                    <th className="px-4 py-2.5 font-medium">Phone</th>
                     <th className="px-4 py-2.5 font-medium">First Name</th>
                     <th className="px-4 py-2.5 font-medium">Last Name</th>
                     <th className="px-4 py-2.5 font-medium">Verification</th>
@@ -914,6 +977,7 @@ function LeadsTab({ campaign, leads, importing, fileInputRef, onFileSelected, on
                     return (
                       <tr key={l._id} className="border-b border-slate-100 dark:border-slate-800 last:border-0">
                         <td className="px-4 py-2.5 text-slate-800 dark:text-slate-200">{l.email}</td>
+                        <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{l.phone || '—'}</td>
                         <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{l.firstName || '—'}</td>
                         <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{l.lastName || '—'}</td>
                         <td className="px-4 py-2.5">

@@ -19,6 +19,10 @@ const CampaignLeadSchema = new mongoose.Schema({
   email:      { type: String, required: [true, 'Email is required'], trim: true, lowercase: true },
   firstName:  { type: String, default: '' },
   lastName:   { type: String, default: '' },
+  // Optional — imported alongside email/first/last name. Sent together with
+  // email when reporting engagement to IVA CRM (see utils/mainCrmNotify.js),
+  // giving their lead-matcher both identifiers to work with instead of just one.
+  phone:      { type: String, default: '', trim: true },
 
   status: {
     type: String,
