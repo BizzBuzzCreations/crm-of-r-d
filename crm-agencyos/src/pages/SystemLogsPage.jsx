@@ -98,6 +98,14 @@ function StatusDot({ online }) {
   );
 }
 
+// Auto-scales MB/GB — disk sizes in raw MB (e.g. "51200 MB / 102400 MB")
+// read far worse than "50.0 GB / 100.0 GB", but memory panels still want MB.
+function fmtBytes(n) {
+  const gb = n / 1024 / 1024 / 1024;
+  if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  return `${Math.round(n / 1024 / 1024)} MB`;
+}
+
 function MemBar({ used, total, label }) {
   const pct = total > 0 ? Math.round((used / total) * 100) : 0;
   const color = pct > 85 ? 'bg-red-500' : pct > 60 ? 'bg-yellow-500' : 'bg-emerald-500';
@@ -105,7 +113,7 @@ function MemBar({ used, total, label }) {
     <div className="space-y-1">
       <div className="flex justify-between text-[11px] text-slate-400">
         <span>{label}</span>
-        <span>{Math.round(used / 1024 / 1024)} MB / {Math.round(total / 1024 / 1024)} MB ({pct}%)</span>
+        <span>{fmtBytes(used)} / {fmtBytes(total)} ({pct}%)</span>
       </div>
       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
         <div className={cn('h-full rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
@@ -135,7 +143,7 @@ function HealthPanel({ status, loading, onRefresh }) {
     </div>
   );
 
-  const { server, memory, cpu, services, pm2 } = status;
+  const { server, memory, cpu, services, pm2, disk } = status;
   const mongoOk  = services?.mongodb  === 'connected';
   const redisOk  = services?.redis    === 'connected';
   const backendOk = services?.backend  === 'online';
@@ -174,6 +182,16 @@ function HealthPanel({ status, loading, onRefresh }) {
           <MemBar label="System"    used={memory.sysTotal - memory.sysFree} total={memory.sysTotal} />
         </div>
       </div>
+
+      {/* Disk */}
+      {disk && (
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2.5">Disk</p>
+          <div className="space-y-3">
+            <MemBar label="Root (/)" used={disk.used} total={disk.total} />
+          </div>
+        </div>
+      )}
 
       {/* Server info */}
       <div>
