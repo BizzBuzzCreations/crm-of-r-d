@@ -135,6 +135,24 @@ exports.getSystemStatus = async (req, res, next) => {
       }));
     } catch { /* PM2 not available */ }
 
+    // Disk usage for the root filesystem — the classic "VPS silently died
+    // because logs/uploads/MongoDB's data dir filled the disk" failure mode
+    // that none of the checks above catch. Same local-shell-command pattern
+    // as the PM2 check above; degrades to `disk: null` rather than failing
+    // the whole endpoint if `df` isn't available (e.g. a non-POSIX host).
+    let disk = null;
+    try {
+      const { execSync } = require('child_process');
+      const out = execSync('df -k / | tail -1', { timeout: 2000, encoding: 'utf8' });
+      const parts = out.trim().split(/\s+/);
+      const totalKb = Number(parts[1]);
+      const usedKb  = Number(parts[2]);
+      const availKb = Number(parts[3]);
+      if (Number.isFinite(totalKb) && Number.isFinite(usedKb) && Number.isFinite(availKb)) {
+        disk = { total: totalKb * 1024, used: usedKb * 1024, available: availKb * 1024 };
+      }
+    } catch { /* df not available */ }
+
     res.json({
       success: true,
       data: {
@@ -164,6 +182,7 @@ exports.getSystemStatus = async (req, res, next) => {
           redis:    redisStatus,
         },
         pm2: pm2Processes,
+        disk,
         logDir: LOG_DIR,
         ts: new Date().toISOString(),
       },
