@@ -19,6 +19,7 @@ const typeToPrefKey = {
   call_requested:      'call_requested',
   email_replied:       'email_replied',
   lead_captured:       'lead_captured',
+  campaign_response:   'campaign_response',
   auth:                'task_assigned',
 };
 
@@ -37,6 +38,7 @@ const defaults = {
   call_requested: true,
   email_replied: true,
   lead_captured: true,
+  campaign_response: true,
 };
 
 /**

@@ -38,6 +38,22 @@ exports.protect = async (req, res, next) => {
       }
     }
 
+    // read_only sees everything (enforced centrally in authorize/authorizeRoles/
+    // authorizeFeature below) but can never write — blocked here, once, for
+    // every router that calls protect, rather than at each of the ~20
+    // individual router definitions. Two exemptions: managing their own
+    // account (login/logout/password/profile) and their own notifications
+    // (mark-read/dismiss) aren't "changes to the business" — blocking those
+    // would make the role frustratingly unusable for no security benefit.
+    const writeMethods = ['POST', 'PUT', 'PATCH', 'DELETE'];
+    const isSelfServiceRoute = req.originalUrl.startsWith('/api/auth') || req.originalUrl.startsWith('/api/notifications');
+    if (user.role === 'read_only' && writeMethods.includes(req.method) && !isSelfServiceRoute) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has read-only access — changes are not permitted.',
+      });
+    }
+
     req.user = user;
     next();
   } catch (err) {
@@ -47,6 +63,10 @@ exports.protect = async (req, res, next) => {
 
 // Role guard
 exports.authorize = (...roles) => (req, res, next) => {
+  // read_only can view anything gated by this middleware, regardless of the
+  // specific roles list passed in — see protect() above for the write-side
+  // enforcement that makes this safe.
+  if (req.user.role === 'read_only' && req.method === 'GET') return next();
   if (!roles.includes(req.user.role)) {
     return res.status(403).json({
       success: false,
@@ -74,6 +94,7 @@ exports.authorizeOrFlag = (roles, flagField) => (req, res, next) => {
 
 // Strict Role Guard for corporate financial permissions
 exports.authorizeRoles = (...allowedRoles) => (req, res, next) => {
+  if (req.user?.role === 'read_only' && req.method === 'GET') return next();
   if (!allowedRoles.includes(req.user?.role)) {
     return res.status(403).json({
       message: "Access denied. Insufficient corporate permissions."

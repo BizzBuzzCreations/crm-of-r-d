@@ -13,6 +13,11 @@ const ClickEventSchema = new mongoose.Schema({
   url: { type: String, default: '' },
 }, { _id: false });
 
+const ResponseEventSchema = new mongoose.Schema({
+  at:     { type: Date, default: Date.now },
+  option: { type: String, default: '' },
+}, { _id: false });
+
 const CampaignLeadSchema = new mongoose.Schema({
   campaign:   { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign', required: true },
 
@@ -58,8 +63,26 @@ const CampaignLeadSchema = new mongoose.Schema({
   callRequestedAt: { type: Date, default: null },
   error:          { type: String, default: '' },
 
+  // Checkbox-style response options (see Campaign.settings.responseOptions
+  // and the {{response_options}} merge tag) — which option this lead
+  // clicked, if any. responses[] keeps the full history (a lead could click
+  // more than one link over time); responseOption/respondedAt are the most
+  // recent, for cheap sort/filter — same denormalization pattern as opens/clicks.
+  responseOption: { type: String, default: '' },
+  respondedAt:    { type: Date, default: null },
+  responses:      { type: [ResponseEventSchema], default: [] },
+
+  // Auto-follow-up (see cron/followUpDispatcher.js) — its own lifecycle,
+  // deliberately separate from status/sentAt/error above so the original
+  // send's outcome is never overwritten by the follow-up attempt.
+  followUpStatus:     { type: String, enum: ['none', 'queued', 'sending', 'sent', 'failed'], default: 'none' },
+  followUpSentAt:      { type: Date, default: null },
+  followUpAccountUsed: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailAccount', default: null },
+  followUpError:       { type: String, default: '' },
+
   // Single opaque token used for the open pixel, click redirects, and the
-  // unsubscribe link — unguessable, unrelated to the Mongo _id.
+  // unsubscribe link — unguessable, unrelated to the Mongo _id. Also reused
+  // for the follow-up email's tracking links (see workers/campaignWorker.js).
   token: { type: String, unique: true, default: () => crypto.randomBytes(16).toString('hex') },
 }, { timestamps: true });
 

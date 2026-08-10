@@ -39,27 +39,34 @@ function companyGuess(campaignLead) {
 }
 
 // reason: 'hot' (3+ opens, safe to call repeatedly) | 'replied' | 'call_requested'
-// (both fire meaningfully once, on the first crossing — see the `already*`
-// guards below)
-async function doSync(campaignLead, reason) {
+// | 'response' (a checkbox-style response link — see trackingController
+// .trackResponse; pass `{ responseOption }` as the 3rd param for the actual
+// text) — all three of replied/call_requested/response fire meaningfully
+// once, on the first crossing (see the `already*` guards below)
+async function doSync(campaignLead, reason, extra = {}) {
   const campaign = await Campaign.findById(campaignLead.campaign).select('name').lean();
   const campaignName = campaign?.name || 'a campaign';
   const existing = await findLeadByEmail(campaignLead.email);
+  const responseOption = extra.responseOption || '';
 
   if (!existing) {
     const assignedTo = await autoAssignLead();
     const isEngagementOnly = reason === 'hot'; // 'hot' alone doesn't imply the lead has actually engaged back yet
-    const tag = reason === 'hot' ? 'Hot' : reason === 'replied' ? 'Replied' : 'Call Requested';
+    const tag = reason === 'hot' ? 'Hot' : reason === 'replied' ? 'Replied' : reason === 'call_requested' ? 'Call Requested' : 'Responded';
     const noteText = reason === 'hot'
       ? `Auto-created — opened campaign "${campaignName}" ${campaignLead.openCount}+ times.`
       : reason === 'replied'
         ? `Auto-created — replied to campaign "${campaignName}".`
-        : `Auto-created — requested a call via campaign "${campaignName}".`;
+        : reason === 'call_requested'
+          ? `Auto-created — requested a call via campaign "${campaignName}".`
+          : `Auto-created — responded "${responseOption}" to campaign "${campaignName}".`;
     const activityText = reason === 'hot'
       ? '🔥 Auto-added to pipeline as Hot from campaign engagement'
       : reason === 'replied'
         ? '📨 Auto-added to pipeline from campaign reply'
-        : '📞 Auto-added to pipeline — requested a call';
+        : reason === 'call_requested'
+          ? '📞 Auto-added to pipeline — requested a call'
+          : `💬 Auto-added to pipeline — responded "${responseOption}"`;
     return Lead.create({
       companyName: companyGuess(campaignLead),
       contactPerson: displayName(campaignLead),
@@ -111,8 +118,8 @@ async function doSync(campaignLead, reason) {
     return existing;
   }
 
-  // reason === 'replied' | 'call_requested' — both fire meaningfully once
-  const tag = reason === 'replied' ? 'Replied' : 'Call Requested';
+  // reason === 'replied' | 'call_requested' | 'response' — all fire meaningfully once
+  const tag = reason === 'replied' ? 'Replied' : reason === 'call_requested' ? 'Call Requested' : 'Responded';
   const already = existing.tags?.includes(tag);
   await Lead.updateOne({ _id: existing._id }, {
     $set: attributionSet,
@@ -124,7 +131,9 @@ async function doSync(campaignLead, reason) {
     // not keep incrementing, same as the "hot" branch's alreadyHot guard.
     const activityText = reason === 'replied'
       ? `📨 Replied to campaign "${campaignName}"`
-      : `📞 Requested a call via campaign "${campaignName}"`;
+      : reason === 'call_requested'
+        ? `📞 Requested a call via campaign "${campaignName}"`
+        : `💬 Responded "${responseOption}" to campaign "${campaignName}"`;
     await Lead.updateOne({ _id: existing._id }, {
       $inc: { interactionsCount: 1 },
       $push: { activities: { type: 'note', text: activityText, performedBy: 'System' } },
@@ -133,14 +142,14 @@ async function doSync(campaignLead, reason) {
   return existing;
 }
 
-async function syncCampaignLeadToPipeline(campaignLead, reason) {
+async function syncCampaignLeadToPipeline(campaignLead, reason, extra = {}) {
   const key = String(campaignLead.email || '').toLowerCase();
   if (!key) return null;
 
   // Chain onto whatever's already pending for this email — a rejected prior
   // call is swallowed here so it can't break the chain for calls behind it.
   const prior = queues.get(key) || Promise.resolve();
-  const settled = prior.catch(() => {}).then(() => doSync(campaignLead, reason));
+  const settled = prior.catch(() => {}).then(() => doSync(campaignLead, reason, extra));
   queues.set(key, settled);
 
   try {
