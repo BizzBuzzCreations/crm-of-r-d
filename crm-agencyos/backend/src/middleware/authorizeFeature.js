@@ -59,6 +59,12 @@ exports.invalidateFeatureAccessCache = () => { cache.at = 0; };
  */
 exports.authorizeFeature = (featureKey, defaultRoles, { clientBypass = false } = {}) => async (req, res, next) => {
   if (clientBypass && req.user.role === 'client') return next();
+  // read_only always sees every feature, unconditionally — not routed through
+  // the admin-configurable roles[]/userIds[] below, same "structural, not
+  // admin-configurable" treatment clientBypass gives the client role above.
+  // Writes are blocked centrally in protect() (middleware/auth.js), so
+  // letting every feature through here is safe.
+  if (req.user.role === 'read_only') return next();
 
   const map = await getFeatureAccessMap();
   const rule = map[featureKey];

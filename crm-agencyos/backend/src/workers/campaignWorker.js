@@ -89,7 +89,21 @@ async function getTransporter(account) {
 }
 
 // ── Merge tags ────────────────────────────────────────────────────────────
-function renderMergeTags(template, lead) {
+// Checkbox-style response options — one tracked link per configured option
+// (see Campaign.settings.responseOptions), each hitting
+// trackingController.trackResponse with its own ?option= value. Plain
+// tracked links, not AMP4Email — works in every client immediately, no
+// Google domain approval needed.
+function buildResponseOptionsHtml(options, token) {
+  if (!Array.isArray(options) || !options.length) return '';
+  const links = options.map((opt) => {
+    const url = `${apiBase}/api/campaigns/track/response/${token}?option=${encodeURIComponent(opt)}`;
+    return `<p style="margin:4px 0;"><a href="${url}">${opt}</a></p>`;
+  }).join('');
+  return `<div style="margin:16px 0;">${links}</div>`;
+}
+
+function renderMergeTags(template, lead, responseOptions) {
   return String(template || '')
     .replace(/\{\{\s*first_?name\s*\}\}/gi, lead.firstName || 'there')
     .replace(/\{\{\s*last_?name\s*\}\}/gi, lead.lastName || '')
@@ -103,7 +117,8 @@ function renderMergeTags(template, lead) {
     // destination (Settings tab → "Redirect URL"). `lead` here is the
     // CampaignLead doc, so `.token` (used for open/click/unsubscribe
     // tracking already) is available.
-    .replace(/\{\{\s*redirect_url\s*\}\}/gi, `${apiBase}/api/campaigns/track/call-request/${lead.token}`);
+    .replace(/\{\{\s*redirect_url\s*\}\}/gi, `${apiBase}/api/campaigns/track/call-request/${lead.token}`)
+    .replace(/\{\{\s*response_options\s*\}\}/gi, buildResponseOptionsHtml(responseOptions, lead.token));
 }
 
 // ── Tracking / unsubscribe injection ─────────────────────────────────────
@@ -188,37 +203,54 @@ const spamSafeHeaders = (account, unsubUrl) => ({
 });
 
 // ── Worker ───────────────────────────────────────────────────────────────
+// Handles both the original send (job name CAMPAIGN_EMAIL) and the
+// auto-follow-up send (CAMPAIGN_FOLLOWUP_EMAIL, see cron/followUpDispatcher.js)
+// — same queue, same transporter cache, same SMTP-error classification, but
+// the follow-up writes to its own followUpStatus/followUpSentAt/
+// followUpAccountUsed/followUpError fields so it never overwrites the
+// original send's outcome.
 const worker = new Worker('campaign-queue', async (job) => {
   const { campaignLeadId } = job.data;
+  const isFollowUp = job.name === 'CAMPAIGN_FOLLOWUP_EMAIL';
 
   const lead = await CampaignLead.findById(campaignLeadId);
   if (!lead) { log(`Job ${job.id} — lead ${campaignLeadId} not found, discarding`); return { skipped: true }; }
 
-  // Re-check status — the lead may have been unsubscribed / marked replied
-  // between the dispatcher scheduling it and the worker picking it up.
-  if (!['scheduled', 'sending'].includes(lead.status)) {
-    log(`Job ${job.id} — lead ${lead.email} status is "${lead.status}", skipping send`);
-    return { skipped: true, reason: lead.status };
+  // Re-check status — the lead may have changed state between the dispatcher
+  // scheduling it and the worker picking it up.
+  const inFlightStatuses = isFollowUp ? ['queued', 'sending'] : ['scheduled', 'sending'];
+  const currentStatus = isFollowUp ? lead.followUpStatus : lead.status;
+  if (!inFlightStatuses.includes(currentStatus)) {
+    log(`Job ${job.id} — lead ${lead.email} ${isFollowUp ? 'followUpStatus' : 'status'} is "${currentStatus}", skipping send`);
+    return { skipped: true, reason: currentStatus };
   }
 
   const campaign = await Campaign.findById(lead.campaign);
-  if (!campaign) { lead.status = 'failed'; lead.error = 'Campaign not found'; await lead.save(); return { skipped: true }; }
+  if (!campaign) {
+    if (isFollowUp) { lead.followUpStatus = 'failed'; lead.followUpError = 'Campaign not found'; }
+    else { lead.status = 'failed'; lead.error = 'Campaign not found'; }
+    await lead.save();
+    return { skipped: true };
+  }
 
-  const account = await EmailAccount.findById(lead.accountUsed).select('+smtpPassEncrypted');
+  const accountId = isFollowUp ? lead.followUpAccountUsed : lead.accountUsed;
+  const account = await EmailAccount.findById(accountId).select('+smtpPassEncrypted');
   if (!account) {
     // Don't throw here — throwing would make BullMQ retry, but a retry can
     // never succeed (the account is gone, not temporarily unreachable), and
     // the lead is already 'failed' so the status guard above would just
     // skip it anyway, wasting 2 retries with backoff for nothing.
-    lead.status = 'failed'; lead.error = 'Sending account not found'; await lead.save();
+    if (isFollowUp) { lead.followUpStatus = 'failed'; lead.followUpError = 'Sending account not found'; }
+    else { lead.status = 'failed'; lead.error = 'Sending account not found'; }
+    await lead.save();
     return { skipped: true, reason: 'account_not_found' };
   }
 
-  lead.status = 'sending';
+  if (isFollowUp) lead.followUpStatus = 'sending'; else lead.status = 'sending';
   await lead.save();
 
-  const subject = renderMergeTags(campaign.subject, lead);
-  let html = renderMergeTags(campaign.bodyHtml, lead);
+  const subject = renderMergeTags(isFollowUp ? campaign.settings.followUpSubject : campaign.subject, lead, campaign.settings.responseOptions);
+  let html = renderMergeTags(isFollowUp ? campaign.settings.followUpBodyHtml : campaign.bodyHtml, lead, campaign.settings.responseOptions);
   // Opt-out toggle, defaults true — see Campaign.js for why this isn't
   // off by default. `unsubUrl` stays null (not just an unused string) when
   // disabled so spamSafeHeaders() below can tell there's truly no
@@ -237,7 +269,7 @@ const worker = new Worker('campaign-queue', async (job) => {
 
   const text = stripToPlain(html);
 
-  log(`📨 Job ${job.id} | campaign="${campaign.name}" → ${lead.email} via ${account.email} | attempt=${job.attemptsMade + 1}/${job.opts?.attempts || 3}`);
+  log(`📨 Job ${job.id}${isFollowUp ? ' [follow-up]' : ''} | campaign="${campaign.name}" → ${lead.email} via ${account.email} | attempt=${job.attemptsMade + 1}/${job.opts?.attempts || 3}`);
 
   const transporter = await getTransporter(account);
   const mailOptions = {
@@ -252,13 +284,19 @@ const worker = new Worker('campaign-queue', async (job) => {
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    lead.status = 'sent';
-    lead.sentAt = new Date();
-    lead.error = '';
+    if (isFollowUp) {
+      lead.followUpStatus = 'sent';
+      lead.followUpSentAt = new Date();
+      lead.followUpError = '';
+    } else {
+      lead.status = 'sent';
+      lead.sentAt = new Date();
+      lead.error = '';
+    }
     await lead.save();
     EmailAccount.updateOne({ _id: account._id }, { $inc: { totalSent: 1 } }).catch(() => {});
-    log(`✅ Delivered — job ${job.id} | msgId=${info.messageId}`);
-    sysLog.info('CAMPAIGN', `Campaign "${campaign.name}" email delivered to ${lead.email} via ${account.email}`);
+    log(`✅ Delivered — job ${job.id}${isFollowUp ? ' [follow-up]' : ''} | msgId=${info.messageId}`);
+    sysLog.info('CAMPAIGN', `Campaign "${campaign.name}" ${isFollowUp ? 'follow-up ' : ''}email delivered to ${lead.email} via ${account.email}`);
     return { messageId: info.messageId };
   } catch (smtpErr) {
     const code = smtpErr.responseCode;
@@ -282,14 +320,20 @@ const worker = new Worker('campaign-queue', async (job) => {
         { _id: account._id },
         { isActive: false, lastSmtpVerifiedAt: new Date(), lastSmtpVerifyError: (smtpErr.message || 'Authentication failed').slice(0, 300) }
       );
-      // Not this lead's fault — put it back to pending so it's naturally
+      // Not this lead's fault — put it back to pending/none so it's naturally
       // retried (via a different account, or this one once re-enabled)
       // instead of being permanently marked failed/bounced.
-      lead.status = 'pending';
-      lead.accountUsed = null;
-      lead.error = '';
+      if (isFollowUp) {
+        lead.followUpStatus = 'none';
+        lead.followUpAccountUsed = null;
+        lead.followUpError = '';
+      } else {
+        lead.status = 'pending';
+        lead.accountUsed = null;
+        lead.error = '';
+      }
       await lead.save();
-      err(`SMTP AUTH failed for account ${account.email} — deactivated, lead ${lead.email} reverted to pending: ${smtpErr.message}`);
+      err(`SMTP AUTH failed for account ${account.email} — deactivated, lead ${lead.email}${isFollowUp ? ' follow-up' : ''} reverted: ${smtpErr.message}`);
       sysLog.error('CAMPAIGN', `Account ${account.email} deactivated after SMTP AUTH failure: ${smtpErr.message}`);
       return { authFailed: true };
     }
@@ -314,12 +358,20 @@ const worker = new Worker('campaign-queue', async (job) => {
     // Only mark the lead terminally 'failed' once BullMQ has exhausted all
     // retries — a lead left in 'failed' after the first of 3 attempts would
     // never actually be retried, since the status guard above skips any
-    // lead that isn't 'scheduled'/'sending'. Keep it 'sending' in between so
-    // the next retry attempt is allowed to run.
-    lead.status = isHardBounce ? 'bounced' : (isLastAttempt ? 'failed' : 'sending');
-    lead.error = smtpErr.message?.slice(0, 500) || 'Unknown SMTP error';
+    // lead that isn't in an in-flight state. Keep it 'sending' in between so
+    // the next retry attempt is allowed to run. followUpStatus has no
+    // separate 'bounced' state (a hard bounce and a permanently-failed
+    // follow-up both just mean "give up, don't retry") — map both to 'failed'.
+    const errMessage = smtpErr.message?.slice(0, 500) || 'Unknown SMTP error';
+    if (isFollowUp) {
+      lead.followUpStatus = (isHardBounce || isLastAttempt) ? 'failed' : 'sending';
+      lead.followUpError = errMessage;
+    } else {
+      lead.status = isHardBounce ? 'bounced' : (isLastAttempt ? 'failed' : 'sending');
+      lead.error = errMessage;
+    }
     await lead.save();
-    err(`SMTP send failed — job ${job.id} | ${lead.email}: ${smtpErr.message}${isHardBounce ? ' (hard bounce, not retrying)' : ''}`);
+    err(`SMTP send failed — job ${job.id}${isFollowUp ? ' [follow-up]' : ''} | ${lead.email}: ${smtpErr.message}${isHardBounce ? ' (hard bounce, not retrying)' : ''}`);
     sysLog.error('CAMPAIGN', `Job ${job.id} ${isHardBounce ? 'bounced' : 'failed'} — ${lead.email}: ${smtpErr.message}`);
     if (isHardBounce) return { bounced: true };
     throw smtpErr;

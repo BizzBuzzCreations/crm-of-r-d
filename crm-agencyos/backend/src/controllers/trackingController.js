@@ -8,11 +8,7 @@ const Campaign = require('../models/Campaign');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 const notifService = require('../services/notificationService');
 const { notifyMainCrm } = require('../utils/mainCrmNotify');
-
-// A lead that opens a campaign email this many times or more is a strong
-// repeat-engagement signal — auto-surfaced in the B2B Leads Pipeline. Keep
-// in sync with HOT_OPEN_THRESHOLD in CampaignDetailPage.jsx (frontend badge).
-const HOT_OPEN_THRESHOLD = 3;
+const { HOT_OPEN_THRESHOLD } = require('../utils/campaignConstants');
 
 // 1x1 transparent PNG
 const PIXEL = Buffer.from(
@@ -133,6 +129,59 @@ exports.requestCall = async (req, res) => {
       || (process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/$/, '');
   }
   res.redirect(302, dest);
+};
+
+// GET /api/campaigns/track/response/:token?option=... — one of the
+// checkbox-style response links from {{response_options}} (see
+// workers/campaignWorker.js). Plain tracked link, not a redirect-to-a-site
+// CTA like requestCall — the recipient just gets a thank-you page.
+exports.trackResponse = async (req, res) => {
+  const token = String(req.params.token || '');
+  const option = String(req.query.option || '').slice(0, 200);
+  const now = new Date();
+  const io = req.app.get('io');
+
+  res.set('Content-Type', 'text/html');
+  if (!option) {
+    return res.send(PAGE('Link no longer valid', `<h1>Link no longer valid</h1><p>No response option was specified.</p>`));
+  }
+
+  const updated = await CampaignLead.findOneAndUpdate(
+    { token },
+    {
+      $set: { responseOption: option, respondedAt: now },
+      $push: { responses: { $each: [{ at: now, option }], $slice: -50 } },
+    },
+    { new: true }
+  ).catch(() => null);
+
+  if (updated) {
+    syncCampaignLeadToPipeline(updated, 'response', { responseOption: option }).catch(() => {});
+
+    const campaign = await Campaign.findById(updated.campaign).select('name subject').lean().catch(() => null);
+    if (campaign) {
+      const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
+      // Recipients configured in Settings → Notification Routing — see
+      // notificationService.dispatchByRouting. Fire-and-forget, same
+      // principle as every other tracking endpoint in this file.
+      notifService.dispatchByRouting(io, 'campaign', {
+        type: 'campaign_response',
+        priority: 'success',
+        title: 'Email response received',
+        message: `${who} responded "${option}" in campaign "${campaign.name}"`,
+        link: `/campaigns/${campaign._id}`,
+        metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id), option },
+      }).catch(() => {});
+      // IVA CRM's activity_type enum has no generic "responded" type — only
+      // report this when the option text itself signals a callback request,
+      // rather than mis-tagging every response (e.g. "Not interested") as one.
+      if (/call/i.test(option)) {
+        notifyMainCrm({ type: 'call_requested', email: updated.email, phone: updated.phone, subject: campaign.subject, campaignName: campaign.name });
+      }
+    }
+  }
+
+  res.send(PAGE('Thanks!', `<h1>Thanks for letting us know</h1><p>We've recorded your response${updated ? '' : ' link, though it looks like it may have already expired'}.</p>`));
 };
 
 // GET /api/campaigns/track/click/:token?url=...

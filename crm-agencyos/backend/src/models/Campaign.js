@@ -20,6 +20,12 @@ const CampaignSettingsSchema = new mongoose.Schema({
   // CALL_REQUEST_REDIRECT_URL in .env when left blank — see
   // trackingController.requestCall.
   redirectUrl: { type: String, default: '' },
+  // Checkbox-style response options rendered as individually-tracked links
+  // via the {{response_options}} merge tag (see workers/campaignWorker.js).
+  // Not true AMP4Email (that requires Google to manually approve the
+  // sending domain first, Gmail-only) — plain tracked links, work in every
+  // client immediately. Capped at 5 in the UI.
+  responseOptions: { type: [String], default: [] },
   textOnly:           { type: Boolean, default: false },
   firstEmailTextOnly: { type: Boolean, default: false },
   dailyLimit:         { type: Number, default: 30 },
@@ -34,6 +40,15 @@ const CampaignSettingsSchema = new mongoose.Schema({
   sendingHourEnd:      { type: Number, default: 18 }, // 0-23, local to `timezone`
   sendingDays:         { type: [Number], default: [1, 2, 3, 4, 5] }, // 0=Sun..6=Sat
   timezone:            { type: String, default: 'Asia/Kolkata' },
+
+  // Auto follow-up to hot leads — see cron/followUpDispatcher.js. A single,
+  // one-time email, not a multi-step sequence: sent once per lead that
+  // crosses the "hot" threshold (repeat opens or a call request) and stays
+  // sent (status === 'sent') — i.e. hasn't already replied/bounced/unsubscribed.
+  followUpEnabled:    { type: Boolean, default: false },
+  followUpDelayHours: { type: Number, default: 48 }, // hours after going hot before it sends
+  followUpSubject:    { type: String, default: '' },
+  followUpBodyHtml:   { type: String, default: '' }, // same {{firstName}} merge-tag syntax as the main email
 }, { _id: false });
 
 const CampaignSchema = new mongoose.Schema({

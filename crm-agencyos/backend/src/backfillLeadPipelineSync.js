@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const CampaignLead = require('./models/CampaignLead');
 const Lead = require('./models/Lead');
 const { syncCampaignLeadToPipeline } = require('./utils/leadPipelineSync');
+const { HOT_OPEN_THRESHOLD } = require('./utils/campaignConstants');
 
 // One-time backfill: syncs pre-existing campaign engagement (opened 3+ times,
 // or already replied) into the B2B Leads Pipeline. Only needed once, to catch
@@ -11,7 +12,6 @@ const { syncCampaignLeadToPipeline } = require('./utils/leadPipelineSync');
 // going forward, trackingController.js and campaignController.js do this live
 // on every new qualifying open/reply. Safe to re-run; syncCampaignLeadToPipeline
 // matches by email and updates in place rather than duplicating.
-const HOT_OPEN_THRESHOLD = 3;
 const DRY_RUN = process.argv.includes('--dry-run');
 
 async function run() {

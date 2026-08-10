@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee, Edit3, Shield, ShieldCheck, Crown, AlertTriangle, Users, ClipboardList, Sheet, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Search, UserCircle, Grid, List, Plus, Trash2, Mail, Phone, Building2, Calendar, Info, Utensils, Coffee, Edit3, Shield, ShieldCheck, Crown, AlertTriangle, Users, ClipboardList, Sheet, Loader2, CheckCircle2, XCircle, Eye } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -89,6 +89,7 @@ function AddMemberModal({ open, onClose, onSave, departments = DEFAULT_DEPARTMEN
             <option value="manager">Manager</option>
             <option value="admin">Admin</option>
             <option value="client_relations">Client Relations</option>
+            <option value="read_only">Read Only</option>
           </Select>
           <Select label="Department" {...register('department')}>
             <option value="">Select department…</option>
@@ -169,6 +170,7 @@ function EditMemberModal({ open, onClose, user, onSave, currentUserRole, isCurre
     { value: 'manager',          label: 'Manager',          icon: ShieldCheck, desc: 'Can manage team, tasks, clients, and view reports',           color: '#0ea5e9' },
     { value: 'member',           label: 'Member',           icon: Shield,      desc: 'Can view own tasks, track time, and communicate',             color: '#64748b' },
     { value: 'client_relations', label: 'Client Relations', icon: Users,       desc: 'Manages client communications, feedback, and onboarding',   color: '#10b981' },
+    { value: 'read_only',        label: 'Read Only',        icon: Eye,         desc: 'Can view everything across the CRM but cannot create, edit, or delete anything', color: '#d97706' },
   ];
 
   return (
@@ -1067,7 +1069,7 @@ export default function TeamPage() {
           />
         </div>
         <div className="flex gap-1.5">
-          {['all', 'admin', 'manager', 'member', 'client_relations'].map((r) => (
+          {['all', 'admin', 'manager', 'member', 'client_relations', 'read_only'].map((r) => (
             <button
               key={r}
               onClick={() => setFilter(r)}

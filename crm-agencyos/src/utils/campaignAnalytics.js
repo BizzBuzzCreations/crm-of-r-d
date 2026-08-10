@@ -84,8 +84,9 @@ export function buildStepSummary(leads) {
   const clicked = leads.filter((l) => l.clickCount > 0).length;
   const replied = leads.filter((l) => l.repliedAt).length;
   const callRequested = leads.filter((l) => l.callRequested).length;
+  const responded = leads.filter((l) => l.responseOption).length;
   return {
-    sent, opened, clicked, replied, callRequested,
+    sent, opened, clicked, replied, callRequested, responded,
     openRate: sent ? (opened / sent) * 100 : 0,
     clickRate: sent ? (clicked / sent) * 100 : 0,
     replyRate: sent ? (replied / sent) * 100 : 0,
@@ -94,4 +95,18 @@ export function buildStepSummary(leads) {
 
 export function getBounces(leads) {
   return leads.filter((l) => l.status === 'bounced');
+}
+
+/**
+ * Count of leads per checkbox-style response option (see
+ * Campaign.settings.responseOptions / the {{response_options}} merge tag) —
+ * only counts each lead's most recent selection, same as the leads table.
+ */
+export function buildResponseBreakdown(leads) {
+  const counts = new Map();
+  for (const l of leads) {
+    if (!l.responseOption) continue;
+    counts.set(l.responseOption, (counts.get(l.responseOption) || 0) + 1);
+  }
+  return [...counts.entries()].map(([option, count]) => ({ option, count })).sort((a, b) => b.count - a.count);
 }

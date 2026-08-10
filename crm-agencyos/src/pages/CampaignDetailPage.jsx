@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, Send, MailOpen, MousePointerClick,
-  Users, XCircle, AlertTriangle, Ban, MessageSquareOff, Settings2, ListChecks,
+  Users, XCircle, AlertTriangle, Ban, MessageSquareOff, MessageSquareText, Settings2, ListChecks,
   FileSpreadsheet, UserPlus, ShieldCheck, ShieldAlert, ShieldQuestion, RefreshCw, Loader2,
   BarChart3, MailX, ExternalLink, FileText, Code2, Info, Stethoscope, CheckCircle2, Wrench, CalendarClock, Download, Flame, PhoneCall, Phone,
 } from 'lucide-react';
@@ -17,7 +17,7 @@ import EmailAccountsModal from '../components/campaigns/EmailAccountsModal';
 import EmailTemplatesModal from '../components/campaigns/EmailTemplatesModal';
 import RichTextEditor from '../components/campaigns/RichTextEditor';
 import { cn } from '../utils/helpers';
-import { buildDailySeries, buildActivityFeed, buildStepSummary, getBounces } from '../utils/campaignAnalytics';
+import { buildDailySeries, buildActivityFeed, buildStepSummary, getBounces, buildResponseBreakdown } from '../utils/campaignAnalytics';
 import { checkSpamContent } from '../utils/spamCheck';
 
 // Categorical slots 1/2/3/4 from the app's validated data-viz palette —
@@ -65,11 +65,13 @@ function formatOpenHistory(lead) {
 // Client-side CSV export for the leads table — data's already loaded in the
 // browser, no need for a round trip to build a download.
 function downloadLeadsCSV(leads, filename) {
-  const headers = ['Email', 'Phone', 'First Name', 'Last Name', 'Status', 'Verification', 'Provider', 'Opens', 'Clicks', 'Sent At', 'Error'];
+  const headers = ['Email', 'Phone', 'First Name', 'Last Name', 'Status', 'Verification', 'Provider', 'Opens', 'Clicks', 'Sent At', 'Error', 'Follow-up Status', 'Follow-up Sent At', 'Response', 'Responded At'];
   const rows = leads.map((l) => [
     l.email, l.phone || '', l.firstName || '', l.lastName || '', l.status, l.verificationStatus || '',
     l.provider || '', l.openCount || 0, l.clickCount || 0,
     l.sentAt ? new Date(l.sentAt).toLocaleString() : '', l.error || '',
+    l.followUpStatus || 'none', l.followUpSentAt ? new Date(l.followUpSentAt).toLocaleString() : '',
+    l.responseOption || '', l.respondedAt ? new Date(l.respondedAt).toLocaleString() : '',
   ]);
   const csv = [headers, ...rows]
     .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
@@ -87,6 +89,25 @@ const VERIFICATION_BADGE = {
   risky:      { label: 'Risky',      icon: ShieldAlert,    tw: 'text-amber-500' },
   unverified: { label: 'Unverified', icon: ShieldQuestion, tw: 'text-slate-400' },
 };
+
+// Follow-up status column in the leads table — 'none' renders nothing (the
+// common case: most leads never go hot), so this only shows up for leads
+// where there's actually something to report.
+const FOLLOW_UP_LABEL = { queued: 'Queued', sending: 'Sending', sent: 'Sent', failed: 'Failed' };
+const FOLLOW_UP_TW = {
+  queued:  'text-amber-600 dark:text-amber-400',
+  sending: 'text-blue-600 dark:text-blue-400',
+  sent:    'text-emerald-600 dark:text-emerald-400',
+  failed:  'text-red-500',
+};
+const FOLLOW_UP_BADGE = Object.fromEntries(
+  Object.keys(FOLLOW_UP_LABEL).map((status) => [
+    status,
+    <span key={status} className={cn('inline-flex items-center gap-1 text-[12px] font-medium', FOLLOW_UP_TW[status])}>
+      <Send size={12} /> {FOLLOW_UP_LABEL[status]}
+    </span>,
+  ])
+);
 
 // Quick hover hint next to the status badge — a cheap, client-side-only
 // guess (no API call) to explain the current state at a glance. The
@@ -532,6 +553,7 @@ function AnalyticsTab({ campaign, leads, darkMode }) {
   const stepSummary = buildStepSummary(leads);
   const activity = buildActivityFeed(leads);
   const bounces = getBounces(leads);
+  const responseBreakdown = buildResponseBreakdown(leads);
   const linkTrackingOn = !!campaign.settings?.linkTracking;
 
   const total = leads.length;
@@ -564,7 +586,7 @@ function AnalyticsTab({ campaign, leads, darkMode }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <StatCard icon={Send} label="Sequence Started" value={stepSummary.sent} color="#6366f1" bg="#eef2ff" />
         <StatCard icon={MailOpen} label="Open Rate" value={`${stepSummary.openRate.toFixed(1)}%`} color="#1baf7a" bg="#ecfdf5" />
         <StatCard
@@ -575,8 +597,22 @@ function AnalyticsTab({ campaign, leads, darkMode }) {
           bg={linkTrackingOn ? '#fdf2f8' : '#f1f5f9'}
         />
         <StatCard icon={PhoneCall} label="Call Requested" value={stepSummary.callRequested} color="#2563eb" bg="#eff6ff" />
+        <StatCard icon={MessageSquareText} label="Responses" value={stepSummary.responded} color="#9333ea" bg="#faf5ff" />
         <StatCard icon={MailX} label="Bounced" value={bounces.length} color="#dc2626" bg="#fef2f2" />
       </div>
+
+      {responseBreakdown.length > 0 && (
+        <div className="card p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Response breakdown</p>
+          <div className="flex flex-wrap gap-2">
+            {responseBreakdown.map(({ option, count }) => (
+              <span key={option} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 text-[12px] font-medium">
+                {option} <span className="text-purple-500 dark:text-purple-400">· {count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card p-5">
         {series.length === 0 ? (
@@ -966,7 +1002,9 @@ function LeadsTab({
                     <th className="px-4 py-2.5 font-medium">Last Opened</th>
                     <th className="px-4 py-2.5 font-medium text-center">Clicks</th>
                     <th className="px-4 py-2.5 font-medium text-center">Call Req.</th>
+                    <th className="px-4 py-2.5 font-medium">Response</th>
                     <th className="px-4 py-2.5 font-medium">Sent</th>
+                    <th className="px-4 py-2.5 font-medium">Follow-up</th>
                     <th className="px-4 py-2.5 font-medium"></th>
                   </tr>
                 </thead>
@@ -1015,8 +1053,23 @@ function LeadsTab({
                             <span className="text-slate-300 dark:text-slate-700">—</span>
                           )}
                         </td>
+                        <td className="px-4 py-2.5 max-w-[160px] truncate">
+                          {l.responseOption ? (
+                            <span
+                              title={l.respondedAt ? `${l.responseOption} — ${new Date(l.respondedAt).toLocaleString()}` : l.responseOption}
+                              className="inline-flex items-center gap-1 text-[12px] font-medium text-purple-600 dark:text-purple-400 cursor-help"
+                            >
+                              <MessageSquareText size={12} /> {l.responseOption}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 dark:text-slate-700">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">
                           {l.sentAt ? new Date(l.sentAt).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {FOLLOW_UP_BADGE[l.followUpStatus] || null}
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center justify-end gap-1">
@@ -1098,12 +1151,16 @@ function ComposeTab({ campaign, onSave }) {
       <div>
         <label className="form-label">Email body</label>
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {['{{first_name}}', '{{last_name}}', '{{email}}', '{{redirect_url}}'].map((tag) => (
+          {['{{first_name}}', '{{last_name}}', '{{email}}', '{{redirect_url}}', '{{response_options}}'].map((tag) => (
             <button
               key={tag}
               type="button"
               onClick={() => insertTag(tag)}
-              title={tag === '{{redirect_url}}' ? 'A click on any link using this as its href flows into Email Leads as \'Call Requested\' and redirects to this campaign\'s configured Redirect URL' : undefined}
+              title={tag === '{{redirect_url}}'
+                ? 'A click on any link using this as its href flows into Email Leads as \'Call Requested\' and redirects to this campaign\'s configured Redirect URL'
+                : tag === '{{response_options}}'
+                  ? 'Inserts one tracked link per checkbox-style option configured in Settings — each click is recorded and visible on the lead'
+                  : undefined}
               className="text-[11px] font-mono px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
             >
               {tag}
@@ -1160,6 +1217,7 @@ function Code2Inline() {
 
 // ── Settings Tab ───────────────────────────────────────────────────────
 function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
+  const uploadCampaignImage = useAppStore((s) => s.uploadCampaignImage);
   const s = campaign.settings || {};
   const [accounts, setAccounts] = useState((s.accounts || []).map((a) => a._id || a));
   const [stopOnReply, setStopOnReply] = useState(s.stopOnReply ?? true);
@@ -1167,6 +1225,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
   const [linkTracking, setLinkTracking] = useState(s.linkTracking ?? false);
   const [includeUnsubscribeLink, setIncludeUnsubscribeLink] = useState(s.includeUnsubscribeLink ?? true);
   const [redirectUrl, setRedirectUrl] = useState(s.redirectUrl ?? '');
+  const [responseOptions, setResponseOptions] = useState(s.responseOptions ?? []);
   const [textOnly, setTextOnly] = useState(s.textOnly ?? false);
   const [firstEmailTextOnly, setFirstEmailTextOnly] = useState(s.firstEmailTextOnly ?? false);
   const [dailyLimit, setDailyLimit] = useState(s.dailyLimit ?? 30);
@@ -1178,7 +1237,12 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
   const [sendingHourEnd, setSendingHourEnd] = useState(s.sendingHourEnd ?? 18);
   const [sendingDays, setSendingDays] = useState(s.sendingDays ?? [1, 2, 3, 4, 5]);
   const [timezone, setTimezone] = useState(s.timezone ?? 'Asia/Kolkata');
+  const [followUpEnabled, setFollowUpEnabled] = useState(s.followUpEnabled ?? false);
+  const [followUpDelayHours, setFollowUpDelayHours] = useState(s.followUpDelayHours ?? 48);
+  const [followUpSubject, setFollowUpSubject] = useState(s.followUpSubject ?? '');
+  const [followUpBodyHtml, setFollowUpBodyHtml] = useState(s.followUpBodyHtml ?? '');
   const [saving, setSaving] = useState(false);
+  const followUpEditorRef = useRef(null);
 
   useEffect(() => {
     setAccounts((s.accounts || []).map((a) => a._id || a));
@@ -1187,6 +1251,7 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
     setLinkTracking(s.linkTracking ?? false);
     setIncludeUnsubscribeLink(s.includeUnsubscribeLink ?? true);
     setRedirectUrl(s.redirectUrl ?? '');
+    setResponseOptions(s.responseOptions ?? []);
     setTextOnly(s.textOnly ?? false);
     setFirstEmailTextOnly(s.firstEmailTextOnly ?? false);
     setDailyLimit(s.dailyLimit ?? 30);
@@ -1198,6 +1263,10 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
     setSendingHourEnd(s.sendingHourEnd ?? 18);
     setSendingDays(s.sendingDays ?? [1, 2, 3, 4, 5]);
     setTimezone(s.timezone ?? 'Asia/Kolkata');
+    setFollowUpEnabled(s.followUpEnabled ?? false);
+    setFollowUpDelayHours(s.followUpDelayHours ?? 48);
+    setFollowUpSubject(s.followUpSubject ?? '');
+    setFollowUpBodyHtml(s.followUpBodyHtml ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaign._id]);
 
@@ -1217,17 +1286,28 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
       toast.error('Daily Limit must be at least 1 — leave it blank and the campaign will never send.');
       return;
     }
+    if (followUpEnabled && !(Number(followUpDelayHours) > 0)) {
+      toast.error('Follow-up delay must be at least 1 hour.');
+      return;
+    }
+    if (followUpEnabled && (!followUpSubject.trim() || !followUpBodyHtml.trim())) {
+      toast.error('Follow-up subject and body are required while auto follow-up is on.');
+      return;
+    }
     setSaving(true);
     try {
       await onSave({
         accounts, stopOnReply, openTracking, linkTracking, includeUnsubscribeLink, textOnly, firstEmailTextOnly,
         redirectUrl: redirectUrl.trim(),
+        responseOptions: responseOptions.map((o) => o.trim()).filter(Boolean),
         dailyLimit: Number(dailyLimit),
         minGapMinutes: Number(minGapMinutes) || 0,
         randomGapMinutes: Number(randomGapMinutes) || 0,
         maxNewLeadsPerDay: maxNewLeadsPerDay === '' ? null : Number(maxNewLeadsPerDay),
         sendingHoursEnabled, sendingHourStart: Number(sendingHourStart), sendingHourEnd: Number(sendingHourEnd),
         sendingDays, timezone,
+        followUpEnabled, followUpDelayHours: Number(followUpDelayHours) || 48,
+        followUpSubject: followUpSubject.trim(), followUpBodyHtml,
       });
     } finally {
       setSaving(false);
@@ -1294,6 +1374,35 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
             Where recipients land after clicking a tracked CTA button ({'{{redirect_url}}'}) in this campaign's email — not limited to "Request a Call," any button using that tag redirects here. Leave blank to use the server default.
           </p>
         </div>
+        <div className="py-2">
+          <label className="form-label">Checkbox-style response options</label>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+            e.g. "Still interested — call me" / "Not interested". Each becomes its own tracked link — insert {'{{response_options}}'} anywhere in the email body (Compose tab) to place them. Not real inline checkboxes (that needs AMP4Email, Gmail-only, Google approval required) — a click here is recorded instantly and works in every inbox.
+          </p>
+          <div className="space-y-2">
+            {responseOptions.map((opt, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={opt}
+                  onChange={(e) => setResponseOptions((prev) => prev.map((o, j) => j === i ? e.target.value : o))}
+                  placeholder="e.g. Still interested — call me"
+                />
+                <button
+                  type="button"
+                  onClick={() => setResponseOptions((prev) => prev.filter((_, j) => j !== i))}
+                  className="btn-icon text-slate-400 hover:text-red-500 flex-shrink-0"
+                >
+                  <XCircle size={15} />
+                </button>
+              </div>
+            ))}
+            {responseOptions.length < 5 && (
+              <Button variant="outline" size="sm" onClick={() => setResponseOptions((prev) => [...prev, ''])}>
+                <UserPlus size={13} /> Add option
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="card p-5">
@@ -1333,6 +1442,56 @@ function SettingsTab({ campaign, emailAccounts, onSave, onManageAccounts }) {
           value={maxNewLeadsPerDay}
           onChange={(e) => setMaxNewLeadsPerDay(e.target.value)}
         />
+      </div>
+
+      <div className="card p-5 space-y-4">
+        <Toggle
+          checked={followUpEnabled}
+          onChange={setFollowUpEnabled}
+          label="Auto follow-up to hot leads"
+          description={`Automatically sends this one-time follow-up to a lead once it goes "hot" (opened ${HOT_OPEN_THRESHOLD}+ times, or clicked Request a Call) — sent once per lead, never repeated`}
+        />
+        {followUpEnabled && (
+          <div className="space-y-3 pt-1">
+            <Input
+              label="Send after (hours)"
+              type="number" min="1"
+              value={followUpDelayHours}
+              onChange={(e) => setFollowUpDelayHours(e.target.value)}
+            />
+            <Input
+              label="Follow-up subject"
+              placeholder="e.g. Following up on {{first_name}}'s question"
+              value={followUpSubject}
+              onChange={(e) => setFollowUpSubject(e.target.value)}
+            />
+            <div>
+              <label className="form-label">Follow-up email body</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {['{{first_name}}', '{{last_name}}', '{{email}}', '{{redirect_url}}', '{{response_options}}'].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => followUpEditorRef.current?.insertText(tag)}
+                    className="text-[11px] font-mono px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+              <RichTextEditor
+                ref={followUpEditorRef}
+                value={followUpBodyHtml}
+                onChange={setFollowUpBodyHtml}
+                onUploadImage={uploadCampaignImage}
+                placeholder="Hi {{first_name}}, just following up…"
+              />
+              <p className="text-[11.5px] text-slate-500 dark:text-slate-400 mt-1.5">
+                Sent through the same accounts, sending hours, and unsubscribe/tracking setup as the main email above — only the delay and content differ.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card p-5 space-y-4">

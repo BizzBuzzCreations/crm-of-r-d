@@ -36,4 +36,21 @@ const addCampaignEmailToQueue = async (campaignLeadId) => {
   return job.id;
 };
 
-module.exports = { campaignQueue, addCampaignEmailToQueue };
+/**
+ * Enqueue a single auto-follow-up email for a lead that's gone "hot" (see
+ * cron/followUpDispatcher.js). Same queue/worker as the original send —
+ * campaignWorker.js branches on the job name to render/track the follow-up
+ * fields (followUpStatus/followUpSentAt/...) instead of the original ones.
+ *
+ * @param {string} campaignLeadId - CampaignLead _id
+ * @returns {string} BullMQ job ID
+ */
+const addFollowUpEmailToQueue = async (campaignLeadId) => {
+  const job = await campaignQueue.add('CAMPAIGN_FOLLOWUP_EMAIL', {
+    campaignLeadId: String(campaignLeadId),
+    queuedAt: new Date().toISOString(),
+  });
+  return job.id;
+};
+
+module.exports = { campaignQueue, addCampaignEmailToQueue, addFollowUpEmailToQueue };

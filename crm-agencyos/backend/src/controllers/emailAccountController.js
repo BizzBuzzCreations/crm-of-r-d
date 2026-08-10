@@ -6,7 +6,7 @@ const audit = require('../services/auditService');
 const { checkDomainAuth } = require('../utils/domainAuth');
 const { resolveIPv4 } = require('../utils/ipv4');
 
-const isPrivileged = (role) => role === 'admin' || role === 'manager';
+const isPrivileged = (role) => role === 'admin' || role === 'manager' || role === 'read_only';
 
 // GET /api/email-accounts
 // Admins/managers see every connected mailbox (needed to build company

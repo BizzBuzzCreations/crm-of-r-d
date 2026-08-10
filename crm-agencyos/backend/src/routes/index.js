@@ -218,6 +218,7 @@ const campaignPublicRouter = express.Router();
 campaignPublicRouter.get('/track/open/:token',  trackCtrl.trackOpen);
 campaignPublicRouter.get('/track/click/:token', trackCtrl.trackClick);
 campaignPublicRouter.get('/track/call-request/:token', trackCtrl.requestCall);
+campaignPublicRouter.get('/track/response/:token', trackCtrl.trackResponse); // checkbox-style response links — ?option=...
 campaignPublicRouter.get('/unsubscribe/:token',  trackCtrl.unsubscribeConfirm); // shows a confirm page, doesn't mutate
 campaignPublicRouter.post('/unsubscribe/:token', trackCtrl.unsubscribe);        // actually unsubscribes
 module.exports.campaignPublic = campaignPublicRouter;
