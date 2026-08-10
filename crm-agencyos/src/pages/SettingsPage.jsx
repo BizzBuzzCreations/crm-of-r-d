@@ -485,7 +485,7 @@ function PipelinesStagesSection({ settings, onSave }) {
 const NOTIFICATION_EVENT_DEFS = [
   { key: 'campaign', label: 'Campaign', description: 'Any campaign engagement — a lead opens an email, requests a call, or replies.' },
 ];
-const NOTIFICATION_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations'];
+const NOTIFICATION_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations', 'read_only'];
 
 function NotificationRoutingSection({ settings, onSave, users }) {
   const [routing, setRouting] = useState(() => {
@@ -634,25 +634,25 @@ function NotificationRoutingSection({ settings, onSave, users }) {
 // isn't just hiding a nav link. Master-detail: click a feature on the left,
 // configure it on the right — 17 features is too many for one long page.
 const FEATURE_DEFS = [
-  { key: 'dashboard',            label: 'Dashboard',            icon: LayoutDashboard, defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
-  { key: 'todos',                label: 'Todos',                icon: ListTodo,        defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
-  { key: 'tasks',                label: 'Tasks',                icon: CheckSquare,     defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
-  { key: 'clients',              label: 'Clients & Projects',   icon: Users,           defaultRoles: ['admin', 'manager', 'client_relations'] },
-  { key: 'leads',                label: 'Leads Pipeline',       icon: Target,          defaultRoles: ['admin', 'manager', 'client_relations', 'member'] },
-  { key: 'campaigns',            label: 'Campaigns',            icon: Mail,            defaultRoles: ['admin', 'manager'] },
-  { key: 'ads_monitoring',       label: 'Ads Monitoring',       icon: Megaphone,       defaultRoles: ['admin', 'manager'] },
-  { key: 'website_intelligence', label: 'Website Intelligence', icon: Globe,           defaultRoles: ['admin', 'manager'] },
-  { key: 'messages',             label: 'Messages',             icon: MessageSquare,   defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
-  { key: 'meetings',             label: 'Meetings',             icon: Video,           defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
-  { key: 'reports',              label: 'Reports',              icon: BarChart3,       defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
-  { key: 'calendar',             label: 'Calendar',             icon: Calendar,        defaultRoles: ['admin', 'manager', 'member', 'client_relations'] },
-  { key: 'billing',              label: 'Billing',              icon: Receipt,         defaultRoles: ['admin', 'manager'] },
-  { key: 'team',                 label: 'Team',                 icon: UserCircle,      defaultRoles: ['admin', 'manager'] },
-  { key: 'audit_logs',           label: 'Audit Logs',           icon: Shield,          defaultRoles: ['admin'] },
-  { key: 'system_monitor',       label: 'System Monitor',       icon: Terminal,        defaultRoles: ['admin'] },
-  { key: 'api_keys',             label: 'API Keys',             icon: KeyRound,        defaultRoles: ['admin'] },
+  { key: 'dashboard',            label: 'Dashboard',            icon: LayoutDashboard, defaultRoles: ['admin', 'manager', 'member', 'client_relations', 'read_only'] },
+  { key: 'todos',                label: 'Todos',                icon: ListTodo,        defaultRoles: ['admin', 'manager', 'member', 'client_relations', 'read_only'] },
+  { key: 'tasks',                label: 'Tasks',                icon: CheckSquare,     defaultRoles: ['admin', 'manager', 'member', 'client_relations', 'read_only'] },
+  { key: 'clients',              label: 'Clients & Projects',   icon: Users,           defaultRoles: ['admin', 'manager', 'client_relations', 'read_only'] },
+  { key: 'leads',                label: 'Leads Pipeline',       icon: Target,          defaultRoles: ['admin', 'manager', 'client_relations', 'member', 'read_only'] },
+  { key: 'campaigns',            label: 'Campaigns',            icon: Mail,            defaultRoles: ['admin', 'manager', 'read_only'] },
+  { key: 'ads_monitoring',       label: 'Ads Monitoring',       icon: Megaphone,       defaultRoles: ['admin', 'manager', 'read_only'] },
+  { key: 'website_intelligence', label: 'Website Intelligence', icon: Globe,           defaultRoles: ['admin', 'manager', 'read_only'] },
+  { key: 'messages',             label: 'Messages',             icon: MessageSquare,   defaultRoles: ['admin', 'manager', 'member', 'client_relations', 'read_only'] },
+  { key: 'meetings',             label: 'Meetings',             icon: Video,           defaultRoles: ['admin', 'manager', 'member', 'client_relations', 'read_only'] },
+  { key: 'reports',              label: 'Reports',              icon: BarChart3,       defaultRoles: ['admin', 'manager', 'member', 'client_relations', 'read_only'] },
+  { key: 'calendar',             label: 'Calendar',             icon: Calendar,        defaultRoles: ['admin', 'manager', 'member', 'client_relations', 'read_only'] },
+  { key: 'billing',              label: 'Billing',              icon: Receipt,         defaultRoles: ['admin', 'manager', 'read_only'] },
+  { key: 'team',                 label: 'Team',                 icon: UserCircle,      defaultRoles: ['admin', 'manager', 'read_only'] },
+  { key: 'audit_logs',           label: 'Audit Logs',           icon: Shield,          defaultRoles: ['admin', 'read_only'] },
+  { key: 'system_monitor',       label: 'System Monitor',       icon: Terminal,        defaultRoles: ['admin', 'read_only'] },
+  { key: 'api_keys',             label: 'API Keys',             icon: KeyRound,        defaultRoles: ['admin', 'read_only'] },
 ];
-const FEATURE_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations'];
+const FEATURE_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations', 'read_only'];
 
 function FeatureAccessSection({ settings, onSave, users }) {
   const [rules, setRules] = useState(() => {
