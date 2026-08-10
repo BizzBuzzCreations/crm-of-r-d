@@ -22,7 +22,7 @@ const PipelineSchema = new mongoose.Schema({
 // Map on SystemSettings so new notification features just add a new key,
 // no schema migration needed.
 const NotificationRoutingRuleSchema = new mongoose.Schema({
-  roles:   { type: [String], enum: ['admin', 'manager', 'member', 'client_relations'], default: [] },
+  roles:   { type: [String], enum: ['admin', 'manager', 'member', 'client_relations', 'read_only'], default: [] },
   userIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 }, { _id: false });
 
@@ -49,7 +49,7 @@ MainCrmIntegrationSchema.virtual('apiKey')
 // governed by each route's clientBypass, not by this admin UI — see
 // middleware/authorizeFeature.js.
 const FeatureAccessRuleSchema = new mongoose.Schema({
-  roles:   { type: [String], enum: ['admin', 'manager', 'member', 'client_relations'], default: [] },
+  roles:   { type: [String], enum: ['admin', 'manager', 'member', 'client_relations', 'read_only'], default: [] },
   userIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 }, { _id: false });
 
@@ -209,23 +209,23 @@ const SystemSettingsSchema = new mongoose.Schema({
     type: Map,
     of: FeatureAccessRuleSchema,
     default: () => new Map([
-      ['dashboard',              { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
-      ['todos',                  { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
-      ['tasks',                  { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
-      ['clients',                { roles: ['admin', 'manager', 'client_relations'],           userIds: [] }],
-      ['leads',                  { roles: ['admin', 'manager', 'client_relations', 'member'], userIds: [] }],
-      ['campaigns',              { roles: ['admin', 'manager'],                               userIds: [] }],
-      ['ads_monitoring',         { roles: ['admin', 'manager'],                               userIds: [] }],
-      ['website_intelligence',   { roles: ['admin', 'manager'],                               userIds: [] }],
-      ['messages',               { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
-      ['meetings',               { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
-      ['reports',                { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
-      ['calendar',               { roles: ['admin', 'manager', 'member', 'client_relations'], userIds: [] }],
-      ['billing',                { roles: ['admin', 'manager'],                               userIds: [] }],
-      ['team',                   { roles: ['admin', 'manager'],                               userIds: [] }],
-      ['audit_logs',             { roles: ['admin'],                                          userIds: [] }],
-      ['system_monitor',         { roles: ['admin'],                                          userIds: [] }],
-      ['api_keys',               { roles: ['admin'],                                          userIds: [] }],
+      ['dashboard',              { roles: ['admin', 'manager', 'member', 'client_relations', 'read_only'], userIds: [] }],
+      ['todos',                  { roles: ['admin', 'manager', 'member', 'client_relations', 'read_only'], userIds: [] }],
+      ['tasks',                  { roles: ['admin', 'manager', 'member', 'client_relations', 'read_only'], userIds: [] }],
+      ['clients',                { roles: ['admin', 'manager', 'client_relations', 'read_only'],           userIds: [] }],
+      ['leads',                  { roles: ['admin', 'manager', 'client_relations', 'member', 'read_only'], userIds: [] }],
+      ['campaigns',              { roles: ['admin', 'manager', 'read_only'],                               userIds: [] }],
+      ['ads_monitoring',         { roles: ['admin', 'manager', 'read_only'],                               userIds: [] }],
+      ['website_intelligence',   { roles: ['admin', 'manager', 'read_only'],                               userIds: [] }],
+      ['messages',               { roles: ['admin', 'manager', 'member', 'client_relations', 'read_only'], userIds: [] }],
+      ['meetings',               { roles: ['admin', 'manager', 'member', 'client_relations', 'read_only'], userIds: [] }],
+      ['reports',                { roles: ['admin', 'manager', 'member', 'client_relations', 'read_only'], userIds: [] }],
+      ['calendar',               { roles: ['admin', 'manager', 'member', 'client_relations', 'read_only'], userIds: [] }],
+      ['billing',                { roles: ['admin', 'manager', 'read_only'],                               userIds: [] }],
+      ['team',                   { roles: ['admin', 'manager', 'read_only'],                               userIds: [] }],
+      ['audit_logs',             { roles: ['admin', 'read_only'],                                          userIds: [] }],
+      ['system_monitor',         { roles: ['admin', 'read_only'],                                          userIds: [] }],
+      ['api_keys',               { roles: ['admin', 'read_only'],                                          userIds: [] }],
     ]),
   },
 

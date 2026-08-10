@@ -25,11 +25,6 @@ export function hasFeatureAccess(authUser, systemSettings, featureKey, defaultRo
   // this has to be handled here too, not just server-side.
   if (authUser.role === 'client') return defaultRoles.includes('client');
 
-  // read_only always sees every feature, unconditionally — mirrors the
-  // backend's authorizeFeature bypass (middleware/authorizeFeature.js).
-  // Writes are blocked server-side regardless of what the UI shows.
-  if (authUser.role === 'read_only') return true;
-
   const rule = systemSettings?.featureAccess?.[featureKey];
   const roles   = rule ? rule.roles   : defaultRoles;
   const userIds = (rule ? rule.userIds : []).map(String);
