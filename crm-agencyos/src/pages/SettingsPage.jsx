@@ -487,23 +487,40 @@ const NOTIFICATION_EVENT_DEFS = [
 ];
 const NOTIFICATION_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations', 'read_only'];
 
-function NotificationRoutingSection({ settings, onSave, users }) {
-  const [routing, setRouting] = useState(() => {
-    const src = settings?.notificationRouting || {};
-    const init = {};
-    NOTIFICATION_EVENT_DEFS.forEach(({ key }) => {
-      const rule = src[key];
-      init[key] = {
-        roles:   rule?.roles   ? [...rule.roles] : ['admin', 'manager'],
-        userIds: rule?.userIds ? rule.userIds.map(String) : [],
-      };
-    });
-    return init;
+// Shared by the initial state and the resync effect below — see the `dirty`
+// comment in NotificationRoutingSection for why a resync effect exists.
+function buildRoutingFromSettings(settings) {
+  const src = settings?.notificationRouting || {};
+  const init = {};
+  NOTIFICATION_EVENT_DEFS.forEach(({ key }) => {
+    const rule = src[key];
+    init[key] = {
+      roles:   rule?.roles   ? [...rule.roles] : ['admin', 'manager'],
+      userIds: rule?.userIds ? rule.userIds.map(String) : [],
+    };
   });
+  return init;
+}
+
+function NotificationRoutingSection({ settings, onSave, users }) {
+  const [routing, setRouting] = useState(() => buildRoutingFromSettings(settings));
   const [userSearch, setUserSearch] = useState('');
   const [saving, setSaving] = useState(false);
+  // Same staleness bug/fix as FeatureAccessSection's `dirty` — settings
+  // broadcast live to every open session from any save anywhere, so this
+  // local copy must resync whenever there are no in-progress local edits,
+  // or a save here can silently blast a stale full snapshot over a change
+  // that happened elsewhere in the meantime.
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (dirty) return;
+    setRouting(buildRoutingFromSettings(settings));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, dirty]);
 
   const toggleRole = (eventKey, role) => {
+    setDirty(true);
     setRouting((r) => {
       const cur = r[eventKey].roles;
       const next = cur.includes(role) ? cur.filter((x) => x !== role) : [...cur, role];
@@ -512,6 +529,7 @@ function NotificationRoutingSection({ settings, onSave, users }) {
   };
 
   const toggleUser = (eventKey, userId) => {
+    setDirty(true);
     setRouting((r) => {
       const cur = r[eventKey].userIds;
       const next = cur.includes(userId) ? cur.filter((x) => x !== userId) : [...cur, userId];
@@ -521,7 +539,12 @@ function NotificationRoutingSection({ settings, onSave, users }) {
 
   const handleSave = async () => {
     setSaving(true);
-    try { await onSave({ notificationRouting: routing }); } finally { setSaving(false); }
+    try {
+      await onSave({ notificationRouting: routing });
+      setDirty(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filteredUsers = useMemo(() => {
@@ -654,24 +677,45 @@ const FEATURE_DEFS = [
 ];
 const FEATURE_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations', 'read_only'];
 
-function FeatureAccessSection({ settings, onSave, users }) {
-  const [rules, setRules] = useState(() => {
-    const src = settings?.featureAccess || {};
-    const init = {};
-    FEATURE_DEFS.forEach(({ key, defaultRoles }) => {
-      const rule = src[key];
-      init[key] = {
-        roles:   rule?.roles   ? [...rule.roles] : [...defaultRoles],
-        userIds: rule?.userIds ? rule.userIds.map(String) : [],
-      };
-    });
-    return init;
+// Shared by the initial state and the resync effect below — see the `dirty`
+// comment in FeatureAccessSection for why a resync effect exists at all.
+function buildRulesFromSettings(settings) {
+  const src = settings?.featureAccess || {};
+  const init = {};
+  FEATURE_DEFS.forEach(({ key, defaultRoles }) => {
+    const rule = src[key];
+    init[key] = {
+      roles:   rule?.roles   ? [...rule.roles] : [...defaultRoles],
+      userIds: rule?.userIds ? rule.userIds.map(String) : [],
+    };
   });
+  return init;
+}
+
+function FeatureAccessSection({ settings, onSave, users }) {
+  const [rules, setRules] = useState(() => buildRulesFromSettings(settings));
   const [selectedKey, setSelectedKey] = useState(FEATURE_DEFS[0].key);
   const [userSearch, setUserSearch] = useState('');
   const [saving, setSaving] = useState(false);
+  // Tracks whether the admin has touched anything since the map was last
+  // loaded/saved. SystemSettings updates broadcast live to every open
+  // session (any admin, any section — see useAppStore.js's `settings:updated`
+  // handler), so `settings` can change under this component at any time.
+  // Without this, a lazy-init-only local copy would silently go stale, and
+  // saving would blast that stale full snapshot back over whatever changed
+  // in the meantime — exactly what happened when a live backfill script's
+  // changes to 15 of 17 features got wiped by a save from a browser tab that
+  // had been open since before the backfill ran.
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (dirty) return; // don't clobber in-progress edits with a concurrent update
+    setRules(buildRulesFromSettings(settings));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, dirty]);
 
   const toggleRole = (featureKey, role) => {
+    setDirty(true);
     setRules((r) => {
       const cur = r[featureKey].roles;
       const next = cur.includes(role) ? cur.filter((x) => x !== role) : [...cur, role];
@@ -680,6 +724,7 @@ function FeatureAccessSection({ settings, onSave, users }) {
   };
 
   const toggleUser = (featureKey, userId) => {
+    setDirty(true);
     setRules((r) => {
       const cur = r[featureKey].userIds;
       const next = cur.includes(userId) ? cur.filter((x) => x !== userId) : [...cur, userId];
@@ -689,7 +734,12 @@ function FeatureAccessSection({ settings, onSave, users }) {
 
   const handleSave = async () => {
     setSaving(true);
-    try { await onSave({ featureAccess: rules }); } finally { setSaving(false); }
+    try {
+      await onSave({ featureAccess: rules });
+      setDirty(false); // now in sync with what we just sent — safe to resync from live updates again
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filteredUsers = useMemo(() => {
