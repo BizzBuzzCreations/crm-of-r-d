@@ -83,12 +83,17 @@ ok "done"
 step "Restarting backend services via PM2"
 pm2 restart rndCRM-backend
 pm2 restart email-worker
-# campaign-worker may not exist yet on a fresh VM — start it the first time,
-# restart it on every deploy after that.
+# campaign-worker / prospect-audit-worker may not exist yet on a fresh VM —
+# start them the first time, restart on every deploy after that.
 if pm2 describe campaign-worker >/dev/null 2>&1; then
   pm2 restart campaign-worker
 else
   pm2 start src/workers/campaignWorker.js --name campaign-worker --cwd "$REPO_DIR/backend"
+fi
+if pm2 describe prospect-audit-worker >/dev/null 2>&1; then
+  pm2 restart prospect-audit-worker
+else
+  pm2 start src/workers/prospectAuditWorker.js --name prospect-audit-worker --cwd "$REPO_DIR/backend"
 fi
 pm2 save >/dev/null
 ok "restarted"
@@ -113,6 +118,7 @@ sleep 2
 check_pm2 "rndCRM-backend"
 check_pm2 "email-worker"
 check_pm2 "campaign-worker"
+check_pm2 "prospect-audit-worker"
 
 if systemctl is-active --quiet nginx; then
   ok "nginx: active"

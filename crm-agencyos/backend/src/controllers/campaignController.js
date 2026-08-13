@@ -412,7 +412,7 @@ exports.importLeads = async (req, res, next) => {
     if (req.file) {
       const csvText = fs.readFileSync(req.file.path, 'utf8');
       fs.unlink(req.file.path, () => {}); // temp upload — not needed after parsing
-      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true, relax_column_count: true });
       rows = records.map(mapRow);
     } else if (req.body.googleSheetUrl) {
       let csvText;
@@ -421,7 +421,7 @@ exports.importLeads = async (req, res, next) => {
       } catch (sheetErr) {
         return res.status(400).json({ success: false, message: sheetErr.message });
       }
-      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true, relax_column_count: true });
       rows = records.map(mapRow);
     } else if (Array.isArray(req.body.leads)) {
       rows = req.body.leads.map((l) => ({
@@ -507,7 +507,7 @@ exports.updateLeadPhones = async (req, res, next) => {
     if (req.file) {
       const csvText = fs.readFileSync(req.file.path, 'utf8');
       fs.unlink(req.file.path, () => {});
-      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true, relax_column_count: true });
       rows = records.map(mapRow);
     } else if (req.body.googleSheetUrl) {
       let csvText;
@@ -516,7 +516,7 @@ exports.updateLeadPhones = async (req, res, next) => {
       } catch (sheetErr) {
         return res.status(400).json({ success: false, message: sheetErr.message });
       }
-      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+      const records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true, bom: true, relax_column_count: true });
       rows = records.map(mapRow);
     } else if (Array.isArray(req.body.leads)) {
       rows = req.body.leads.map((l) => ({

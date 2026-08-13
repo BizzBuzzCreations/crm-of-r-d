@@ -24,6 +24,8 @@ import CampaignsPage      from '../pages/CampaignsPage';
 import CampaignDetailPage from '../pages/CampaignDetailPage';
 import MetaAdsPage        from '../pages/MetaAdsPage';
 import WebsiteIntelligencePage from '../pages/WebsiteIntelligencePage';
+import ProspectAuditsPage      from '../pages/ProspectAuditsPage';
+import ProspectAuditDetailPage from '../pages/ProspectAuditDetailPage';
 import ApiKeysPage         from '../pages/ApiKeysPage';
 
 // ── Guards ────────────────────────────────────────────────────
@@ -170,6 +172,22 @@ export default function AppRouter() {
             element={
               <RequireFeatureAccess featureKey="website_intelligence" defaultRoles={['admin', 'manager']}>
                 <WebsiteIntelligencePage />
+              </RequireFeatureAccess>
+            }
+          />
+          <Route
+            path="prospect-audits"
+            element={
+              <RequireFeatureAccess featureKey="prospect_audit" defaultRoles={['admin', 'manager']}>
+                <ProspectAuditsPage />
+              </RequireFeatureAccess>
+            }
+          />
+          <Route
+            path="prospect-audits/:id"
+            element={
+              <RequireFeatureAccess featureKey="prospect_audit" defaultRoles={['admin', 'manager']}>
+                <ProspectAuditDetailPage />
               </RequireFeatureAccess>
             }
           />

@@ -10,6 +10,8 @@
     "worker:dev": "nodemon src/workers/emailWorker.js",
     "campaign-worker": "node src/workers/campaignWorker.js",
     "campaign-worker:dev": "nodemon src/workers/campaignWorker.js",
+    "prospect-audit-worker": "node src/workers/prospectAuditWorker.js",
+    "prospect-audit-worker:dev": "nodemon src/workers/prospectAuditWorker.js",
     "seed": "node src/seed.js",
     "backfill-lead-sync": "node src/backfillLeadPipelineSync.js",
     "admin": "node src/adminData.js"
@@ -17,6 +19,7 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.77.7",
+    "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "csv-parse": "^5.6.0",
