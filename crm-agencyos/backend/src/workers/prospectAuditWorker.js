@@ -10,6 +10,29 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 require('dns').setDefaultResultOrder('ipv4first');
 
+// cheerio pulls in undici, whose Fetch-API webidl module references the
+// global `File` class at require-time (not lazily) — that global only
+// exists natively from Node 20 onward, so on older Node this throws
+// "ReferenceError: File is not defined" before the worker even starts.
+// We never construct File objects ourselves (only cheerio.load() on
+// already-fetched HTML, never cheerio's own fetch/File-consuming helpers),
+// so a minimal stand-in is enough to satisfy the module-load reference.
+if (typeof globalThis.File === 'undefined') {
+  try {
+    const { File } = require('node:buffer');
+    if (File) globalThis.File = File;
+  } catch { /* node:buffer has no File export on this Node version either */ }
+}
+if (typeof globalThis.File === 'undefined' && typeof globalThis.Blob !== 'undefined') {
+  globalThis.File = class File extends globalThis.Blob {
+    constructor(chunks, name, options = {}) {
+      super(chunks, options);
+      this.name = name;
+      this.lastModified = options.lastModified ?? Date.now();
+    }
+  };
+}
+
 const { Worker } = require('bullmq');
 const cheerio = require('cheerio');
 const mongoose = require('mongoose');
