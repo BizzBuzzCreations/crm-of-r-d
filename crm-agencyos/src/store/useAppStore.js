@@ -6,6 +6,7 @@ import {
   authAPI, usersAPI, clientsAPI, tasksAPI,
   todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
   settingsAPI, leadsAPI, portalAPI, campaignsAPI, emailAccountsAPI, emailTemplatesAPI, getBackendUrl,
+  prospectAuditsAPI,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -681,6 +682,8 @@ const useAppStore = create((set, get, store) => ({
   leads:      [],
   campaigns:      [],   // lazy-loaded — only fetched when the Campaigns page mounts
   campaignLeads:  [],   // leads for whichever campaign is currently open
+  prospectAuditBatches: [], // lazy-loaded — only fetched when the Prospect Audits page mounts
+  prospectAudits:       [], // prospects for whichever batch is currently open
   emailAccounts:  [],   // sending accounts pool, lazy-loaded alongside campaigns
   emailTemplates: [],   // reusable email content library, lazy-loaded in Compose
   systemSettings: null,
@@ -1143,6 +1146,117 @@ const useAppStore = create((set, get, store) => ({
       toast.error(err.response?.data?.message || 'Failed to upload image');
       throw err;
     }
+  },
+
+  // ── Prospect Audits ──────────────────────────────────────────
+  loadProspectAuditBatches: async () => {
+    try {
+      const { data } = await prospectAuditsAPI.getAll();
+      set({ prospectAuditBatches: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load prospect audit batches');
+    }
+  },
+  loadProspectAuditBatch: async (id) => {
+    try {
+      const { data } = await prospectAuditsAPI.getOne(id);
+      set((s) => {
+        const already = s.prospectAuditBatches.some((b) => sameId(b, data.data));
+        return { prospectAuditBatches: already ? s.prospectAuditBatches.map((b) => sameId(b, data.data) ? data.data : b) : [data.data, ...s.prospectAuditBatches] };
+      });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load batch');
+      throw err;
+    }
+  },
+  createProspectAuditBatch: async (body) => {
+    try {
+      const { data } = await prospectAuditsAPI.create(body);
+      set((s) => ({ prospectAuditBatches: [data.data, ...s.prospectAuditBatches] }));
+      toast.success('Batch created');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create batch');
+      throw err;
+    }
+  },
+  deleteProspectAuditBatch: async (id) => {
+    try {
+      await prospectAuditsAPI.delete(id);
+      set((s) => ({ prospectAuditBatches: s.prospectAuditBatches.filter((b) => !sameId(b, id)) }));
+      toast.success('Batch deleted');
+    } catch (err) {
+      toast.error('Failed to delete batch');
+      throw err;
+    }
+  },
+  startProspectAuditCrawl: async (id) => {
+    try {
+      const { data } = await prospectAuditsAPI.start(id);
+      set((s) => ({ prospectAuditBatches: s.prospectAuditBatches.map((b) => sameId(b, id) ? { ...b, ...data.data } : b) }));
+      toast.success('Crawl started');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to start crawl');
+      throw err;
+    }
+  },
+  pauseProspectAuditCrawl: async (id) => {
+    try {
+      const { data } = await prospectAuditsAPI.pause(id);
+      set((s) => ({ prospectAuditBatches: s.prospectAuditBatches.map((b) => sameId(b, id) ? { ...b, ...data.data } : b) }));
+      toast.success('Crawl paused');
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to pause crawl');
+      throw err;
+    }
+  },
+  loadProspectAudits: async (batchId) => {
+    try {
+      const { data } = await prospectAuditsAPI.getProspects(batchId);
+      set({ prospectAudits: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load prospects');
+    }
+  },
+  deleteProspectAudit: async (batchId, prospectId) => {
+    try {
+      await prospectAuditsAPI.deleteProspect(batchId, prospectId);
+      set((s) => ({ prospectAudits: s.prospectAudits.filter((p) => !sameId(p, prospectId)) }));
+      toast.success('Prospect removed');
+    } catch (err) {
+      toast.error('Failed to remove prospect');
+      throw err;
+    }
+  },
+  importProspectAuditsCsv: async (batchId, file) => {
+    try {
+      const { data } = await prospectAuditsAPI.importCsv(batchId, file);
+      return await get()._reportProspectImport(batchId, data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to import prospects');
+      throw err;
+    }
+  },
+  importProspectAuditsSheet: async (batchId, googleSheetUrl) => {
+    try {
+      const { data } = await prospectAuditsAPI.importSheet(batchId, googleSheetUrl);
+      return await get()._reportProspectImport(batchId, data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to import prospects');
+      throw err;
+    }
+  },
+  _reportProspectImport: async (batchId, result) => {
+    const { imported, skippedDuplicates } = result;
+    toast.success(`Imported ${imported} prospects${skippedDuplicates ? ` (${skippedDuplicates} duplicates skipped)` : ''}`);
+    await get().loadProspectAuditBatch(batchId);
+    await get().loadProspectAudits(batchId);
+    return result;
   },
 
   // ── Email Templates ──────────────────────────────────────────

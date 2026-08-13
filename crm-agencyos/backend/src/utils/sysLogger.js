@@ -20,12 +20,20 @@ try { if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true }); }
 
 // ── File targets ───────────────────────────────────────────────────────────
 const FILES = {
-  combined: path.join(LOG_DIR, 'combined.log'),
-  error:    path.join(LOG_DIR, 'error.log'),
-  system:   path.join(LOG_DIR, 'system.log'),
-  email:    path.join(LOG_DIR, 'email.log'),
-  queue:    path.join(LOG_DIR, 'queue.log'),
-  http:     path.join(LOG_DIR, 'http.log'),
+  combined:      path.join(LOG_DIR, 'combined.log'),
+  error:         path.join(LOG_DIR, 'error.log'),
+  system:        path.join(LOG_DIR, 'system.log'),
+  email:         path.join(LOG_DIR, 'email.log'),
+  queue:         path.join(LOG_DIR, 'queue.log'),
+  http:          path.join(LOG_DIR, 'http.log'),
+  // Own dedicated files — separate from combined.log's firehose — so each
+  // background worker's activity can be watched on its own tab in System
+  // Logs (Settings → System Monitor) without it getting lost in everything
+  // else. Written to on every dispatcher tick (not just errors), so a quiet
+  // file with recent timestamps still tells you "it's alive, just idle"
+  // instead of leaving that ambiguous.
+  campaign:      path.join(LOG_DIR, 'campaign.log'),
+  prospectAudit: path.join(LOG_DIR, 'prospect-audit.log'),
 };
 
 // PM2 captured files (read-only — written by PM2 itself)
@@ -67,6 +75,8 @@ function write(level, source, message, meta) {
   if (['QUEUE', 'BULLMQ', 'WORKER'].includes(src)) writeRaw(FILES.queue, jsonLine);
   if (['SERVER', 'DB', 'MONGO', 'REDIS', 'SOCKET', 'AUTH'].includes(src)) writeRaw(FILES.system, jsonLine);
   if (src === 'HTTP') writeRaw(FILES.http, jsonLine);
+  if (src === 'CAMPAIGN') writeRaw(FILES.campaign, jsonLine);
+  if (src === 'PROSPECT_AUDIT') writeRaw(FILES.prospectAudit, jsonLine);
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────

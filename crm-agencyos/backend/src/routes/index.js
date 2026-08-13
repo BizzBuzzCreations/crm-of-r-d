@@ -353,3 +353,33 @@ mainCrmRouter.put('/credentials',      mainCrmCtrl.saveCredentials);
 mainCrmRouter.delete('/credentials',   mainCrmCtrl.clearCredentials);
 mainCrmRouter.post('/test-connection', mainCrmCtrl.testConnection);
 module.exports.mainCrmIntegration = mainCrmRouter;
+
+// ── PageSpeed Insights Integration — admin-only. Configures the Google API
+// key(s) used by the Prospect Audit crawler (see
+// controllers/pageSpeedIntegrationController.js, workers/prospectAuditWorker.js).
+// Same admin-only sensitivity tier as IVA CRM Integration/API Keys.
+const pageSpeedCtrl = require('../controllers/pageSpeedIntegrationController');
+const pageSpeedRouter = express.Router();
+pageSpeedRouter.use(protect);
+pageSpeedRouter.use(authorize('admin'));
+pageSpeedRouter.get('/status',           pageSpeedCtrl.getStatus);
+pageSpeedRouter.put('/credentials',      pageSpeedCtrl.saveCredentials);
+pageSpeedRouter.delete('/credentials',   pageSpeedCtrl.clearCredentials);
+pageSpeedRouter.post('/test-connection', pageSpeedCtrl.testConnection);
+module.exports.pageSpeedIntegration = pageSpeedRouter;
+
+// ── Prospect Audits (admin + manager — sales-ops tool) ─────────────────
+const prospectAuditCtrl = require('../controllers/prospectAuditController');
+const prospectAuditsRouter = express.Router();
+prospectAuditsRouter.use(protect);
+prospectAuditsRouter.use(authorizeFeature('prospect_audit', ['admin', 'manager']));
+prospectAuditsRouter.get('/',                              prospectAuditCtrl.getBatches);
+prospectAuditsRouter.post('/',                             prospectAuditCtrl.createBatch);
+prospectAuditsRouter.get('/:id',                           prospectAuditCtrl.getBatch);
+prospectAuditsRouter.delete('/:id',                        prospectAuditCtrl.deleteBatch);
+prospectAuditsRouter.post('/:id/import',                   upload.single('file'), prospectAuditCtrl.importProspects);
+prospectAuditsRouter.get('/:id/prospects',                 prospectAuditCtrl.getProspects);
+prospectAuditsRouter.delete('/:id/prospects/:prospectId',  prospectAuditCtrl.deleteProspect);
+prospectAuditsRouter.post('/:id/start',                    prospectAuditCtrl.startCrawl);
+prospectAuditsRouter.post('/:id/pause',                    prospectAuditCtrl.pauseCrawl);
+module.exports.prospectAudits = prospectAuditsRouter;

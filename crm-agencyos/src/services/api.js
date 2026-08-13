@@ -419,6 +419,37 @@ export const mainCrmAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── PageSpeed Insights Integration (admin only)
+// ─────────────────────────────────────────────────────────────
+export const pageSpeedIntegrationAPI = {
+  status:          ()     => api.get('/pagespeed-integration/status'),
+  saveCredentials: (body) => api.put('/pagespeed-integration/credentials', body),
+  clearCredentials: ()    => api.delete('/pagespeed-integration/credentials'),
+  testConnection:  ()     => api.post('/pagespeed-integration/test-connection'),
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Prospect Audits (admin/manager)
+// ─────────────────────────────────────────────────────────────
+export const prospectAuditsAPI = {
+  getAll:  ()     => api.get('/prospect-audits'),
+  getOne:  (id)   => api.get(`/prospect-audits/${id}`),
+  create:  (body) => api.post('/prospect-audits', body),
+  delete:  (id)   => api.delete(`/prospect-audits/${id}`),
+  start:   (id)   => api.post(`/prospect-audits/${id}/start`),
+  pause:   (id)   => api.post(`/prospect-audits/${id}/pause`),
+
+  getProspects: (id) => api.get(`/prospect-audits/${id}/prospects`),
+  deleteProspect: (id, prospectId) => api.delete(`/prospect-audits/${id}/prospects/${prospectId}`),
+  importCsv: (id, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/prospect-audits/${id}/import`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  importSheet: (id, googleSheetUrl) => api.post(`/prospect-audits/${id}/import`, { googleSheetUrl }),
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Website Intelligence (admin/manager only)
 // ─────────────────────────────────────────────────────────────
 export const witAPI = {

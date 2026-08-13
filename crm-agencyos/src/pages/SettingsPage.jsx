@@ -13,7 +13,7 @@ import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Toggle, Button, ConfirmDialog, Modal } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
-import { metaAdsAPI, witAPI, mainCrmAPI } from '../services/api';
+import { metaAdsAPI, witAPI, mainCrmAPI, pageSpeedIntegrationAPI } from '../services/api';
 import EmailAccountsManager from '../components/campaigns/EmailAccountsManager';
 import EmailTemplatesManager from '../components/campaigns/EmailTemplatesManager';
 
@@ -674,6 +674,7 @@ const FEATURE_DEFS = [
   { key: 'audit_logs',           label: 'Audit Logs',           icon: Shield,          defaultRoles: ['admin', 'read_only'] },
   { key: 'system_monitor',       label: 'System Monitor',       icon: Terminal,        defaultRoles: ['admin', 'read_only'] },
   { key: 'api_keys',             label: 'API Keys',             icon: KeyRound,        defaultRoles: ['admin', 'read_only'] },
+  { key: 'prospect_audit',       label: 'Prospect Audits',      icon: Search,          defaultRoles: ['admin', 'manager', 'read_only'] },
 ];
 const FEATURE_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations', 'read_only'];
 
@@ -1707,6 +1708,144 @@ function MainCrmIntegrationSection() {
   );
 }
 
+// Prospect Audits crawler's Google API key(s) — same Save/Test Connection/
+// Disconnect shape as MainCrmIntegrationSection above, adapted for two
+// optional keys (a second key roughly halves crawl time on large batches,
+// since PageSpeed Insights caps each key at 25k requests/day) instead of a
+// notify URL.
+function PageSpeedIntegrationSection() {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const { register, handleSubmit, reset } = useForm({
+    defaultValues: { apiKey: '', apiKey2: '' },
+  });
+
+  const loadStatus = async () => {
+    try {
+      const { data } = await pageSpeedIntegrationAPI.status();
+      setStatus(data.data);
+      reset({ apiKey: '', apiKey2: '' });
+    } catch {
+      toast.error('Failed to load PageSpeed Insights status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const onSave = async (formData) => {
+    setSaving(true);
+    try {
+      await pageSpeedIntegrationAPI.saveCredentials(formData);
+      toast.success('Saved — use Test Connection to verify');
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save credentials');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const { data } = await pageSpeedIntegrationAPI.testConnection();
+      toast.success(data.data?.message || 'Connected — the API key is valid');
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Connection test failed');
+      await loadStatus();
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!window.confirm('Disconnect PageSpeed Insights? Prospect Audit crawls will stop working until you reconnect a key.')) return;
+    setDisconnecting(true);
+    try {
+      await pageSpeedIntegrationAPI.clearCredentials();
+      toast.success('Disconnected');
+      await loadStatus();
+    } catch {
+      toast.error('Failed to disconnect');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h3 className="text-[16px] font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-200 dark:border-slate-700/60 flex items-center gap-2">
+        <Search size={18} className="text-indigo-500" /> PageSpeed Insights Integration
+      </h3>
+
+      {loading ? (
+        <p className="text-[13px] text-slate-400">Loading status…</p>
+      ) : (
+        <div className="max-w-2xl space-y-5">
+          <p className="text-[12.5px] text-slate-550 dark:text-slate-400">
+            Powers the Prospect Audits crawler's technical/SEO scoring (Settings → console.cloud.google.com
+            → enable "PageSpeed Insights API" → Credentials → Create API Key). Free, 25,000 requests/day per key.
+            Adding a second key roughly halves crawl time on large batches — optional, not required to start.
+          </p>
+
+          {status?.configured && (
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={cn('w-2.5 h-2.5 rounded-full', status.lastVerifyError ? 'bg-red-500' : status.lastVerifiedAt ? 'bg-emerald-500' : 'bg-slate-350')} />
+                  <h4 className="text-[14px] font-bold text-slate-850 dark:text-slate-200">Configured{status.hasSecondKey ? ' — 2 keys' : ''}</h4>
+                </div>
+                <button type="button" onClick={handleDisconnect} disabled={disconnecting} className="text-[12px] font-semibold text-red-500 hover:text-red-700">
+                  Disconnect
+                </button>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[12.5px]">Connection Health</span>
+                <span className={cn('font-semibold text-[12.5px]', status.lastVerifyError ? 'text-red-500' : status.lastVerifiedAt ? 'text-emerald-600' : 'text-slate-500')}>
+                  {status.lastVerifyError ? 'Error' : status.lastVerifiedAt ? `Healthy — last ${new Date(status.lastVerifiedAt).toLocaleString()}` : 'Not yet verified'}
+                </span>
+              </div>
+              {status.lastVerifyError && (
+                <p className="text-[11.5px] text-red-500 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg p-2">
+                  {status.lastVerifyError}
+                </p>
+              )}
+              <div className="pt-1">
+                <Button size="sm" variant="outline" onClick={handleTest} loading={testing}>Test Connection</Button>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onSave)} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 space-y-4">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">API Key *</label>
+              <input type="password" autoComplete="new-password" className="form-input text-[13px]"
+                placeholder={status?.configured ? '•••••••• (already set — leave blank to keep)' : 'Paste your PageSpeed Insights API key'}
+                {...register('apiKey')} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">Second API Key (optional)</label>
+              <input type="password" autoComplete="new-password" className="form-input text-[13px]"
+                placeholder={status?.hasSecondKey ? '•••••••• (already set — leave blank to keep)' : 'For faster crawling on large batches'}
+                {...register('apiKey2')} />
+            </div>
+            <Button variant="primary" type="submit" loading={saving}>
+              <Save size={14} /> Save
+            </Button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 10c. Website Intelligence — manage the tracked websites (Settings →
 // Websites). Each gets a public trackingId (ships in the embedded snippet)
 // and a private apiSecret (shown exactly once, for the lead-capture call).
@@ -2336,6 +2475,7 @@ export default function SettingsPage() {
         { id: 'pipelines',      label: 'Sales Pipelines', icon: Sliders },
         { id: 'feature_access', label: 'Feature Access Control', icon: Lock },
         { id: 'main_crm_integration', label: 'IVA CRM Integration', icon: ArrowUpRight },
+        { id: 'pagespeed_integration', label: 'PageSpeed Insights', icon: Search },
         { id: 'services',       label: 'Services Dir',    icon: Layers }
       ]});
     }
@@ -2524,6 +2664,9 @@ export default function SettingsPage() {
           )}
           {isAdmin && activeTab === 'main_crm_integration' && (
             <MainCrmIntegrationSection />
+          )}
+          {isAdmin && activeTab === 'pagespeed_integration' && (
+            <PageSpeedIntegrationSection />
           )}
           {isAdmin && activeTab === 'services' && (
             <ServicesSection />

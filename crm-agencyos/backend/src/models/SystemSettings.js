@@ -42,6 +42,24 @@ MainCrmIntegrationSchema.virtual('apiKey')
   .set(function (val) { this.apiKeyEncrypted = encrypt(val); })
   .get(function () { return decrypt(this.apiKeyEncrypted); });
 
+// Prospect Website Audit — Google PageSpeed Insights API key(s). Same
+// encrypted-secret pattern as MainCrmIntegrationSchema above. A second,
+// optional key exists purely for throughput: PSI caps each key at 25k
+// requests/day, so a large batch can round-robin across two keys to
+// roughly halve total crawl time (see cron/prospectAuditDispatcher.js).
+const PageSpeedIntegrationSchema = new mongoose.Schema({
+  apiKeyEncrypted:  { type: String, default: '', select: false },
+  apiKey2Encrypted: { type: String, default: '', select: false },
+  lastVerifiedAt:   { type: Date, default: null },
+  lastVerifyError:  { type: String, default: '' },
+}, { _id: false });
+PageSpeedIntegrationSchema.virtual('apiKey')
+  .set(function (val) { this.apiKeyEncrypted = encrypt(val); })
+  .get(function () { return decrypt(this.apiKeyEncrypted); });
+PageSpeedIntegrationSchema.virtual('apiKey2')
+  .set(function (val) { this.apiKey2Encrypted = encrypt(val); })
+  .get(function () { return decrypt(this.apiKey2Encrypted); });
+
 // Which roles/specific users can access a given sidebar "feature" — same
 // additive OR semantics as NotificationRoutingRuleSchema (role match OR
 // userId match). 'client' is deliberately NOT in the roles enum: the client
@@ -226,10 +244,12 @@ const SystemSettingsSchema = new mongoose.Schema({
       ['audit_logs',             { roles: ['admin', 'read_only'],                                          userIds: [] }],
       ['system_monitor',         { roles: ['admin', 'read_only'],                                          userIds: [] }],
       ['api_keys',               { roles: ['admin', 'read_only'],                                          userIds: [] }],
+      ['prospect_audit',         { roles: ['admin', 'manager', 'read_only'],                                userIds: [] }],
     ]),
   },
 
   mainCrmIntegration: { type: MainCrmIntegrationSchema, default: () => ({}) },
+  pageSpeedIntegration: { type: PageSpeedIntegrationSchema, default: () => ({}) },
 
   // Import/Export Control
   dataControl: {
