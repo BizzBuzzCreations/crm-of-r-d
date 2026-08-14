@@ -403,11 +403,20 @@ const socialPostCtrl = require('../controllers/socialPostController');
 const socialUpload = require('../modules/social/utils/socialUpload');
 
 const socialAccountsRouter = express.Router();
+// Callback is hit by the OAuth platform's own server-side redirect — the
+// user's browser navigating back from Facebook/LinkedIn/etc. with just
+// `?code=&state=`, which can never carry our app's Bearer token or a
+// `?token=` param the way `connect` does. Its authenticity instead comes
+// from verifying the signed `state` JWT inside the controller itself (see
+// socialAccountController.js#callback) — so this route must be registered
+// BEFORE the protect/authorizeFeature gate below, or every real OAuth
+// completion 401s before ever reaching the handler.
+socialAccountsRouter.get('/:platform/callback',  socialAccountCtrl.callback);
+
 socialAccountsRouter.use(protect);
 socialAccountsRouter.use(authorizeFeature('social_media', ['admin', 'manager']));
 socialAccountsRouter.get('/',                    socialAccountCtrl.getAccounts);
 socialAccountsRouter.get('/:platform/connect',   socialAccountCtrl.connect);
-socialAccountsRouter.get('/:platform/callback',  socialAccountCtrl.callback);
 socialAccountsRouter.delete('/:id',              socialAccountCtrl.deleteAccount);
 module.exports.socialAccounts = socialAccountsRouter;
 
