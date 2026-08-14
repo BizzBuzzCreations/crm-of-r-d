@@ -7,6 +7,7 @@ import {
   todosAPI, meetingsAPI, messagesAPI, worklogAPI, revenueAPI, notificationsAPI, channelsAPI, servicesAPI, projectsAPI,
   settingsAPI, leadsAPI, portalAPI, campaignsAPI, emailAccountsAPI, emailTemplatesAPI, getBackendUrl,
   prospectAuditsAPI,
+  socialAPI, socialPlatformSettingsAPI,
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -684,6 +685,9 @@ const useAppStore = create((set, get, store) => ({
   campaignLeads:  [],   // leads for whichever campaign is currently open
   prospectAuditBatches: [], // lazy-loaded — only fetched when the Prospect Audits page mounts
   prospectAudits:       [], // prospects for whichever batch is currently open
+  socialAccounts: [], // connected Facebook Pages / Instagram / LinkedIn accounts
+  socialPosts:    [], // lazy-loaded — only fetched when a Social Media page mounts
+  socialPostDetail: null, // { post, publications } for whichever post is currently open
   emailAccounts:  [],   // sending accounts pool, lazy-loaded alongside campaigns
   emailTemplates: [],   // reusable email content library, lazy-loaded in Compose
   systemSettings: null,
@@ -1257,6 +1261,158 @@ const useAppStore = create((set, get, store) => ({
     await get().loadProspectAuditBatch(batchId);
     await get().loadProspectAudits(batchId);
     return result;
+  },
+
+  // ── Social Media Management ───────────────────────────────────
+  loadSocialAccounts: async () => {
+    try {
+      const { data } = await socialAPI.getAccounts();
+      set({ socialAccounts: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load connected accounts');
+    }
+  },
+  disconnectSocialAccount: async (id) => {
+    try {
+      await socialAPI.deleteAccount(id);
+      set((s) => ({ socialAccounts: s.socialAccounts.filter((a) => !sameId(a, id)) }));
+      toast.success('Account disconnected');
+    } catch (err) {
+      toast.error('Failed to disconnect account');
+      throw err;
+    }
+  },
+
+  loadSocialPosts: async (params) => {
+    try {
+      const { data } = await socialAPI.getPosts(params);
+      set({ socialPosts: data.data || [] });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load posts');
+    }
+  },
+  loadSocialPostDetail: async (id) => {
+    try {
+      const { data } = await socialAPI.getPost(id);
+      set({ socialPostDetail: data.data });
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load post');
+      throw err;
+    }
+  },
+  createSocialPost: async (body) => {
+    try {
+      const { data } = await socialAPI.createPost(body);
+      set((s) => ({ socialPosts: [data.data, ...s.socialPosts] }));
+      return data.data;
+    } catch (err) {
+      const errs = err.response?.data?.errors;
+      toast.error(errs?.[0]?.message || err.response?.data?.message || 'Failed to create post');
+      throw err;
+    }
+  },
+  updateSocialPost: async (id, body) => {
+    try {
+      const { data } = await socialAPI.updatePost(id, body);
+      set((s) => ({ socialPosts: s.socialPosts.map((p) => sameId(p, id) ? data.data : p) }));
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update post');
+      throw err;
+    }
+  },
+  deleteSocialPost: async (id) => {
+    try {
+      await socialAPI.deletePost(id);
+      set((s) => ({ socialPosts: s.socialPosts.filter((p) => !sameId(p, id)) }));
+      toast.success('Post deleted');
+    } catch (err) {
+      toast.error('Failed to delete post');
+      throw err;
+    }
+  },
+  publishSocialPost: async (id) => {
+    try {
+      const { data } = await socialAPI.publishPost(id);
+      set((s) => ({ socialPosts: s.socialPosts.map((p) => sameId(p, id) ? data.data : p) }));
+      toast.success('Publishing now');
+      return data.data;
+    } catch (err) {
+      const errs = err.response?.data?.errors;
+      toast.error(errs?.[0]?.message || err.response?.data?.message || 'Failed to publish');
+      throw err;
+    }
+  },
+  scheduleSocialPost: async (id, scheduledAt) => {
+    try {
+      const { data } = await socialAPI.schedulePost(id, scheduledAt);
+      set((s) => ({ socialPosts: s.socialPosts.map((p) => sameId(p, id) ? data.data : p) }));
+      toast.success('Post scheduled');
+      return data.data;
+    } catch (err) {
+      const errs = err.response?.data?.errors;
+      toast.error(errs?.[0]?.message || err.response?.data?.message || 'Failed to schedule');
+      throw err;
+    }
+  },
+  cancelSocialPost: async (id) => {
+    try {
+      const { data } = await socialAPI.cancelPost(id);
+      set((s) => ({ socialPosts: s.socialPosts.map((p) => sameId(p, id) ? data.data : p) }));
+      toast.success('Post cancelled');
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to cancel post');
+      throw err;
+    }
+  },
+  retrySocialPublication: async (id, postId) => {
+    try {
+      await socialAPI.retryPublication(id);
+      toast.success('Retrying…');
+      if (postId) await get().loadSocialPostDetail(postId);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Retry failed');
+      throw err;
+    }
+  },
+  uploadSocialMedia: async (file) => {
+    try {
+      const { data } = await socialAPI.uploadMedia(file);
+      return data.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to upload media');
+      throw err;
+    }
+  },
+  loadSocialAnalytics: async () => {
+    try {
+      const { data } = await socialAPI.getAnalytics();
+      return data.data;
+    } catch (err) {
+      toast.error('Failed to load analytics');
+    }
+  },
+
+  loadSocialPlatformStatus: async (platform) => {
+    try {
+      const { data } = await socialPlatformSettingsAPI.status(platform);
+      return data.data;
+    } catch (err) {
+      toast.error(`Failed to load ${platform} status`);
+    }
+  },
+  saveSocialPlatformCredentials: async (platform, body) => {
+    try {
+      await socialPlatformSettingsAPI.saveCredentials(platform, body);
+      toast.success('Saved');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save');
+      throw err;
+    }
   },
 
   // ── Email Templates ──────────────────────────────────────────

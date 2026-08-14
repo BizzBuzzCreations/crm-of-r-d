@@ -95,6 +95,11 @@ if pm2 describe prospect-audit-worker >/dev/null 2>&1; then
 else
   pm2 start src/workers/prospectAuditWorker.js --name prospect-audit-worker --cwd "$REPO_DIR/backend"
 fi
+if pm2 describe social-publish-worker >/dev/null 2>&1; then
+  pm2 restart social-publish-worker
+else
+  pm2 start src/workers/socialPublishWorker.js --name social-publish-worker --cwd "$REPO_DIR/backend"
+fi
 pm2 save >/dev/null
 ok "restarted"
 
@@ -119,6 +124,7 @@ check_pm2 "rndCRM-backend"
 check_pm2 "email-worker"
 check_pm2 "campaign-worker"
 check_pm2 "prospect-audit-worker"
+check_pm2 "social-publish-worker"
 
 if systemctl is-active --quiet nginx; then
   ok "nginx: active"

@@ -6,6 +6,7 @@ import {
   BarChart3, Video, Calendar, Settings, LogOut, UserCircle,
   Pause, Play, Coffee, ChevronDown, ChevronUp, Timer, Utensils, Pencil, Target, Shield, Terminal,
   Building2, Receipt, Mail, Megaphone, Globe2, KeyRound, Search,
+  Share2, PenTool, FileText,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import { Avatar } from '../components/ui';
@@ -445,6 +446,15 @@ const NAV = [
       },
       { path: '/website-intelligence', label: 'Website Intelligence', icon: Globe2, roles: ['admin','manager'], featureKey: 'website_intelligence' },
       { path: '/prospect-audits', label: 'Prospect Audits', icon: Search, roles: ['admin','manager'], featureKey: 'prospect_audit' },
+      {
+        key: 'social-media', label: 'Social Media', icon: Share2, roles: ['admin','manager'],
+        children: [
+          { path: '/social-media/accounts', label: 'Connected Accounts', icon: Share2,   roles: ['admin','manager'], featureKey: 'social_media' },
+          { path: '/social-media/composer', label: 'Composer',           icon: PenTool,  roles: ['admin','manager'], featureKey: 'social_media' },
+          { path: '/social-media/calendar', label: 'Calendar',           icon: Calendar, roles: ['admin','manager'], featureKey: 'social_media' },
+          { path: '/social-media/posts',    label: 'Posts',              icon: FileText, roles: ['admin','manager'], featureKey: 'social_media' },
+        ],
+      },
       { path: '/messages',  label: 'Messages',             icon: MessageSquare,   roles: ['admin','manager','member','client_relations','client'], featureKey: 'messages', badge: true },
       { path: '/meetings',  label: 'Meetings',             icon: Video,           roles: ['admin','manager','member','client_relations'], featureKey: 'meetings' },
       { path: '/reports',   label: 'Reports',              icon: BarChart3,       roles: ['admin','manager','member','client_relations'], featureKey: 'reports' },

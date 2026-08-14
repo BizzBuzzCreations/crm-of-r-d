@@ -12,6 +12,8 @@
     "campaign-worker:dev": "nodemon src/workers/campaignWorker.js",
     "prospect-audit-worker": "node src/workers/prospectAuditWorker.js",
     "prospect-audit-worker:dev": "nodemon src/workers/prospectAuditWorker.js",
+    "social-publish-worker": "node src/workers/socialPublishWorker.js",
+    "social-publish-worker:dev": "nodemon src/workers/socialPublishWorker.js",
     "seed": "node src/seed.js",
     "backfill-lead-sync": "node src/backfillLeadPipelineSync.js",
     "admin": "node src/adminData.js"

@@ -26,6 +26,10 @@ import MetaAdsPage        from '../pages/MetaAdsPage';
 import WebsiteIntelligencePage from '../pages/WebsiteIntelligencePage';
 import ProspectAuditsPage      from '../pages/ProspectAuditsPage';
 import ProspectAuditDetailPage from '../pages/ProspectAuditDetailPage';
+import SocialAccountsPage from '../pages/SocialAccountsPage';
+import SocialComposerPage from '../pages/SocialComposerPage';
+import SocialCalendarPage from '../pages/SocialCalendarPage';
+import SocialPostsPage    from '../pages/SocialPostsPage';
 import ApiKeysPage         from '../pages/ApiKeysPage';
 
 // ── Guards ────────────────────────────────────────────────────
@@ -188,6 +192,38 @@ export default function AppRouter() {
             element={
               <RequireFeatureAccess featureKey="prospect_audit" defaultRoles={['admin', 'manager']}>
                 <ProspectAuditDetailPage />
+              </RequireFeatureAccess>
+            }
+          />
+          <Route
+            path="social-media/accounts"
+            element={
+              <RequireFeatureAccess featureKey="social_media" defaultRoles={['admin', 'manager']}>
+                <SocialAccountsPage />
+              </RequireFeatureAccess>
+            }
+          />
+          <Route
+            path="social-media/composer"
+            element={
+              <RequireFeatureAccess featureKey="social_media" defaultRoles={['admin', 'manager']}>
+                <SocialComposerPage />
+              </RequireFeatureAccess>
+            }
+          />
+          <Route
+            path="social-media/calendar"
+            element={
+              <RequireFeatureAccess featureKey="social_media" defaultRoles={['admin', 'manager']}>
+                <SocialCalendarPage />
+              </RequireFeatureAccess>
+            }
+          />
+          <Route
+            path="social-media/posts"
+            element={
+              <RequireFeatureAccess featureKey="social_media" defaultRoles={['admin', 'manager']}>
+                <SocialPostsPage />
               </RequireFeatureAccess>
             }
           />

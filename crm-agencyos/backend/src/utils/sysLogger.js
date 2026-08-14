@@ -34,6 +34,7 @@ const FILES = {
   // instead of leaving that ambiguous.
   campaign:      path.join(LOG_DIR, 'campaign.log'),
   prospectAudit: path.join(LOG_DIR, 'prospect-audit.log'),
+  social:        path.join(LOG_DIR, 'social.log'),
 };
 
 // PM2 captured files (read-only — written by PM2 itself)
@@ -77,6 +78,7 @@ function write(level, source, message, meta) {
   if (src === 'HTTP') writeRaw(FILES.http, jsonLine);
   if (src === 'CAMPAIGN') writeRaw(FILES.campaign, jsonLine);
   if (src === 'PROSPECT_AUDIT') writeRaw(FILES.prospectAudit, jsonLine);
+  if (src === 'SOCIAL') writeRaw(FILES.social, jsonLine);
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
