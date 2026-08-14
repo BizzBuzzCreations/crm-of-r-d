@@ -6,14 +6,15 @@ import {
   Download, AlertTriangle, RefreshCw, Save, Lock, User, Bell, Database, Clock, 
   Layers, Plus, Trash2, X, Edit2, Zap, Palette, Smartphone, Globe, BarChart3, 
   PenTool, Clapperboard, Camera, Wrench, Lightbulb, Shield, Rocket, HelpCircle, 
-  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Info, ArrowUpRight, Megaphone, Search,
+  Mail, Calendar, Users, Sliders, FileText, Check, Settings, Info, ArrowUpRight, Megaphone, Search, Share2,
+  Twitter, Youtube, Music2,
   LayoutDashboard, ListTodo, CheckSquare, Target, MessageSquare, Video, Receipt, UserCircle, Terminal, KeyRound,
 } from 'lucide-react';
 import useAppStore, { getId, sameId } from '../store/useAppStore';
 import { useShallow } from 'zustand/shallow';
 import { Page, Toggle, Button, ConfirmDialog, Modal } from '../components/ui';
 import { cn, canManage, canAdmin, fmtDate, fmtTimer, ROLE_CONFIG } from '../utils/helpers';
-import { metaAdsAPI, witAPI, mainCrmAPI, pageSpeedIntegrationAPI } from '../services/api';
+import api, { metaAdsAPI, witAPI, mainCrmAPI, pageSpeedIntegrationAPI, socialPlatformSettingsAPI } from '../services/api';
 import EmailAccountsManager from '../components/campaigns/EmailAccountsManager';
 import EmailTemplatesManager from '../components/campaigns/EmailTemplatesManager';
 
@@ -675,6 +676,7 @@ const FEATURE_DEFS = [
   { key: 'system_monitor',       label: 'System Monitor',       icon: Terminal,        defaultRoles: ['admin', 'read_only'] },
   { key: 'api_keys',             label: 'API Keys',             icon: KeyRound,        defaultRoles: ['admin', 'read_only'] },
   { key: 'prospect_audit',       label: 'Prospect Audits',      icon: Search,          defaultRoles: ['admin', 'manager', 'read_only'] },
+  { key: 'social_media',         label: 'Social Media',         icon: Share2,          defaultRoles: ['admin', 'manager', 'read_only'] },
 ];
 const FEATURE_ROUTABLE_ROLES = ['admin', 'manager', 'member', 'client_relations', 'read_only'];
 
@@ -1846,6 +1848,171 @@ function PageSpeedIntegrationSection() {
   );
 }
 
+// Shared skeleton for the two Social Media Platform app-credential cards
+// (Meta App, LinkedIn App) — same pattern as PageSpeedIntegrationSection,
+// but no "Test Connection": there's no unauthenticated endpoint to validate
+// an App ID/Secret pair against before a real OAuth grant exists. The real
+// test is the Connect flow itself succeeding from Connected Accounts.
+function SocialPlatformAppSection({ platform, icon: Icon, title, idField, idLabel, secretField, secretLabel, helpText }) {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const { register, handleSubmit, reset } = useForm({ defaultValues: { [idField]: '', [secretField]: '' } });
+
+  // Must match exactly what socialAccountController.js's redirectUriFor()
+  // actually sends to the platform — that's derived from the BACKEND's own
+  // host (req.get('host')), not the browser's. In production these are the
+  // same origin (nginx serves both), but in dev the frontend (:5173) and
+  // backend (:5000) differ — window.location.origin would be wrong here.
+  // api.defaults.baseURL already resolves to the correct backend origin in
+  // both cases (see services/api.js's getApiUrl()).
+  const callbackUrl = `${api.defaults.baseURL.replace(/\/api$/, '')}/api/social/accounts/${platform}/callback`;
+
+  const loadStatus = async () => {
+    try {
+      const { data } = await socialPlatformSettingsAPI.status(platform);
+      setStatus(data.data);
+      reset({ [idField]: data.data?.[idField] || '', [secretField]: '' });
+    } catch {
+      toast.error(`Failed to load ${title} status`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onSave = async (formData) => {
+    setSaving(true);
+    try {
+      await socialPlatformSettingsAPI.saveCredentials(platform, formData);
+      toast.success('Saved');
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save credentials');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!window.confirm(`Clear ${title} credentials? Connect buttons for this platform will stop working until reconfigured.`)) return;
+    setDisconnecting(true);
+    try {
+      await socialPlatformSettingsAPI.clearCredentials(platform);
+      toast.success('Cleared');
+      await loadStatus();
+    } catch {
+      toast.error('Failed to clear credentials');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h3 className="text-[16px] font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-200 dark:border-slate-700/60 flex items-center gap-2">
+        <Icon size={18} className="text-indigo-500" /> {title}
+      </h3>
+
+      {loading ? (
+        <p className="text-[13px] text-slate-400">Loading status…</p>
+      ) : (
+        <div className="max-w-2xl space-y-5">
+          <p className="text-[12.5px] text-slate-550 dark:text-slate-400">{helpText}</p>
+
+          <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
+            <span className="text-slate-400 block text-[11px] font-bold uppercase tracking-widest mb-1">Callback URL to register</span>
+            <code className="text-[12px] text-slate-700 dark:text-slate-300 break-all">{callbackUrl}</code>
+          </div>
+
+          {status?.configured && (
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <h4 className="text-[14px] font-bold text-slate-850 dark:text-slate-200">Configured</h4>
+                </div>
+                <button type="button" onClick={handleDisconnect} disabled={disconnecting} className="text-[12px] font-semibold text-red-500 hover:text-red-700">
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onSave)} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 space-y-4">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">{idLabel} *</label>
+              <input type="text" className="form-input text-[13px]" placeholder={idLabel} {...register(idField)} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-450 uppercase tracking-widest mb-1.5">{secretLabel} *</label>
+              <input type="password" autoComplete="new-password" className="form-input text-[13px]"
+                placeholder={status?.configured ? '•••••••• (already set — leave blank to keep)' : secretLabel}
+                {...register(secretField)} />
+            </div>
+            <Button variant="primary" type="submit" loading={saving}>
+              <Save size={14} /> Save
+            </Button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetaAppSettingsSection() {
+  return (
+    <SocialPlatformAppSection
+      platform="meta" icon={Share2} title="Meta App (Facebook & Instagram)"
+      idField="appId" idLabel="App ID" secretField="appSecret" secretLabel="App Secret"
+      helpText="Powers Connect for Facebook Pages and Instagram Business/Creator accounts (one Meta App covers both via Facebook Login for Business). Create at developers.facebook.com — enable Pages API + Instagram Graph API, register the callback URL below, request scopes: pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic, instagram_content_publish, business_management."
+    />
+  );
+}
+
+function LinkedInAppSettingsSection() {
+  return (
+    <SocialPlatformAppSection
+      platform="linkedin" icon={Share2} title="LinkedIn App (Company Pages)"
+      idField="clientId" idLabel="Client ID" secretField="clientSecret" secretLabel="Client Secret"
+      helpText="Powers Connect for LinkedIn Company Pages. Create at developer.linkedin.com — add the Community Management API product (needed for posting as an organization; LinkedIn reviews this request, typically a few days), register the callback URL below."
+    />
+  );
+}
+
+function XAppSettingsSection() {
+  return (
+    <SocialPlatformAppSection
+      platform="x" icon={Twitter} title="X (Twitter) App"
+      idField="clientId" idLabel="Client ID" secretField="clientSecret" secretLabel="Client Secret"
+      helpText="Powers Connect for X. Create an app at developer.x.com with OAuth 2.0 enabled, register the callback URL below. Note: meaningful posting volume via the API requires at least X's paid Basic API tier — the free tier is very limited."
+    />
+  );
+}
+
+function YouTubeAppSettingsSection() {
+  return (
+    <SocialPlatformAppSection
+      platform="youtube" icon={Youtube} title="YouTube App"
+      idField="clientId" idLabel="Client ID" secretField="clientSecret" secretLabel="Client Secret"
+      helpText="Powers Connect for YouTube channels. Create an OAuth 2.0 Client ID at console.cloud.google.com (enable the YouTube Data API v3 first), register the callback URL below. YouTube is video-only — every post here needs an attached video file."
+    />
+  );
+}
+
+function TikTokAppSettingsSection() {
+  return (
+    <SocialPlatformAppSection
+      platform="tiktok" icon={Music2} title="TikTok App"
+      idField="clientKey" idLabel="Client Key" secretField="clientSecret" secretLabel="Client Secret"
+      helpText="Powers Connect for TikTok. Create an app at developers.tiktok.com with the Content Posting API product, register the callback URL below. Until your app completes TikTok's audit, posts publish as private (visible only to the connected creator) — this is a TikTok-side restriction, not a bug here."
+    />
+  );
+}
+
 // 10c. Website Intelligence — manage the tracked websites (Settings →
 // Websites). Each gets a public trackingId (ships in the embedded snippet)
 // and a private apiSecret (shown exactly once, for the lead-capture call).
@@ -2460,11 +2627,28 @@ export default function SettingsPage() {
         { id: 'templates',        label: 'Communication',   icon: FileText },
         { id: 'notification_routing', label: 'Notification Routing', icon: Bell },
         { id: 'integrations',     label: 'Integrations',    icon: Zap },
-        { id: 'meta_ads',         label: 'Meta Ads',        icon: Megaphone },
-        { id: 'websites',         label: 'Websites',        icon: Globe },
         { id: 'data',             label: 'Data Controls',   icon: Database }
       ]});
     }
+
+    // External integrations — visible to managers (Meta Ads, Websites) and
+    // admins (everything else); built conditionally so each item keeps
+    // exactly the access level it had before this group existed, just
+    // regrouped.
+    const integrationItems = [];
+    if (isManager) {
+      integrationItems.push(
+        { id: 'meta_ads',  label: 'Meta Ads',  icon: Megaphone },
+        { id: 'websites',  label: 'Websites',  icon: Globe },
+      );
+    }
+    if (isAdmin) {
+      integrationItems.push(
+        { id: 'main_crm_integration', label: 'IVA CRM Integration', icon: ArrowUpRight },
+        { id: 'pagespeed_integration', label: 'PageSpeed Insights', icon: Search },
+      );
+    }
+    if (integrationItems.length) list.push({ group: 'Integrations', items: integrationItems });
 
     // Tier 1: System Settings (Admins Only)
     if (isAdmin) {
@@ -2474,9 +2658,19 @@ export default function SettingsPage() {
         { id: 'security_config',label: 'Auth Controls',   icon: Shield },
         { id: 'pipelines',      label: 'Sales Pipelines', icon: Sliders },
         { id: 'feature_access', label: 'Feature Access Control', icon: Lock },
-        { id: 'main_crm_integration', label: 'IVA CRM Integration', icon: ArrowUpRight },
-        { id: 'pagespeed_integration', label: 'PageSpeed Insights', icon: Search },
         { id: 'services',       label: 'Services Dir',    icon: Layers }
+      ]});
+
+      // Social Media Management's per-platform app credentials (Settings ->
+      // this group) — kept separate from the general Integrations group
+      // above since these are specifically what the Connect flow on
+      // Social Media -> Connected Accounts reads from.
+      list.push({ group: 'Social Media Platforms', items: [
+        { id: 'meta_app_settings',    label: 'Meta App (FB/IG)', icon: Share2 },
+        { id: 'linkedin_app_settings', label: 'LinkedIn App',    icon: Share2 },
+        { id: 'x_app_settings',       label: 'X App',            icon: Twitter },
+        { id: 'youtube_app_settings', label: 'YouTube App',      icon: Youtube },
+        { id: 'tiktok_app_settings',  label: 'TikTok App',       icon: Music2 },
       ]});
     }
 
@@ -2667,6 +2861,21 @@ export default function SettingsPage() {
           )}
           {isAdmin && activeTab === 'pagespeed_integration' && (
             <PageSpeedIntegrationSection />
+          )}
+          {isAdmin && activeTab === 'meta_app_settings' && (
+            <MetaAppSettingsSection />
+          )}
+          {isAdmin && activeTab === 'linkedin_app_settings' && (
+            <LinkedInAppSettingsSection />
+          )}
+          {isAdmin && activeTab === 'x_app_settings' && (
+            <XAppSettingsSection />
+          )}
+          {isAdmin && activeTab === 'youtube_app_settings' && (
+            <YouTubeAppSettingsSection />
+          )}
+          {isAdmin && activeTab === 'tiktok_app_settings' && (
+            <TikTokAppSettingsSection />
           )}
           {isAdmin && activeTab === 'services' && (
             <ServicesSection />

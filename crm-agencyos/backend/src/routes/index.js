@@ -383,3 +383,62 @@ prospectAuditsRouter.delete('/:id/prospects/:prospectId',  prospectAuditCtrl.del
 prospectAuditsRouter.post('/:id/start',                    prospectAuditCtrl.startCrawl);
 prospectAuditsRouter.post('/:id/pause',                    prospectAuditCtrl.pauseCrawl);
 module.exports.prospectAudits = prospectAuditsRouter;
+
+// ── Social Media Platforms — admin-only. Meta App / LinkedIn App
+// credentials used by the OAuth connect flow (see
+// controllers/socialAccountController.js, modules/social/services/socialService.js).
+// Same admin-only sensitivity tier as PageSpeed/Main CRM integrations.
+const socialPlatformCtrl = require('../modules/social/controllers/socialPlatformSettingsController');
+const socialPlatformRouter = express.Router();
+socialPlatformRouter.use(protect);
+socialPlatformRouter.use(authorize('admin'));
+socialPlatformRouter.get('/:platform/status',         socialPlatformCtrl.getStatus);
+socialPlatformRouter.put('/:platform/credentials',    socialPlatformCtrl.saveCredentials);
+socialPlatformRouter.delete('/:platform/credentials', socialPlatformCtrl.clearCredentials);
+module.exports.socialPlatformSettings = socialPlatformRouter;
+
+// ── Social Media Management (admin + manager — marketing-ops tool) ─────
+const socialAccountCtrl = require('../controllers/socialAccountController');
+const socialPostCtrl = require('../controllers/socialPostController');
+const socialUpload = require('../modules/social/utils/socialUpload');
+
+const socialAccountsRouter = express.Router();
+socialAccountsRouter.use(protect);
+socialAccountsRouter.use(authorizeFeature('social_media', ['admin', 'manager']));
+socialAccountsRouter.get('/',                    socialAccountCtrl.getAccounts);
+socialAccountsRouter.get('/:platform/connect',   socialAccountCtrl.connect);
+socialAccountsRouter.get('/:platform/callback',  socialAccountCtrl.callback);
+socialAccountsRouter.delete('/:id',              socialAccountCtrl.deleteAccount);
+module.exports.socialAccounts = socialAccountsRouter;
+
+const socialPostsRouter = express.Router();
+socialPostsRouter.use(protect);
+socialPostsRouter.use(authorizeFeature('social_media', ['admin', 'manager']));
+socialPostsRouter.post('/upload-media',       socialUpload.single('media'), socialPostCtrl.uploadMedia);
+socialPostsRouter.post('/',                   socialPostCtrl.createPost);
+socialPostsRouter.get('/',                    socialPostCtrl.getPosts);
+socialPostsRouter.get('/:id',                 socialPostCtrl.getPost);
+socialPostsRouter.patch('/:id',               socialPostCtrl.updatePost);
+socialPostsRouter.delete('/:id',              socialPostCtrl.deletePost);
+socialPostsRouter.post('/:id/publish',        socialPostCtrl.publishPost);
+socialPostsRouter.post('/:id/schedule',       socialPostCtrl.schedulePost);
+socialPostsRouter.post('/:id/cancel',         socialPostCtrl.cancelPost);
+module.exports.socialPosts = socialPostsRouter;
+
+const socialPublicationsRouter = express.Router();
+socialPublicationsRouter.use(protect);
+socialPublicationsRouter.use(authorizeFeature('social_media', ['admin', 'manager']));
+socialPublicationsRouter.post('/:id/retry', socialPostCtrl.retryPublication);
+module.exports.socialPublications = socialPublicationsRouter;
+
+const socialCalendarRouter = express.Router();
+socialCalendarRouter.use(protect);
+socialCalendarRouter.use(authorizeFeature('social_media', ['admin', 'manager']));
+socialCalendarRouter.get('/', socialPostCtrl.getCalendar);
+module.exports.socialCalendar = socialCalendarRouter;
+
+const socialAnalyticsRouter = express.Router();
+socialAnalyticsRouter.use(protect);
+socialAnalyticsRouter.use(authorizeFeature('social_media', ['admin', 'manager']));
+socialAnalyticsRouter.get('/', socialPostCtrl.getAnalytics);
+module.exports.socialAnalytics = socialAnalyticsRouter;

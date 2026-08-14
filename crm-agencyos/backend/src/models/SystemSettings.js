@@ -60,6 +60,72 @@ PageSpeedIntegrationSchema.virtual('apiKey2')
   .set(function (val) { this.apiKey2Encrypted = encrypt(val); })
   .get(function () { return decrypt(this.apiKey2Encrypted); });
 
+// Social Media Management — Meta App (Facebook Pages + Instagram Business,
+// one Meta App covers both via Facebook Login for Business) and LinkedIn App
+// (Company Page posting) credentials, entered once by an admin in Settings →
+// Social Media Platforms. These are the app-level Client ID/Secret used to
+// run the OAuth authorize/exchange flow in socialAccountController.js — NOT
+// the per-account access tokens themselves (those live on SocialAccount).
+// Same encrypted-secret pattern as every other integration above.
+const MetaAppSchema = new mongoose.Schema({
+  appId:               { type: String, default: '' }, // not secret
+  appSecretEncrypted:  { type: String, default: '', select: false },
+  lastVerifiedAt:      { type: Date, default: null },
+  lastVerifyError:     { type: String, default: '' },
+}, { _id: false });
+MetaAppSchema.virtual('appSecret')
+  .set(function (val) { this.appSecretEncrypted = encrypt(val); })
+  .get(function () { return decrypt(this.appSecretEncrypted); });
+
+const LinkedInAppSchema = new mongoose.Schema({
+  clientId:               { type: String, default: '' }, // not secret
+  clientSecretEncrypted:  { type: String, default: '', select: false },
+  lastVerifiedAt:         { type: Date, default: null },
+  lastVerifyError:        { type: String, default: '' },
+}, { _id: false });
+LinkedInAppSchema.virtual('clientSecret')
+  .set(function (val) { this.clientSecretEncrypted = encrypt(val); })
+  .get(function () { return decrypt(this.clientSecretEncrypted); });
+
+// X (Twitter) App — OAuth 2.0 with PKCE. clientSecret is only used for the
+// "confidential client" token-exchange flow; X issues both a Client ID and
+// Client Secret for this type of app registration.
+const XAppSchema = new mongoose.Schema({
+  clientId:               { type: String, default: '' },
+  clientSecretEncrypted:  { type: String, default: '', select: false },
+  lastVerifiedAt:         { type: Date, default: null },
+  lastVerifyError:        { type: String, default: '' },
+}, { _id: false });
+XAppSchema.virtual('clientSecret')
+  .set(function (val) { this.clientSecretEncrypted = encrypt(val); })
+  .get(function () { return decrypt(this.clientSecretEncrypted); });
+
+// YouTube App — standard Google OAuth 2.0 (googleapis is already a
+// dependency here, reused by YouTubeProvider rather than hand-rolling
+// Google's token endpoints).
+const YouTubeAppSchema = new mongoose.Schema({
+  clientId:               { type: String, default: '' },
+  clientSecretEncrypted:  { type: String, default: '', select: false },
+  lastVerifiedAt:         { type: Date, default: null },
+  lastVerifyError:        { type: String, default: '' },
+}, { _id: false });
+YouTubeAppSchema.virtual('clientSecret')
+  .set(function (val) { this.clientSecretEncrypted = encrypt(val); })
+  .get(function () { return decrypt(this.clientSecretEncrypted); });
+
+// TikTok App — OAuth 2.0. TikTok calls its public identifier "Client Key"
+// (not "Client ID") in its own docs/dashboard — kept as clientKey here to
+// match exactly what an admin will see when copying it in.
+const TikTokAppSchema = new mongoose.Schema({
+  clientKey:              { type: String, default: '' },
+  clientSecretEncrypted:  { type: String, default: '', select: false },
+  lastVerifiedAt:         { type: Date, default: null },
+  lastVerifyError:        { type: String, default: '' },
+}, { _id: false });
+TikTokAppSchema.virtual('clientSecret')
+  .set(function (val) { this.clientSecretEncrypted = encrypt(val); })
+  .get(function () { return decrypt(this.clientSecretEncrypted); });
+
 // Which roles/specific users can access a given sidebar "feature" — same
 // additive OR semantics as NotificationRoutingRuleSchema (role match OR
 // userId match). 'client' is deliberately NOT in the roles enum: the client
@@ -245,11 +311,17 @@ const SystemSettingsSchema = new mongoose.Schema({
       ['system_monitor',         { roles: ['admin', 'read_only'],                                          userIds: [] }],
       ['api_keys',               { roles: ['admin', 'read_only'],                                          userIds: [] }],
       ['prospect_audit',         { roles: ['admin', 'manager', 'read_only'],                                userIds: [] }],
+      ['social_media',           { roles: ['admin', 'manager', 'read_only'],                                userIds: [] }],
     ]),
   },
 
   mainCrmIntegration: { type: MainCrmIntegrationSchema, default: () => ({}) },
   pageSpeedIntegration: { type: PageSpeedIntegrationSchema, default: () => ({}) },
+  metaApp: { type: MetaAppSchema, default: () => ({}) },
+  linkedinApp: { type: LinkedInAppSchema, default: () => ({}) },
+  xApp: { type: XAppSchema, default: () => ({}) },
+  youtubeApp: { type: YouTubeAppSchema, default: () => ({}) },
+  tiktokApp: { type: TikTokAppSchema, default: () => ({}) },
 
   // Import/Export Control
   dataControl: {

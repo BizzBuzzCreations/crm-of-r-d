@@ -450,6 +450,48 @@ export const prospectAuditsAPI = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// ── Social Media Platforms — Meta App / LinkedIn App credentials (admin only)
+// ─────────────────────────────────────────────────────────────
+export const socialPlatformSettingsAPI = {
+  status:           (platform)       => api.get(`/social-platforms/${platform}/status`),
+  saveCredentials:  (platform, body) => api.put(`/social-platforms/${platform}/credentials`, body),
+  clearCredentials: (platform)       => api.delete(`/social-platforms/${platform}/credentials`),
+};
+
+// ─────────────────────────────────────────────────────────────
+// ── Social Media Management (admin/manager)
+// ─────────────────────────────────────────────────────────────
+export const socialAPI = {
+  getAccounts:   ()   => api.get('/social/accounts'),
+  deleteAccount: (id) => api.delete(`/social/accounts/${id}`),
+  // A real full-page browser navigation (OAuth needs the browser, not an
+  // XHR) — token passed as a query param the same way billing/portal PDF
+  // downloads already do (protect() supports ?token= as a fallback to the
+  // Bearer header for exactly this kind of non-AJAX navigation).
+  connectUrl: (platform) => `${api.defaults.baseURL}/social/accounts/${platform}/connect?token=${encodeURIComponent(localStorage.getItem('crm_access_token') || '')}`,
+
+  getPosts:   (params) => api.get('/social/posts', { params }),
+  getPost:    (id)     => api.get(`/social/posts/${id}`),
+  createPost: (body)   => api.post('/social/posts', body),
+  updatePost: (id, body) => api.patch(`/social/posts/${id}`, body),
+  deletePost: (id)     => api.delete(`/social/posts/${id}`),
+  publishPost:  (id)              => api.post(`/social/posts/${id}/publish`),
+  schedulePost: (id, scheduledAt) => api.post(`/social/posts/${id}/schedule`, { scheduledAt }),
+  cancelPost:   (id)              => api.post(`/social/posts/${id}/cancel`),
+
+  retryPublication: (id) => api.post(`/social/publications/${id}/retry`),
+
+  getCalendar:  (params) => api.get('/social/calendar', { params }),
+  getAnalytics: ()       => api.get('/social/analytics'),
+
+  uploadMedia: (file) => {
+    const fd = new FormData();
+    fd.append('media', file);
+    return api.post('/social/posts/upload-media', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
 // ── Website Intelligence (admin/manager only)
 // ─────────────────────────────────────────────────────────────
 export const witAPI = {

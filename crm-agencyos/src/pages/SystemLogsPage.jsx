@@ -3,7 +3,7 @@ import {
   Terminal, RefreshCw, Pause, Play, Trash2, Download,
   Search, X, Wifi, WifiOff, Server, Database, Mail,
   Cpu, HardDrive, Clock, AlertCircle, Info, Bug, AlertTriangle,
-  Activity, Layers, Send,
+  Activity, Layers, Send, Share2,
 } from 'lucide-react';
 import { systemLogsAPI } from '../services/api';
 import { getSock } from '../store/useAppStore';
@@ -18,6 +18,7 @@ const SOURCES = [
   { key: 'worker-out',    label: 'Worker',         icon: Activity },
   { key: 'campaign',      label: 'Campaign',       icon: Send     },
   { key: 'prospectAudit', label: 'Crawler',        icon: Search   },
+  { key: 'social',        label: 'Social',         icon: Share2   },
   { key: 'email',         label: 'Email',          icon: Mail     },
   { key: 'queue',         label: 'Queue',          icon: Layers   },
   { key: 'system',        label: 'System',         icon: Server   },

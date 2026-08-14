@@ -144,6 +144,12 @@ app.use('/api/api-keys',       require('./routes/apiKeys'));
 app.use('/api/main-crm-integration', require('./routes/mainCrmIntegration'));
 app.use('/api/pagespeed-integration', require('./routes/pageSpeedIntegration'));
 app.use('/api/prospect-audits', require('./routes/prospectAudits'));
+app.use('/api/social-platforms', require('./routes/socialPlatformSettings'));
+app.use('/api/social/accounts', require('./routes/socialAccounts'));
+app.use('/api/social/posts', require('./routes/socialPosts'));
+app.use('/api/social/publications', require('./routes/socialPublications'));
+app.use('/api/social/calendar', require('./routes/socialCalendar'));
+app.use('/api/social/analytics', require('./routes/socialAnalytics'));
 // Public tracking (open pixel / click redirect / unsubscribe) MUST be
 // mounted before the protected campaigns router — both share the
 // /api/campaigns prefix, and Express matches in registration order.
