@@ -14,12 +14,26 @@ try { sysLog = require('../utils/sysLogger').logger; } catch {}
 const STATE_TTL_SECONDS = 600; // 10 minutes — plenty for a user to complete the platform's consent screen
 const ALLOWED_PLATFORMS = ['meta', 'linkedin', 'x', 'youtube', 'tiktok'];
 
+// req.protocol is unreliable here — nginx terminates HTTPS and proxies to
+// this backend over plain HTTP without forwarding X-Forwarded-Proto, so
+// Express (even with `trust proxy` set) sees every request as `http`. Every
+// platform in this module (Meta, X, TikTok) rejects a non-HTTPS redirect
+// URI outright, so guessing wrong here isn't a cosmetic issue — it breaks
+// Connect entirely. Only actual localhost dev gets `http`; everything else
+// is assumed HTTPS, which matches how this CRM is actually deployed.
+function schemeFor(host) {
+  return /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) ? 'http' : 'https';
+}
+
 function redirectUriFor(req, platform) {
-  return `${req.protocol}://${req.get('host')}/api/social/accounts/${platform}/callback`;
+  const host = req.get('host');
+  return `${schemeFor(host)}://${host}/api/social/accounts/${platform}/callback`;
 }
 
 function frontendOrigin(req) {
-  return (process.env.CLIENT_URL && process.env.CLIENT_URL.replace(/\/$/, '')) || `${req.protocol}://${req.get('host')}`;
+  if (process.env.CLIENT_URL) return process.env.CLIENT_URL.replace(/\/$/, '');
+  const host = req.get('host');
+  return `${schemeFor(host)}://${host}`;
 }
 
 // @GET /api/social/accounts
