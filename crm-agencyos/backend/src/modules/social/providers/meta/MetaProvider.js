@@ -118,16 +118,6 @@ class MetaProvider {
       params: { access_token: userAccessToken, fields: 'id,name,access_token,picture,instagram_business_account' },
     });
 
-    // TEMP DIAGNOSTIC — remove once the "IG account missing for one Page"
-    // issue is root-caused. Logs which Pages Meta actually returned and
-    // whether each one carries a linked instagram_business_account, with no
-    // tokens included.
-    try {
-      let sysLog = { info: () => {} };
-      try { sysLog = require('../../../../utils/sysLogger').logger; } catch {}
-      sysLog.info('SOCIAL', `getAccountInfo: ${pages.length} page(s) — ${pages.map((p) => `${p.name}(${p.id}) ig=${p.instagram_business_account?.id || 'none'}`).join(' | ')}`);
-    } catch {}
-
     const accounts = [];
     for (const page of pages) {
       accounts.push({

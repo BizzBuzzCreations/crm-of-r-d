@@ -22,6 +22,7 @@ const { startReplySyncCron } = require('./src/cron/replySync');
 const { startMetaAdsSyncCron } = require('./src/cron/metaAdsSync');
 const { startFollowUpDispatcher } = require('./src/cron/followUpDispatcher');
 const { startProspectAuditDispatcher } = require('./src/cron/prospectAuditDispatcher');
+const { startWorklogInactivityCron } = require('./src/cron/worklogInactivityCron');
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB
@@ -135,6 +136,7 @@ startReplySyncCron(io);
 startMetaAdsSyncCron();
 startFollowUpDispatcher();
 startProspectAuditDispatcher();
+startWorklogInactivityCron();
 
 server.listen(PORT, '0.0.0.0', () => {
   const msg = `BBC CRM Backend running on port ${PORT} (${process.env.NODE_ENV || 'production'})`;
