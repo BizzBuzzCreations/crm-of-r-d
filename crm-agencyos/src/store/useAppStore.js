@@ -2322,7 +2322,16 @@ const useAppStore = create((set, get, store) => ({
     const upd = { ...s.timer, currentBreak:{ ...s.timer.currentBreak, elapsedSeconds:elapsed, lastBreakTickTime: now } };
     const oldLSBoundary = Math.floor(s.timer.currentBreak.elapsedSeconds / 15);
     const newLSBoundary = Math.floor(elapsed / 15);
-    if (newLSBoundary > oldLSBoundary || elapsed % 15 === 0) saveTimerLS(getId(s.authUser), upd);
+    if (newLSBoundary > oldLSBoundary || elapsed % 15 === 0) {
+      saveTimerLS(getId(s.authUser), upd);
+      // Previously this only touched localStorage — WorkLog.updatedAt would
+      // go stale the instant a break started, since nothing synced to the
+      // backend again until the break ended. That made a legitimate long
+      // break indistinguishable from an abandoned tab to the server-side
+      // inactivity check below, so it now periodically re-syncs during
+      // breaks too (same 15s cadence as active work).
+      worklogAPI.upsert({ date:upd.sessionDate||todayStr(), workSeconds:upd.workSeconds, sessionStart:upd.sessionStart, breaks:upd.breaks, active:false, breakActive:true, targetSeconds:upd.targetSeconds || (8 * 3600) }).catch(()=>{});
+    }
 
     const oldSocketBoundary = Math.floor(s.timer.currentBreak.elapsedSeconds / 10);
     const newSocketBoundary = Math.floor(elapsed / 10);
