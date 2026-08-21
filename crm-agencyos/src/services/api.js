@@ -34,7 +34,14 @@ const api = axios.create({
   baseURL:         BASE,
   withCredentials: true,          // send cookies (refresh token)
   headers:         { 'Content-Type': 'application/json' },
-  timeout:         15000,
+  // 15s used to be too tight for a large campaign-lead import (email MX
+  // verification runs per unique domain — a B2B import of thousands of
+  // distinct company domains could take well past 15s even for the
+  // synchronous path). The backend now offloads verification to the
+  // background past a size threshold specifically so the import itself
+  // stays fast regardless, but this is kept generous too as a margin for
+  // whatever's just under that threshold.
+  timeout:         60000,
 });
 
 // ── Request: attach access token ─────────────────────────────
