@@ -75,9 +75,13 @@ UserSchema.methods.getAccessToken = function () {
   return jwt.sign({ id: this._id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '15m' });
 };
 
-// Sign refresh token
+// Sign refresh token — 30d default (not 7d): a background tab's automatic
+// 15-min access-token refresh must not fail mid-workday just because the
+// refresh token itself expired, since a failed refresh silently force-logs
+// the user out and stops their timer with zero user action (see
+// useAppStore.js logout()/login() comments for the full chain).
 UserSchema.methods.getRefreshToken = function () {
-  return jwt.sign({ id: this._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRE || '7d' });
+  return jwt.sign({ id: this._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRE || '30d' });
 };
 
 module.exports = mongoose.model('User', UserSchema);

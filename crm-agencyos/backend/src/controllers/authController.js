@@ -15,7 +15,10 @@ const sendTokens = (user, statusCode, res) => {
   };
 
   res
-    .cookie('refreshToken', refreshToken, { ...cookieOpts, maxAge: 7*24*60*60*1000 })
+    // Must match User.getRefreshToken()'s JWT expiry (30d) — a shorter
+    // cookie maxAge would delete the cookie before the longer-lived token
+    // inside it actually expires, defeating the point of extending it.
+    .cookie('refreshToken', refreshToken, { ...cookieOpts, maxAge: 30*24*60*60*1000 })
     .status(statusCode)
     .json({
       success: true,

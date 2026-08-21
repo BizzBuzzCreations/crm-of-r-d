@@ -38,9 +38,9 @@ const loadWorkLogLS = (uid)  => {
 // forgotten check-out) and capped rather than fully credited — see tickTimer().
 const IDLE_GAP_CAP_S = 4 * 3600;
 
-// Hard daily ceiling — the only automatic stop left. Start is manual (button) and
-// stop is manual (logout); this exists purely so a forgotten logout can't run the
-// clock forever.
+// Hard daily ceiling — safety net against a forgotten logout running the clock
+// for 24+ hours. The only automatic stop; everything else (pause/break/logout)
+// is manual.
 const MAX_WORK_SECONDS_PER_DAY = 10 * 3600;
 
 function initialTimer() {
@@ -1652,13 +1652,20 @@ const useAppStore = create((set, get, store) => ({
 
     const { authUser, timer } = get();
 
-    // Make API calls BEFORE removing the token so they still have auth
+    // Make API calls BEFORE removing the token so they still have auth.
+    // Awaited (not fire-and-forget) — if the page navigates/reloads right
+    // after logout (e.g. a forced logout from an expired session), an
+    // in-flight, un-awaited request here can get cancelled by the browser
+    // before it reaches the server. The WorkLog is then left stuck at
+    // active:true, and the next login — which treats the DB as the source
+    // of truth for active/breakActive — silently resumes the timer with no
+    // Start Timer click. Awaiting closes that race.
     if (authUser) {
       // Sync final worklog
       if (timer.workSeconds > 0) {
-        worklogAPI.upsert({ date:timer.sessionDate||todayStr(), workSeconds:timer.workSeconds, sessionStart:timer.sessionStart, breaks:timer.breaks, active:false }).catch(()=>{});
+        await worklogAPI.upsert({ date:timer.sessionDate||todayStr(), workSeconds:timer.workSeconds, sessionStart:timer.sessionStart, breaks:timer.breaks, active:false }).catch(()=>{});
       }
-      worklogAPI.setActive(false).catch(()=>{});
+      await worklogAPI.setActive(false).catch(()=>{});
     }
     try { await authAPI.logout(); } catch {}
 
@@ -2256,7 +2263,8 @@ const useAppStore = create((set, get, store) => ({
     
     // Backgrounded/throttled tabs, screen locks, and network blips must NOT cost work
     // time — only a genuine multi-hour gap (real OS sleep/hibernation, or a forgotten
-    // check-out overnight) gets capped, as a safety net against unbounded hour inflation.
+    // check-out overnight) gets capped, as a safety net against unbounded hour inflation
+    // in a single jump.
     const actualDelta = delta > 0 ? Math.min(delta, IDLE_GAP_CAP_S) : 1;
     const rawWorkSeconds = s.timer.workSeconds + actualDelta;
     const uid = getId(s.authUser);
