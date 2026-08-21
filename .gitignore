@@ -59,6 +59,13 @@ coverage/
 .parcel-cache/
 
 # =========================
+# AI tool caches — local to whoever's session generated them, regenerable,
+# not source code. Shouldn't be committed (was previously tracked by mistake).
+# =========================
+.serena/
+graphify-out/
+
+# =========================
 # Vite
 # =========================
 vite.svg
