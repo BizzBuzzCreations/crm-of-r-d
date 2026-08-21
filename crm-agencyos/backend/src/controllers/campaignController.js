@@ -467,38 +467,82 @@ exports.importLeads = async (req, res, next) => {
     const toInsert = valid.filter((v) => !existingSet.has(v.email));
 
     let created = [];
+    let verifying = false;
     if (toInsert.length) {
-      // MX-verify + provider-detect before insert (domain-deduplicated —
-      // cheap even for large imports from a handful of companies).
-      const verifyResults = await verifyBatch(toInsert.map((v) => v.email));
-      const now = new Date();
-      const withVerification = toInsert.map((v) => {
-        const r = verifyResults.get(v.email) || {};
-        const isInvalid = r.status === 'invalid';
-        return {
-          ...v,
-          verificationStatus: r.status || 'unverified', verificationDetail: r.detail || '', provider: r.provider || '', verifiedAt: now,
-          // No mail servers = guaranteed bounce. Fail it immediately instead
-          // of leaving it "pending" forever (the dispatcher only ever picks
-          // pending leads, so it would otherwise just sit unsent, silently
-          // never resolving) — a bounce would also hurt the sending
-          // account's reputation for nothing, so better to never attempt it.
-          status: isInvalid ? 'failed' : 'pending',
-          error: isInvalid ? r.detail : '',
-        };
-      });
-      created = await CampaignLead.insertMany(withVerification, { ordered: false });
+      // MX verification is per-DOMAIN, not per-lead (see verifyBatch) — cheap
+      // for an individual-format import (a handful of companies sharing a
+      // few consumer domains), but a B2B import of thousands of businesses
+      // is close to one lookup per lead, since each has its own domain. At
+      // LARGE_IMPORT_DOMAIN_THRESHOLD+ unique domains, doing that
+      // synchronously before responding can take minutes — long past any
+      // reasonable HTTP/proxy timeout, which is exactly what turns a real
+      // 23,000-row business import into a flat "failed to import" with no
+      // leads actually saved. Past the threshold, insert immediately as
+      // unverified/pending (fast — no DNS wait) and verify in the
+      // background after responding instead.
+      const uniqueDomainCount = new Set(toInsert.map((v) => v.email.split('@')[1])).size;
+      const LARGE_IMPORT_DOMAIN_THRESHOLD = 250;
+      verifying = uniqueDomainCount > LARGE_IMPORT_DOMAIN_THRESHOLD;
+
+      if (verifying) {
+        created = await CampaignLead.insertMany(
+          toInsert.map((v) => ({ ...v, verificationStatus: 'unverified', status: 'pending' })),
+          { ordered: false }
+        );
+      } else {
+        const verifyResults = await verifyBatch(toInsert.map((v) => v.email));
+        const now = new Date();
+        const withVerification = toInsert.map((v) => {
+          const r = verifyResults.get(v.email) || {};
+          const isInvalid = r.status === 'invalid';
+          return {
+            ...v,
+            verificationStatus: r.status || 'unverified', verificationDetail: r.detail || '', provider: r.provider || '', verifiedAt: now,
+            // No mail servers = guaranteed bounce. Fail it immediately instead
+            // of leaving it "pending" forever (the dispatcher only ever picks
+            // pending leads, so it would otherwise just sit unsent, silently
+            // never resolving) — a bounce would also hurt the sending
+            // account's reputation for nothing, so better to never attempt it.
+            status: isInvalid ? 'failed' : 'pending',
+            error: isInvalid ? r.detail : '',
+          };
+        });
+        created = await CampaignLead.insertMany(withVerification, { ordered: false });
+      }
     }
 
     audit.log(req, {
       action: 'update', category: 'campaign', targetId: campaign._id, targetModel: 'Campaign', targetTitle: campaign.name,
-      metadata: { imported: created.length, skippedDuplicates: valid.length - toInsert.length, invalidRows: invalidCount },
+      metadata: { imported: created.length, skippedDuplicates: valid.length - toInsert.length, invalidRows: invalidCount, verifying },
     });
 
     res.status(201).json({
       success: true,
-      data: { imported: created.length, skippedDuplicates: valid.length - toInsert.length, invalidRows: invalidCount },
+      data: { imported: created.length, skippedDuplicates: valid.length - toInsert.length, invalidRows: invalidCount, verifying },
     });
+
+    // Runs AFTER the response is already sent — the import itself never
+    // waits on this. Same verify-then-bulkWrite shape as verifyAllLeads,
+    // just scoped to the batch this request just created instead of
+    // querying for every unverified lead in the campaign.
+    if (verifying && created.length) {
+      (async () => {
+        try {
+          const results = await verifyBatch(created.map((l) => l.email));
+          const now = new Date();
+          const ops = created.map((l) => {
+            const r = results.get(l.email) || {};
+            const isInvalid = r.status === 'invalid';
+            const update = { verificationStatus: r.status || 'unverified', verificationDetail: r.detail || '', provider: r.provider || '', verifiedAt: now };
+            if (isInvalid) { update.status = 'failed'; update.error = r.detail; }
+            return { updateOne: { filter: { _id: l._id }, update } };
+          });
+          await CampaignLead.bulkWrite(ops);
+        } catch (err) {
+          console.error(`[campaignController] Background verification failed for campaign ${campaign._id}:`, err.message);
+        }
+      })();
+    }
   } catch (err) { next(err); }
 };
 

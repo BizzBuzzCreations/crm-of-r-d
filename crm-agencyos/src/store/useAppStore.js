@@ -1090,8 +1090,17 @@ const useAppStore = create((set, get, store) => ({
   // Shared toast + reload for the three import paths above (CSV/Sheet share
   // the exact same { imported, skippedDuplicates, invalidRows } response).
   _reportLeadImport: async (campaignId, result) => {
-    const { imported, skippedDuplicates, invalidRows } = result;
-    toast.success(`Imported ${imported} leads${skippedDuplicates ? ` (${skippedDuplicates} duplicates skipped)` : ''}${invalidRows ? ` (${invalidRows} invalid rows)` : ''}`);
+    const { imported, skippedDuplicates, invalidRows, verifying } = result;
+    const suffix = `${skippedDuplicates ? ` (${skippedDuplicates} duplicates skipped)` : ''}${invalidRows ? ` (${invalidRows} invalid rows)` : ''}`;
+    // Large imports skip synchronous MX verification (see campaignController
+    // .importLeads) so the request itself doesn't time out — it finishes in
+    // the background instead, so say so rather than implying it's already
+    // fully verified like the normal (small-import) path is.
+    if (verifying) {
+      toast.success(`Imported ${imported} leads${suffix} — verifying email deliverability in the background, this can take a few minutes for a large list.`, { duration: 6000 });
+    } else {
+      toast.success(`Imported ${imported} leads${suffix}`);
+    }
     await get().loadCampaignLeads(campaignId);
     return result;
   },
