@@ -9,18 +9,27 @@ const connectDB = async () => {
     console.log(`✅ MongoDB connected: ${conn.connection.host}`);
     logger.info('DB', `MongoDB connected: ${conn.connection.host}`);
 
-    // Self-healing: Reset all active user presence statuses and worklogs on server bootup
+    // Self-healing: reset stale presence on server bootup. Deliberately does
+    // NOT touch WorkLog anymore (see history — it used to also force
+    // active/breakActive false on every restart). A server restart is not
+    // evidence anyone actually stopped working: it happens on every deploy,
+    // and during a crash-loop (e.g. an EADDRINUSE port conflict) it can fire
+    // repeatedly in quick succession, each time force-stopping every
+    // currently-running timer in the building. The frontend's own timer
+    // (useAppStore's tickTimer/localStorage-backed s.timer) already survives
+    // socket disconnects/reconnects correctly on its own — see the explicit
+    // "socket disconnect must never touch active" invariant there — so nothing
+    // here needs to "fix" it by wiping the DB out from under an active session.
+    // Presence is different: it's cosmetic and self-corrects within seconds
+    // once a client's socket reconnects, so resetting it to a safe default on
+    // boot is harmless (a client that's genuinely still connected will just
+    // flip itself back to 'online' immediately via the normal connect flow).
     try {
       const User = mongoose.model('User');
-      const WorkLog = mongoose.model('WorkLog');
       const Channel = mongoose.model('Channel');
-      
+
       const userResult = await User.updateMany({}, { status: 'offline' });
       console.log(`🧹 Presence Self-Healing: Reset ${userResult.modifiedCount} user statuses to offline`);
-
-      const today = new Date().toISOString().split('T')[0];
-      const logResult = await WorkLog.updateMany({ date: today }, { active: false, breakActive: false });
-      console.log(`🧹 WorkLog Self-Healing: Deactivated ${logResult.modifiedCount} worklogs for today (${today})`);
 
       // Dynamic Channel seeding
       const channelCount = await Channel.countDocuments({});
