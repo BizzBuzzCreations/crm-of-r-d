@@ -105,7 +105,13 @@ function buildResponseOptionsHtml(options, token) {
 
 function renderMergeTags(template, lead, responseOptions) {
   return String(template || '')
-    .replace(/\{\{\s*first_?name\s*\}\}/gi, lead.firstName || 'there')
+    // businessName wins when present (B2B import format — see
+    // CampaignLead.businessName) so a template author writes {{first_name}}
+    // exactly once, phrases the greeting however fits both cases (e.g. "Hi
+    // team at {{first_name}}," reads correctly whether that resolves to a
+    // person's first name or a company name), and never needs to know or
+    // care which import format a given lead came from.
+    .replace(/\{\{\s*first_?name\s*\}\}/gi, lead.businessName || lead.firstName || 'there')
     .replace(/\{\{\s*last_?name\s*\}\}/gi, lead.lastName || '')
     .replace(/\{\{\s*email\s*\}\}/gi, lead.email || '')
     // Generic tracked-CTA redirect tag — lets a campaign's own template

@@ -29,6 +29,19 @@ const CampaignLeadSchema = new mongoose.Schema({
   // giving their lead-matcher both identifiers to work with instead of just one.
   phone:      { type: String, default: '', trim: true },
 
+  // B2B import format — a campaign's leads are either individuals
+  // (firstName/lastName above) or businesses (this), never a mix of
+  // meaning in the same field. businessName is read by the SAME
+  // {{first_name}} merge tag as firstName (see workers/campaignWorker.js's
+  // renderMergeTags — businessName wins when both are present), so a
+  // template author never needs a separate tag or to know which import
+  // format a given lead came from. businessType/cityLocation are metadata
+  // only, for filtering/segmenting the leads list — deliberately not wired
+  // into any merge tag.
+  businessName:  { type: String, default: '' },
+  businessType:  { type: String, default: '' },
+  cityLocation:  { type: String, default: '' },
+
   status: {
     type: String,
     enum: ['pending', 'scheduled', 'sending', 'sent', 'failed', 'bounced', 'replied', 'unsubscribed'],

@@ -379,6 +379,10 @@ const HEADER_ALIASES = {
   // Optional — see CampaignLead.phone. 'number' included because that's
   // literally the column name asked for alongside email/first/last name.
   phone:     ['phone', 'phone_number', 'phonenumber', 'phone number', 'number', 'mobile', 'mobile_number', 'contact_number', 'contact number'],
+  // B2B import format — see CampaignLead.businessName/businessType/cityLocation.
+  businessName: ['business_name', 'businessname', 'business name', 'company_name', 'companyname', 'company name', 'company'],
+  businessType: ['business_type', 'businesstype', 'business type', 'industry'],
+  cityLocation: ['city_location', 'citylocation', 'city location', 'city', 'location'],
 };
 
 function normalizeHeader(h) { return String(h || '').trim().toLowerCase(); }
@@ -394,6 +398,9 @@ function mapRow(row) {
     firstName: find(HEADER_ALIASES.firstName),
     lastName: find(HEADER_ALIASES.lastName),
     phone: find(HEADER_ALIASES.phone),
+    businessName: find(HEADER_ALIASES.businessName),
+    businessType: find(HEADER_ALIASES.businessType),
+    cityLocation: find(HEADER_ALIASES.cityLocation),
   };
 }
 
@@ -429,6 +436,9 @@ exports.importLeads = async (req, res, next) => {
         firstName: String(l.firstName || l.first_name || '').trim(),
         lastName: String(l.lastName || l.last_name || '').trim(),
         phone: String(l.phone || l.number || '').trim(),
+        businessName: String(l.businessName || l.business_name || '').trim(),
+        businessType: String(l.businessType || l.business_type || '').trim(),
+        cityLocation: String(l.cityLocation || l.city_location || '').trim(),
       }));
     } else {
       return res.status(400).json({ success: false, message: 'Upload a CSV file, a Google Sheet link, or provide a leads array' });
@@ -440,7 +450,10 @@ exports.importLeads = async (req, res, next) => {
     for (const r of rows) {
       if (!r.email || !EMAIL_RE.test(r.email) || seen.has(r.email)) { if (r.email) invalidCount++; continue; }
       seen.add(r.email);
-      valid.push({ campaign: campaign._id, email: r.email, firstName: r.firstName, lastName: r.lastName, phone: r.phone || '' });
+      valid.push({
+        campaign: campaign._id, email: r.email, firstName: r.firstName, lastName: r.lastName, phone: r.phone || '',
+        businessName: r.businessName || '', businessType: r.businessType || '', cityLocation: r.cityLocation || '',
+      });
     }
 
     if (!valid.length) {

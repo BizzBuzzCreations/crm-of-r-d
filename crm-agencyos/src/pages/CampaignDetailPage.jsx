@@ -65,9 +65,11 @@ function formatOpenHistory(lead) {
 // Client-side CSV export for the leads table — data's already loaded in the
 // browser, no need for a round trip to build a download.
 function downloadLeadsCSV(leads, filename) {
-  const headers = ['Email', 'Phone', 'First Name', 'Last Name', 'Status', 'Verification', 'Provider', 'Opens', 'Clicks', 'Sent At', 'Error', 'Follow-up Status', 'Follow-up Sent At', 'Response', 'Responded At'];
+  const headers = ['Email', 'Phone', 'First Name', 'Last Name', 'Business Name', 'Business Type', 'City / Location', 'Status', 'Verification', 'Provider', 'Opens', 'Clicks', 'Sent At', 'Error', 'Follow-up Status', 'Follow-up Sent At', 'Response', 'Responded At'];
   const rows = leads.map((l) => [
-    l.email, l.phone || '', l.firstName || '', l.lastName || '', l.status, l.verificationStatus || '',
+    l.email, l.phone || '', l.firstName || '', l.lastName || '',
+    l.businessName || '', l.businessType || '', l.cityLocation || '',
+    l.status, l.verificationStatus || '',
     l.provider || '', l.openCount || 0, l.clickCount || 0,
     l.sentAt ? new Date(l.sentAt).toLocaleString() : '', l.error || '',
     l.followUpStatus || 'none', l.followUpSentAt ? new Date(l.followUpSentAt).toLocaleString() : '',
@@ -757,7 +759,11 @@ function LeadsTab({
   phoneFileInputRef, onPhoneFileSelected, updatingPhones,
 }) {
   const [mode, setMode] = useState('csv');
-  const [manualForm, setManualForm] = useState({ email: '', firstName: '', lastName: '', phone: '' });
+  const [manualLeadType, setManualLeadType] = useState('individual'); // 'individual' | 'business'
+  const [manualForm, setManualForm] = useState({
+    email: '', firstName: '', lastName: '', phone: '',
+    businessName: '', businessType: '', cityLocation: '',
+  });
   const [addingManual, setAddingManual] = useState(false);
   const [sheetUrl, setSheetUrl] = useState('');
   const [importingSheet, setImportingSheet] = useState(false);
@@ -780,7 +786,7 @@ function LeadsTab({
     setAddingManual(true);
     try {
       await onAddManual(manualForm);
-      setManualForm({ email: '', firstName: '', lastName: '', phone: '' });
+      setManualForm({ email: '', firstName: '', lastName: '', phone: '', businessName: '', businessType: '', cityLocation: '' });
     } finally {
       setAddingManual(false);
     }
@@ -844,9 +850,10 @@ function LeadsTab({
             <p className="text-[13.5px] font-medium text-slate-700 dark:text-slate-300">
               {importing ? 'Importing…' : 'Click to upload a CSV file'}
             </p>
-            <p className="text-[11.5px] text-slate-500 dark:text-slate-400">
-              Columns: <code className="font-mono">email, first_name, last_name, phone</code> (phone optional)
-            </p>
+            <div className="text-[11.5px] text-slate-500 dark:text-slate-400 text-center space-y-0.5">
+              <p>Individuals: <code className="font-mono">email, first_name, last_name, phone</code> (phone optional)</p>
+              <p>Businesses: <code className="font-mono">email, business_name, phone, business_type, city_location</code> (only email required)</p>
+            </div>
             <input
               id="campaign-csv-upload"
               ref={fileInputRef}
@@ -860,35 +867,79 @@ function LeadsTab({
         )}
 
         {mode === 'manual' && (
-          <form onSubmit={handleManualSubmit} className="flex flex-col sm:flex-row items-end gap-3 max-w-2xl">
-            <div className="flex-[2] w-full">
-              <Input
-                label="Email" type="email" required placeholder="lead@company.com"
-                value={manualForm.email} onChange={(e) => setManualForm((f) => ({ ...f, email: e.target.value }))}
-              />
+          <div className="max-w-2xl space-y-3">
+            <div className="flex gap-1.5">
+              {[{ value: 'individual', label: 'Individual' }, { value: 'business', label: 'Business' }].map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setManualLeadType(t.value)}
+                  className={cn(
+                    'px-3 py-1 rounded-lg text-[12px] font-medium transition-colors',
+                    manualLeadType === t.value
+                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300'
+                      : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
-            <div className="flex-1 w-full">
-              <Input
-                label="First name" placeholder="Jane"
-                value={manualForm.firstName} onChange={(e) => setManualForm((f) => ({ ...f, firstName: e.target.value }))}
-              />
-            </div>
-            <div className="flex-1 w-full">
-              <Input
-                label="Last name" placeholder="Doe"
-                value={manualForm.lastName} onChange={(e) => setManualForm((f) => ({ ...f, lastName: e.target.value }))}
-              />
-            </div>
-            <div className="flex-1 w-full">
-              <Input
-                label="Phone" placeholder="Optional"
-                value={manualForm.phone} onChange={(e) => setManualForm((f) => ({ ...f, phone: e.target.value }))}
-              />
-            </div>
-            <Button type="submit" variant="primary" loading={addingManual} disabled={!manualForm.email.trim()}>
-              <UserPlus size={14} /> Add Lead
-            </Button>
-          </form>
+            <form onSubmit={handleManualSubmit} className="flex flex-col sm:flex-row items-end gap-3">
+              <div className="flex-[2] w-full">
+                <Input
+                  label="Email" type="email" required placeholder="lead@company.com"
+                  value={manualForm.email} onChange={(e) => setManualForm((f) => ({ ...f, email: e.target.value }))}
+                />
+              </div>
+              {manualLeadType === 'individual' ? (
+                <>
+                  <div className="flex-1 w-full">
+                    <Input
+                      label="First name" placeholder="Jane"
+                      value={manualForm.firstName} onChange={(e) => setManualForm((f) => ({ ...f, firstName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex-1 w-full">
+                    <Input
+                      label="Last name" placeholder="Doe"
+                      value={manualForm.lastName} onChange={(e) => setManualForm((f) => ({ ...f, lastName: e.target.value }))}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex-[2] w-full">
+                    <Input
+                      label="Business name" placeholder="Resolve Home Energy"
+                      value={manualForm.businessName} onChange={(e) => setManualForm((f) => ({ ...f, businessName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex-1 w-full">
+                    <Input
+                      label="Business type" placeholder="Optional"
+                      value={manualForm.businessType} onChange={(e) => setManualForm((f) => ({ ...f, businessType: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex-1 w-full">
+                    <Input
+                      label="City / Location" placeholder="Optional"
+                      value={manualForm.cityLocation} onChange={(e) => setManualForm((f) => ({ ...f, cityLocation: e.target.value }))}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="flex-1 w-full">
+                <Input
+                  label="Phone" placeholder="Optional"
+                  value={manualForm.phone} onChange={(e) => setManualForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <Button type="submit" variant="primary" loading={addingManual} disabled={!manualForm.email.trim()}>
+                <UserPlus size={14} /> Add Lead
+              </Button>
+            </form>
+          </div>
         )}
 
         {mode === 'sheet' && (
@@ -906,8 +957,9 @@ function LeadsTab({
               </Button>
             </div>
             <p className="text-[11.5px] text-slate-500 dark:text-slate-400">
-              Sheet must be shared as <strong>"Anyone with the link can view"</strong> (Share → General access), with column headers
-              <code className="font-mono mx-1">email, first_name, last_name, phone</code> (phone optional) in the first sheet tab.
+              Sheet must be shared as <strong>"Anyone with the link can view"</strong> (Share → General access), with column headers in the first sheet tab —
+              individuals: <code className="font-mono mx-1">email, first_name, last_name, phone</code> (phone optional), or
+              businesses: <code className="font-mono mx-1">email, business_name, phone, business_type, city_location</code> (only email required).
             </p>
           </form>
         )}
@@ -993,7 +1045,7 @@ function LeadsTab({
                   <tr className="border-b border-slate-200 dark:border-slate-700 text-left text-slate-500 dark:text-slate-400">
                     <th className="px-4 py-2.5 font-medium">Email</th>
                     <th className="px-4 py-2.5 font-medium">Phone</th>
-                    <th className="px-4 py-2.5 font-medium">First Name</th>
+                    <th className="px-4 py-2.5 font-medium">Name</th>
                     <th className="px-4 py-2.5 font-medium">Last Name</th>
                     <th className="px-4 py-2.5 font-medium">Verification</th>
                     <th className="px-4 py-2.5 font-medium">Provider</th>
@@ -1016,7 +1068,7 @@ function LeadsTab({
                       <tr key={l._id} className="border-b border-slate-100 dark:border-slate-800 last:border-0">
                         <td className="px-4 py-2.5 text-slate-800 dark:text-slate-200">{l.email}</td>
                         <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{l.phone || '—'}</td>
-                        <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{l.firstName || '—'}</td>
+                        <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{l.businessName || l.firstName || '—'}</td>
                         <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{l.lastName || '—'}</td>
                         <td className="px-4 py-2.5">
                           <span title={l.verificationDetail || vBadge.label} className={cn('inline-flex items-center gap-1 font-medium', vBadge.tw)}>
