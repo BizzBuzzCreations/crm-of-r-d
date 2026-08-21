@@ -8,7 +8,7 @@ const Campaign = require('../models/Campaign');
 const { syncCampaignLeadToPipeline } = require('../utils/leadPipelineSync');
 const notifService = require('../services/notificationService');
 const { notifyMainCrm } = require('../utils/mainCrmNotify');
-const { HOT_OPEN_THRESHOLD } = require('../utils/campaignConstants');
+const { HOT_OPEN_THRESHOLD, SCANNER_UA_PATTERNS, OPEN_NOTIFICATION_DELAY_GATE_MS } = require('../utils/campaignConstants');
 
 // 1x1 transparent PNG
 const PIXEL = Buffer.from(
@@ -16,11 +16,21 @@ const PIXEL = Buffer.from(
   'base64'
 );
 
+// See SCANNER_UA_PATTERNS in campaignConstants.js. A missing/empty UA is
+// also treated as suspicious here — a real mail client's image fetch almost
+// always sends one, so a bare fetch with none is more consistent with a
+// stripped-down proxy/scanner request than a genuine reader.
+function isLikelyScannerUA(userAgent) {
+  if (!userAgent) return true;
+  return SCANNER_UA_PATTERNS.some((pattern) => pattern.test(userAgent));
+}
+
 // GET /api/campaigns/track/open/:token.png
 exports.trackOpen = async (req, res) => {
   const token = String(req.params.token || '').replace(/\.png$/i, '');
   const now = new Date();
   const io = req.app.get('io'); // grabbed before the async tail below, same as every other controller
+  const userAgent = req.headers['user-agent'] || '';
 
   CampaignLead.findOneAndUpdate(
     { token },
@@ -29,7 +39,7 @@ exports.trackOpen = async (req, res) => {
       $set: { openedAt: now },
       // Keep a bounded history (last 50) — enough to distinguish a genuine
       // repeat-open pattern from a single prefetch, without unbounded growth.
-      $push: { opens: { $each: [{ at: now, ip: req.ip || '', userAgent: req.headers['user-agent'] || '' }], $slice: -50 } },
+      $push: { opens: { $each: [{ at: now, ip: req.ip || '', userAgent }], $slice: -50 } },
     },
     { new: true }
   ).then(async (updated) => {
@@ -46,23 +56,42 @@ exports.trackOpen = async (req, res) => {
     // "was this the very first" check used for WitSession.pageCount elsewhere
     // in this codebase — fires exactly once per lead, not on every reopen.
     if (updated.openCount === 1) {
-      const campaign = await Campaign.findById(updated.campaign).select('name subject').lean().catch(() => null);
-      if (campaign) {
-        const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
-        // Recipients are configured in Settings → Notification Routing
-        // (defaults to admin+manager until an admin changes it) — see
-        // notificationService.dispatchByRouting.
-        notifService.dispatchByRouting(io, 'campaign', {
-          type: 'email_opened',
-          priority: 'success',
-          title: 'Email opened',
-          message: `${who} opened an email in campaign "${campaign.name}"`,
-          link: `/campaigns/${campaign._id}`,
-          metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
-        }).catch(() => {});
-        // Also report this to the main CRM (crms.bizzbuzzcreations.com) so
-        // its own users get notified — see utils/mainCrmNotify.
-        notifyMainCrm({ type: 'email_opened', email: updated.email, phone: updated.phone, subject: campaign.subject, campaignName: campaign.name });
+      // Gmail Image Proxy, Apple Mail Privacy Protection, and corporate
+      // security gateways (Mimecast, Proofpoint, Barracuda, etc.) all fetch
+      // every image in an inbound email automatically at/near delivery time
+      // — to scan for threats or pre-render a preview — before a human ever
+      // opens it. Since the pixel GET fires unconditionally, that automated
+      // fetch is otherwise indistinguishable from a genuine read. The open
+      // itself is still always recorded above (openCount/opens[]/hot-lead
+      // sync); only the human-facing "opened" notification is gated here,
+      // on a known scanner/proxy UA or a hit landing suspiciously soon
+      // after send (bots fetch near-instantly, real readers don't).
+      const scannerUA = isLikelyScannerUA(userAgent);
+      const withinDelayGate = !!updated.sentAt && (now - updated.sentAt) < OPEN_NOTIFICATION_DELAY_GATE_MS;
+
+      if (scannerUA || withinDelayGate) {
+        const reason = scannerUA ? 'scanner-ua' : 'delay-gate';
+        const msSinceSent = updated.sentAt ? now - updated.sentAt : 'n/a';
+        console.log(`[trackOpen] Suppressed open notification — token=${token} reason=${reason} ua="${userAgent}" msSinceSent=${msSinceSent}`);
+      } else {
+        const campaign = await Campaign.findById(updated.campaign).select('name subject').lean().catch(() => null);
+        if (campaign) {
+          const who = [updated.firstName, updated.lastName].filter(Boolean).join(' ') || updated.email;
+          // Recipients are configured in Settings → Notification Routing
+          // (defaults to admin+manager until an admin changes it) — see
+          // notificationService.dispatchByRouting.
+          notifService.dispatchByRouting(io, 'campaign', {
+            type: 'email_opened',
+            priority: 'success',
+            title: 'Email opened',
+            message: `${who} opened an email in campaign "${campaign.name}"`,
+            link: `/campaigns/${campaign._id}`,
+            metadata: { campaignId: String(campaign._id), campaignLeadId: String(updated._id) },
+          }).catch(() => {});
+          // Also report this to the main CRM (crms.bizzbuzzcreations.com) so
+          // its own users get notified — see utils/mainCrmNotify.
+          notifyMainCrm({ type: 'email_opened', email: updated.email, phone: updated.phone, subject: campaign.subject, campaignName: campaign.name });
+        }
       }
     }
   }).catch(() => {}); // fire-and-forget — never delay/fail the pixel response
